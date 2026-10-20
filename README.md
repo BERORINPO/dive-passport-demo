@@ -12,10 +12,17 @@ A prototype of a front desk for dive and snorkel shops, plus a "diver passport" 
 - `index.html`: guest view (pre-booking check, FAQ turtle), diver passport, shop view
 - `pass.html`: read-only page opened from the passport QR code
 
+## Lido the turtle (3D and voice)
+
+- The 3D sea turtle (`assets/turtle.glb`) was generated with [Higgsfield](https://higgsfield.ai) on a paid plan. It has no rig; `js/turtle3d.js` moves the head and flippers in the vertex shader. three.js 0.160.0 is loaded from jsDelivr.
+- Lido's voice (`audio/*.mp3`) was generated in advance with [ElevenLabs](https://elevenlabs.io) (Starter plan, commercial licence), using the voice "PiropiroRX" from the ElevenLabs Voice Library. Lido only speaks the shop's fixed answers, so no text or speech is generated at runtime and no API key is in this repo.
+- To regenerate the voice lines: `node tools/make-voice.mjs` (dry run), then `--go` with `ELEVENLABS_API_KEY_REDUX`, `REDUX_VOICE_JA` and `REDUX_VOICE_EN` set.
+
 ## Test
 
 ```
 node test/pass.roundtrip.test.mjs
+node test/match.eval.mjs --check
 ```
 
 ---
