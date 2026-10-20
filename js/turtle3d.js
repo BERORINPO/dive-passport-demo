@@ -1,16 +1,17 @@
-/* 3D のウミガメ「リド」。モデルは Tripo3D で作ったもの（骨組みなし）。three.js で描く。
-   骨組みが無いので、頂点の位置をその場で計算して動かす（頭のうなずき・前ひれ・後ろひれ）。
-   話すときは、音声の大きさで頭を動かす。音声が無い・声がオフのときは、文の長さから作った波で動かす。
+/* 3D のウミガメ「リド」。three.js で描く。モデルに合わせた数値と頂点の動かし方は lido-fit.js にある。
+   骨組みが無いので、頂点の位置をその場で計算して動かす（下あご・まばたき・頭・ひれ）。
+   話すときは、音声の大きさで口を開ける。音声が無い・声がオフのときは、文の長さから作った波で動かす。
    声は ElevenLabs で先に作った mp3（audio/<key>.<lang>.mp3）を流すだけ。その場で声も文も作らない */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MODEL_URL, VIEW, UNIFORMS, DEFORM } from './lido-fit.js';
 
 const R = window.REDUX;
-const MODEL_URL = 'assets/turtle.glb';
 const AUDIO_DIR = 'audio/';
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const MS_PER_CHAR = { ja: 110, en: 60 };   // 声が無いときに口を動かす長さの目安
 const MAX_TALK_MS = 9000;
+const BLINK = { closeMs: 70, openMs: 110, minGapMs: 2200, extraGapMs: 3800, doubleRate: 0.2, doubleGapMs: 160 };
 
 const TXT = {
   soundOn: { ja: '声を出す', en: 'Turn voice on' },
@@ -19,39 +20,33 @@ const TXT = {
 
 const state = {
   talk: 0, target: 0, fakeStart: 0, fakeUntil: 0,
-  soundOn: false, ctx: null, analyser: null, wave: null, audio: null
+  soundOn: false, ctx: null, analyser: null, wave: null, audio: null,
+  blinkStart: -1, blinkNext: 0
 };
-
-/* ---------- 頂点を動かす（頭は x が前、ひれは横 z と後ろ -x） ----------
-   下あご: 頭の先（x 0.38〜）の下半分（y 0.035 より下）を、口の付け根を軸に下へ開く。
-   頭: 首（x 0.30）を軸に、話すと少し上がる。ひれ: 体から離れるほど大きく上下 */
-const DEFORM = `
-  vec3 transformed = vec3(position);
-  float az = abs(transformed.z);
-  float headZone = 1.0 - smoothstep(0.11, 0.17, az);
-  float jaw = smoothstep(0.36, 0.40, transformed.x) * (1.0 - smoothstep(0.026, 0.05, transformed.y)) * (1.0 - smoothstep(0.07, 0.09, az));
-  float open = -uTalk * 0.8 * jaw;
-  vec2 jp = vec2(transformed.x - 0.37, transformed.y - 0.038);
-  transformed.x = 0.37 + jp.x * cos(open) - jp.y * sin(open);
-  transformed.y = 0.038 + jp.x * sin(open) + jp.y * cos(open);
-  float head = smoothstep(0.27, 0.36, transformed.x) * headZone;
-  float nod = (uTalk * 0.22 + sin(uTime * 1.3) * uSwim * 0.05) * head;
-  vec2 hp = vec2(transformed.x - 0.30, transformed.y);
-  transformed.x = 0.30 + hp.x * cos(nod) - hp.y * sin(nod);
-  transformed.y = hp.x * sin(nod) + hp.y * cos(nod);
-  float front = smoothstep(0.19, 0.27, az) * smoothstep(-0.12, 0.05, transformed.x);
-  transformed.y += sin(uTime * 1.6) * (az - 0.19) * 0.9 * front * uSwim;
-  float back = (1.0 - smoothstep(-0.34, -0.26, transformed.x)) * smoothstep(0.05, 0.12, az);
-  transformed.y += sin(uTime * 2.2 + 1.0) * 0.025 * back * uSwim;
-`;
 
 function patchMaterial(material, uniforms) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = 'uniform float uTime;\nuniform float uTalk;\nuniform float uSwim;\n' +
+    shader.vertexShader = UNIFORMS.map((name) => `uniform float ${name};`).join('\n') + '\n' +
       shader.vertexShader.replace('#include <begin_vertex>', DEFORM);
   };
   material.needsUpdate = true;
+}
+
+/* まばたき: 数秒おきに目を閉じて開く。ときどき 2 回続ける */
+function blinkLevel(now) {
+  if (state.blinkStart < 0) {
+    if (now < state.blinkNext) return 0;
+    state.blinkStart = now;
+  }
+  const t = now - state.blinkStart;
+  if (t < BLINK.closeMs) return t / BLINK.closeMs;
+  if (t < BLINK.closeMs + BLINK.openMs) return 1 - (t - BLINK.closeMs) / BLINK.openMs;
+  state.blinkStart = -1;
+  state.blinkNext = now + (Math.random() < BLINK.doubleRate
+    ? BLINK.doubleGapMs
+    : BLINK.minGapMs + Math.random() * BLINK.extraGapMs);
+  return 0;
 }
 
 /* ---------- 声 ---------- */
@@ -160,22 +155,24 @@ async function start() {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(30, 2, 0.1, 20);
-  camera.position.set(0.05, 0.66, 1.62);
-  camera.lookAt(0, -0.05, 0);
+  const camera = new THREE.PerspectiveCamera(VIEW.fov, 2, 0.1, 20);
+  camera.position.set(...VIEW.camera);
+  camera.lookAt(...VIEW.target);
   scene.add(new THREE.HemisphereLight(0xe6f8ff, 0x1d4f5a, 1.7));
   const sun = new THREE.DirectionalLight(0xffffff, 1.8);
   sun.position.set(0.8, 2, 1.4);
   scene.add(sun);
 
-  const uniforms = { uTime: { value: 0 }, uTalk: { value: 0 }, uSwim: { value: REDUCED ? 0.3 : 1 } };
+  const uniforms = Object.fromEntries(UNIFORMS.map((name) => [name, { value: 0 }]));
+  uniforms.uSwim.value = REDUCED ? 0.3 : 1;
   const gltf = await new GLTFLoader().loadAsync(MODEL_URL);
   const turtle = gltf.scene;
   turtle.traverse((o) => { if (o.isMesh) patchMaterial(o.material, uniforms); });
   const holder = new THREE.Group();
   holder.add(turtle);
-  holder.rotation.y = -0.95;   // 頭（+x）をこちらへ向ける
+  holder.rotation.y = VIEW.yaw;   // 顔をこちらへ向ける
   scene.add(holder);
+  state.blinkNext = performance.now() + 1500;
 
   const button = soundButton();
   let stage = null;
@@ -205,14 +202,19 @@ async function start() {
   renderer.setAnimationLoop(() => {
     if (document.hidden || !stage || !stage.isConnected || stage.offsetParent === null) return;
     const t = clock.getElapsedTime();
+    const now = performance.now();
     const swim = uniforms.uSwim.value;
-    state.target = talkLevel(performance.now());
+    state.target = talkLevel(now);
     state.talk += (state.target - state.talk) * 0.3;
     uniforms.uTime.value = t;
     uniforms.uTalk.value = state.talk;
+    uniforms.uBlink.value = blinkLevel(now);
+    uniforms.uNod.value = state.talk * 0.12 + Math.sin(t * 1.3) * 0.035 * swim;
+    uniforms.uYaw.value = Math.sin(t * 0.55) * 0.09 * swim;
     holder.position.y = Math.sin(t * 0.9) * 0.025 * swim;
-    holder.rotation.z = Math.sin(t * 0.9 + 0.5) * 0.05 * swim + state.talk * 0.05;
-    holder.rotation.x = Math.sin(t * 0.7) * 0.04 * swim;
+    holder.rotation.z = Math.sin(t * 0.9 + 0.5) * 0.04 * swim + state.talk * 0.04;
+    holder.rotation.x = Math.sin(t * 0.7) * 0.03 * swim;
+    holder.scale.set(1 - state.talk * 0.012, 1 + state.talk * 0.025, 1 - state.talk * 0.012);
     renderer.render(scene, camera);
   });
 }
