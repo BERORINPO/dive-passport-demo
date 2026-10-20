@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>REDUX 受付 試作</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- REDUX M1-lite（予約前の受付）の試作。客の画面と店の画面を 1 ページで切り替える。
+     入力はこのブラウザの中だけに残り、どこにも送らない。答えは店が書いた文だけで、AI は文章を作らない -->
+<header class="bar">
+  <div class="brand">
+    <span class="brand__logo" id="logo" aria-hidden="true"></span>
+    <span class="brand__name">REDUX <small id="brandSub">受付（試作）</small></span>
+  </div>
+  <nav class="tabs" role="tablist" aria-label="画面の切り替え">
+    <button class="tab" role="tab" id="tab-guest" aria-controls="view-guest" aria-selected="true" type="button"></button>
+    <button class="tab" role="tab" id="tab-pass" aria-controls="view-pass" aria-selected="false" type="button" tabindex="-1"></button>
+    <button class="tab" role="tab" id="tab-shop" aria-controls="view-shop" aria-selected="false" type="button" tabindex="-1"></button>
+  </nav>
+  <button class="lang" id="lang" type="button"></button>
+</header>
+
+<p class="demo-note" id="demoNote"></p>
+
+<main class="wrap">
+  <section class="view view--guest" id="view-guest" role="tabpanel" aria-labelledby="tab-guest">
+    <div class="card card--chat" id="chat"></div>
+    <div class="card" id="intake"></div>
+  </section>
+  <section class="view view--pass" id="view-pass" role="tabpanel" aria-labelledby="tab-pass" hidden>
+    <div id="passport"></div>
+  </section>
+  <section class="view" id="view-shop" role="tabpanel" aria-labelledby="tab-shop" hidden>
+    <div id="shop"></div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" crossorigin="anonymous"></script>
+<script src="js/core.js"></script>
+<script src="js/data.js"></script>
+<script src="js/data-pass.js"></script>
+<script src="js/pass-schema.js"></script>
+<script src="js/pass-codec.js"></script>
+<script src="js/pass-view.js"></script>
+<script src="js/qr.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/intake.js"></script>
+<script src="js/passport.js"></script>
+<script src="js/shop.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

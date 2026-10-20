@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ダイバーのパスポート</title>
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- QR から開く、見るだけの画面。中身は URL の # の後ろにあり、サーバーには送られない。読んだらすぐ URL から消す -->
+<header class="bar">
+  <div class="brand">
+    <span class="brand__logo" id="logo" aria-hidden="true"></span>
+    <span class="brand__name">REDUX <small id="brandSub"></small></span>
+  </div>
+  <button class="lang" id="lang" type="button"></button>
+</header>
+<main class="wrap wrap--narrow" id="viewer"></main>
+
+<script src="js/core.js"></script>
+<script src="js/data.js"></script>
+<script src="js/data-pass.js"></script>
+<script src="js/pass-schema.js"></script>
+<script src="js/pass-codec.js"></script>
+<script src="js/pass-view.js"></script>
+<script src="js/viewer.js"></script>
+</body>
+</html>
