@@ -4,6 +4,7 @@
 //   node tools/make-voice.mjs            … 一覧と文字数だけ
 //   node tools/make-voice.mjs --go       … まだ無い mp3 を作る
 //   node tools/make-voice.mjs --go --force … 全部作り直す
+//   node tools/make-voice.mjs --go --only=greet.ja … 1 本だけ作る（試すとき）
 //
 // 使う環境変数（鍵は画面にもファイルにも出さない）:
 //   ELEVENLABS_API_KEY_REDUX  REDUX 用の鍵（VirtualGirl の鍵は使わない）
@@ -47,7 +48,8 @@ async function main() {
   const force = process.argv.includes('--force');
   const all = lines();
   const file = (l) => new URL(`${l.key}.${l.lang}.mp3`, OUT);
-  const todo = all.filter(l => force || !existsSync(file(l)));
+  const only = (process.argv.find(a => a.startsWith('--only=')) || '').slice('--only='.length);
+  const todo = all.filter(l => (force || !existsSync(file(l))) && (!only || `${l.key}.${l.lang}` === only));
   const chars = (list) => list.reduce((n, l) => n + l.text.length, 0);
 
   all.forEach(l => console.log(`${existsSync(file(l)) ? 'have' : 'make'}  ${l.key}.${l.lang}  ${l.text.length} 字`));
