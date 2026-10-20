@@ -1,5 +1,6 @@
 /* ウミガメのリド: 質問に、お店が書いた答えだけで返す。AI に文章を作らせない。
-   合う答えが無ければ、質問をお店に渡す（お店の画面の「お店への質問」に入る） */
+   答えを選ぶのは match.js（決まった計算）。自信があれば答え、どの質問への答えかも見せる。
+   迷えば「もしかして」で候補を出し、合う答えが無ければ質問をお店に渡す（お店の画面の「お店への質問」に入る） */
 (() => {
   'use strict';
 
@@ -16,26 +17,36 @@
     '<circle cx="28" cy="18" r="2" class="t-eye"/><circle cx="36" cy="18" r="2" class="t-eye"/>' +
     '<path d="M28 23q4 3 8 0" class="t-smile"/></svg>';
 
-  /* 質問に一番多く言葉が当たった答えを選ぶ。1 つも当たらなければ null */
-  const norm = (s) => s.toLowerCase().replace(/[\s　]/g, '');
-  function match(question) {
-    const q = norm(question);
-    return R.FAQ.reduce((best, item) => {
-      const score = item.keys.reduce((n, k) => n + (q.includes(norm(k)) ? 1 : 0), 0);
-      return score > best.score ? { item, score } : best;
-    }, { item: null, score: 0 }).item;
-  }
-
   let log = null;
 
-  const say = (text) => log.append(el('p', { class: 'msg msg--turtle', text }));
+  /* 3D のリドが読み込めていれば、決まった文の声（key）を流して話す。無ければ文字だけ */
+  const voice = (key, text) => { if (R.lidoSpeak) R.lidoSpeak(key, text); };
+  const say = (text, key) => {
+    log.append(el('p', { class: 'msg msg--turtle', text }));
+    if (key) voice(key, text);
+  };
   const you = (text) => log.append(el('p', { class: 'msg msg--you', text }));
   const scroll = () => { log.scrollTop = log.scrollHeight; };
 
-  function answerCard(item) {
-    return el('div', { class: 'answer' },
-      el('span', { class: 'answer__tag', text: `${L(R.T.shopAnswer)} ・ ${L(R.T.updated)} ${item.updated}` }),
+  function answerCard(item, question) {
+    voice(`faq-${item.id}`, L(item.a));
+    const card = el('div', { class: 'answer' },
+      el('span', { class: 'answer__tag', text: `${L(R.T.answerFor).replace('{q}', L(item.q))} ・ ${L(R.T.updated)} ${item.updated}` }),
       el('p', { class: 'answer__text', text: L(item.a) }));
+    if (question) {
+      // 選び間違いに気づけるように、いつでもお店に回せる
+      card.append(el('button', { class: 'answer__wrong', type: 'button', text: L(R.T.wrongQuestion),
+        onclick: (e) => { e.target.disabled = true; say(L(R.T.notFound), 'notFound'); log.append(handOff(question)); scroll(); } }));
+    }
+    return card;
+  }
+
+  function candidates(list, question) {
+    const pick = (item) => () => { you(L(item.q)); log.append(answerCard(item, question)); scroll(); };
+    return el('div', { class: 'maybe' },
+      list.map(item => el('button', { class: 'chip', type: 'button', text: L(item.q), onclick: pick(item) })),
+      el('button', { class: 'chip chip--ghost', type: 'button', text: L(R.T.noneOfThese),
+        onclick: (e) => { e.target.disabled = true; log.append(handOff(question)); scroll(); } }));
   }
 
   function handOff(question) {
@@ -46,7 +57,7 @@
         ...s,
         questions: [{ id: R.newId(), text: question, lang: R.lang, at: new Date().toISOString() }, ...s.questions]
       }));
-      say(L(R.T.sent));
+      say(L(R.T.sent), 'sent');
       scroll();
     });
     return btn;
@@ -56,11 +67,19 @@
     const text = question.trim();
     if (!text) return;
     you(text);
-    const item = picked || match(text);
-    if (item) {
-      log.append(answerCard(item));
+    if (picked) {
+      log.append(answerCard(picked, null));
+      scroll();
+      return;
+    }
+    const r = R.matchFaq(text);
+    if (r.status === 'hit') {
+      log.append(answerCard(r.item, text));
+    } else if (r.status === 'maybe') {
+      say(L(R.T.didYouMean), 'didYouMean');
+      log.append(candidates(r.candidates, text));
     } else {
-      say(L(R.T.notFound));
+      say(L(R.T.notFound), 'notFound');
       log.append(handOff(text));
     }
     scroll();
@@ -78,8 +97,10 @@
 
     const head = el('div', { class: 'chat__head' }, el('span', { class: 'avatar' }), el('h2', { class: 'h2', text: L(R.T.chatTitle) }));
     head.firstChild.innerHTML = R.TURTLE;
-    root.replaceChildren(head, log, chips, form);
-    say(L(R.T.greet));
+    const stage = el('div', { class: 'lido-stage', id: 'lido-stage', role: 'img', 'aria-label': L(R.T.chatTitle) });
+    root.replaceChildren(head, stage, log, chips, form);
+    if (R.mountLido) R.mountLido(stage);
+    say(L(R.T.greet), 'greet');
   }
 
   R.renderChat = render;

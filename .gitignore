@@ -1,2 +1,5 @@
 PLAN*.md
 *.local.*
+# 3D の亀（Tripo3D 製）と声（ElevenLabs 製）は、利用条件を確かめるまで公開しない
+assets/turtle.glb
+audio/*.mp3
