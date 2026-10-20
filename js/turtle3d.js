@@ -107,12 +107,22 @@ function talkLevel(now) {
 }
 
 /* ---------- 描く ---------- */
+/* スピーカーの絵（自作）。音が出ていないときは ×、出ているときは音の波 */
+const SPEAKER = '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/>';
+const ICON_OFF = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${SPEAKER}` +
+  '<path d="M15.5 9.5l5 5M20.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+const ICON_ON = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${SPEAKER}` +
+  '<path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
 function soundButton() {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'lido-sound';
   const label = () => {
-    btn.textContent = R.L(state.soundOn ? TXT.soundOff : TXT.soundOn);
+    const text = R.L(state.soundOn ? TXT.soundOff : TXT.soundOn);
+    btn.innerHTML = state.soundOn ? ICON_ON : ICON_OFF;
+    btn.setAttribute('aria-label', text);
+    btn.title = text;
     btn.setAttribute('aria-pressed', String(state.soundOn));
   };
   btn.addEventListener('click', () => {
