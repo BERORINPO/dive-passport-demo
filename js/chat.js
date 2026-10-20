@@ -21,8 +21,31 @@
 
   /* 3D のリドが読み込めていれば、決まった文の声（key）を流して話す。無ければ文字だけ */
   const voice = (key, text) => { if (R.lidoSpeak) R.lidoSpeak(key, text); };
+
+  /* リドの文字は、声の速さで少しずつ出す（しゃべっている感じのため）。読み上げ機能には全文をすぐ渡す。
+     文字が出るのは画面が動く「動き」ではないので、「動きを減らす」設定でも同じにする */
+  const MS_PER_CHAR = { ja: 105, en: 55 };
+  const MS_PER_CHAR_SILENT = 22;
+  function typeInto(node, text) {
+    const shown = el('span', { 'aria-hidden': 'true' });
+    node.replaceChildren(el('span', { class: 'sr-only', text }), shown);
+    const talking = R.lidoSoundOn && R.lidoSoundOn();
+    const per = talking ? (MS_PER_CHAR[R.lang] || MS_PER_CHAR.en) : MS_PER_CHAR_SILENT;
+    let i = 0;
+    const step = () => {
+      i += 1;
+      shown.textContent = text.slice(0, i);
+      if (log) scroll();
+      if (i < text.length && node.isConnected) setTimeout(step, per);
+    };
+    // 答えのカードは作ってから画面に入れるので、入った後（次の一瞬）に始める
+    setTimeout(step, 0);
+  }
+
   const say = (text, key) => {
-    log.append(el('p', { class: 'msg msg--turtle', text }));
+    const p = el('p', { class: 'msg msg--turtle' });
+    log.append(p);
+    typeInto(p, text);
     if (key) voice(key, text);
   };
   const you = (text) => log.append(el('p', { class: 'msg msg--you', text }));
@@ -30,9 +53,11 @@
 
   function answerCard(item, question) {
     voice(`faq-${item.id}`, L(item.a));
+    const text = el('p', { class: 'answer__text' });
     const card = el('div', { class: 'answer' },
       el('span', { class: 'answer__tag', text: `${L(R.T.answerFor).replace('{q}', L(item.q))} ・ ${L(R.T.updated)} ${item.updated}` }),
-      el('p', { class: 'answer__text', text: L(item.a) }));
+      text);
+    typeInto(text, L(item.a));
     if (question) {
       // 選び間違いに気づけるように、いつでもお店に回せる
       card.append(el('button', { class: 'answer__wrong', type: 'button', text: L(R.T.wrongQuestion),

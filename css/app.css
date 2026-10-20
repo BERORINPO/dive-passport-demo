@@ -1,46 +1,50 @@
-/* REDUX 受付（試作）。色は :root の変数だけで決める。暗い画面設定にも合わせる */
+/* REDUX 受付（試作）。色は :root の変数だけで決める。暗い画面設定にも合わせる。
+   砂浜と海に寄せた落ち着いた色。光る水色や紺の画面は「AI っぽい」ので使わない */
 :root {
-  --bg: #f2f7f9;
+  --bg: #f4f1ea;
   --surface: #ffffff;
-  --ink: #0d2b36;
-  --muted: #557079;
-  --line: #d4e2e7;
-  --accent: #0a7385;
+  --ink: #23302f;
+  --muted: #66726f;
+  --line: #e2ddd2;
+  --accent: #2f6f73;
   --accent-ink: #ffffff;
-  --accent-soft: #e2f3f6;
-  --you-bg: #0a7385;
+  --accent-soft: #e7efed;
+  --you-bg: #2f6f73;
   --you-ink: #ffffff;
-  --turtle-bg: #eef5f7;
-  --warn: #8a4f00;
-  --warn-bg: #fff3dc;
-  --warn-line: #f0c27a;
-  --ok: #1d6a44;
-  --ok-bg: #e5f5ec;
-  --info: #24527a;
-  --info-bg: #e9f1fa;
-  --shell: #2f8f6a;
-  --shell-line: #1e5e46;
-  --skin: #7cc9a0;
-  --skin-line: #2f7a5a;
-  --eye: #0b2f3f;
-  --scute: #a6e3b8;
-  --shadow: 0 1px 2px rgba(10, 40, 50, .06), 0 6px 18px -12px rgba(10, 40, 50, .25);
+  --turtle-bg: #eef2ef;
+  --warn: #94500f;
+  --warn-bg: #fbefe2;
+  --warn-line: #e6c29a;
+  --ok: #2f6b4b;
+  --ok-bg: #e9f2ec;
+  --info: #36597a;
+  --info-bg: #edf2f6;
+  --shell: #5f7d4f;
+  --shell-line: #3f5636;
+  --skin: #a9c08f;
+  --skin-line: #5d7350;
+  --eye: #23302f;
+  --scute: #d3dfbf;
+  --sea: linear-gradient(180deg, #dbe9e5 0%, #a6c7c4 55%, #6d9a9c 100%);
+  --shadow: 0 1px 2px rgba(40, 35, 25, .06), 0 6px 18px -14px rgba(40, 35, 25, .25);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0a181d; --surface: #11252c; --ink: #e3f0f3; --muted: #9bb4bc; --line: #24414a;
-    --accent: #4cc3d4; --accent-ink: #052126; --accent-soft: #123a42; --you-bg: #2a8fa0; --you-ink: #ffffff;
-    --turtle-bg: #16323a; --warn: #ffcf7a; --warn-bg: #3a2a0c; --warn-line: #7a5a20; --ok: #8be0b4; --ok-bg: #0f3324;
-    --info: #9cc8f0; --info-bg: #12293d; --eye: #0b2f3f;
+    --bg: #1a1c1d; --surface: #232628; --ink: #ebe9e4; --muted: #a8aaa6; --line: #363b3d;
+    --accent: #8db8b3; --accent-ink: #142120; --accent-soft: #2b3536; --you-bg: #3f6d6a; --you-ink: #ffffff;
+    --turtle-bg: #2a3032; --warn: #efc38c; --warn-bg: #3a2d1e; --warn-line: #77593a; --ok: #a3d2b4; --ok-bg: #213229;
+    --info: #aec6dc; --info-bg: #212c35; --eye: #1a1c1d;
+    --sea: linear-gradient(180deg, #8fb0ad 0%, #5f8a8b 55%, #3c6266 100%);
     --shadow: 0 1px 2px rgba(0, 0, 0, .3); color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0a181d; --surface: #11252c; --ink: #e3f0f3; --muted: #9bb4bc; --line: #24414a;
-  --accent: #4cc3d4; --accent-ink: #052126; --accent-soft: #123a42; --you-bg: #2a8fa0; --you-ink: #ffffff;
-  --turtle-bg: #16323a; --warn: #ffcf7a; --warn-bg: #3a2a0c; --warn-line: #7a5a20; --ok: #8be0b4; --ok-bg: #0f3324;
-  --info: #9cc8f0; --info-bg: #12293d; --eye: #0b2f3f;
+  --bg: #1a1c1d; --surface: #232628; --ink: #ebe9e4; --muted: #a8aaa6; --line: #363b3d;
+  --accent: #8db8b3; --accent-ink: #142120; --accent-soft: #2b3536; --you-bg: #3f6d6a; --you-ink: #ffffff;
+  --turtle-bg: #2a3032; --warn: #efc38c; --warn-bg: #3a2d1e; --warn-line: #77593a; --ok: #a3d2b4; --ok-bg: #213229;
+  --info: #aec6dc; --info-bg: #212c35; --eye: #1a1c1d;
+  --sea: linear-gradient(180deg, #8fb0ad 0%, #5f8a8b 55%, #3c6266 100%);
   --shadow: 0 1px 2px rgba(0, 0, 0, .3); color-scheme: dark;
 }
 
@@ -205,15 +209,15 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ---------- 3D のリド ---------- */
 .lido-stage { display: none; position: relative; height: 180px; margin: 0 -6px 6px; border-radius: 14px; overflow: hidden;
-  background: radial-gradient(120% 90% at 50% 0%, #bfeaf3 0%, #5fb3c7 45%, #1d6f86 100%); }
+  background: var(--sea); }
 .lido-stage.is-ready { display: block; }
 .lido-stage canvas { display: block; width: 100%; height: 100%; }
 .lido-sound { position: absolute; right: 10px; bottom: 10px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
-  border: 0; border-radius: 50%; background: rgba(255, 255, 255, .9); color: #08354f; cursor: pointer;
-  box-shadow: 0 4px 12px -4px rgba(0, 30, 50, .5); }
+  border: 0; border-radius: 50%; background: rgba(255, 255, 255, .92); color: #23302f; cursor: pointer;
+  box-shadow: 0 3px 10px -4px rgba(30, 30, 20, .45); }
 .lido-sound svg { width: 24px; height: 24px; }
-.lido-sound[aria-pressed="true"] { background: #08354f; color: #fff; }
-.lido-sound:focus-visible { outline: 3px solid #ffe08a; outline-offset: 2px; }
+.lido-sound[aria-pressed="true"] { background: #2f6f73; color: #fff; }
+.lido-sound:focus-visible { outline: 3px solid #e6c29a; outline-offset: 2px; }
 .card--chat.has-3d .chat__head .avatar { display: none; }
 @media (min-width: 900px) { .lido-stage { height: 200px; } }
 
@@ -222,3 +226,6 @@ button, input, select { font: inherit; color: inherit; }
 .answer__wrong:disabled { opacity: .5; cursor: default; }
 .maybe { align-self: flex-start; display: flex; flex-wrap: wrap; gap: 6px; }
 .chip--ghost { border-style: dashed; color: var(--muted); }
+
+/* 読み上げ機能だけに渡す文字（画面には出さない） */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
