@@ -22,12 +22,20 @@ const state = {
   soundOn: false, ctx: null, analyser: null, wave: null, audio: null
 };
 
-/* ---------- 頂点を動かす（頭は x が前、ひれは横 z と後ろ -x） ---------- */
+/* ---------- 頂点を動かす（頭は x が前、ひれは横 z と後ろ -x） ----------
+   下あご: 頭の先（x 0.38〜）の下半分（y 0.035 より下）を、口の付け根を軸に下へ開く。
+   頭: 首（x 0.30）を軸に、話すと少し上がる。ひれ: 体から離れるほど大きく上下 */
 const DEFORM = `
   vec3 transformed = vec3(position);
   float az = abs(transformed.z);
-  float head = smoothstep(0.27, 0.36, transformed.x) * (1.0 - smoothstep(0.11, 0.17, az));
-  float nod = (uTalk * 0.5 + sin(uTime * 1.3) * uSwim * 0.05) * head;
+  float headZone = 1.0 - smoothstep(0.11, 0.17, az);
+  float jaw = smoothstep(0.36, 0.40, transformed.x) * (1.0 - smoothstep(0.026, 0.05, transformed.y)) * (1.0 - smoothstep(0.07, 0.09, az));
+  float open = -uTalk * 0.8 * jaw;
+  vec2 jp = vec2(transformed.x - 0.37, transformed.y - 0.038);
+  transformed.x = 0.37 + jp.x * cos(open) - jp.y * sin(open);
+  transformed.y = 0.038 + jp.x * sin(open) + jp.y * cos(open);
+  float head = smoothstep(0.27, 0.36, transformed.x) * headZone;
+  float nod = (uTalk * 0.22 + sin(uTime * 1.3) * uSwim * 0.05) * head;
   vec2 hp = vec2(transformed.x - 0.30, transformed.y);
   transformed.x = 0.30 + hp.x * cos(nod) - hp.y * sin(nod);
   transformed.y = hp.x * sin(nod) + hp.y * cos(nod);
@@ -190,6 +198,7 @@ async function start() {
   new ResizeObserver(resize).observe(document.getElementById('chat'));
   R.mountLido = mount;
   R.lidoSpeak = speak;
+  R.lidoSoundOn = () => state.soundOn;
   mount(document.getElementById('lido-stage'));
 
   const clock = new THREE.Clock();
@@ -202,7 +211,7 @@ async function start() {
     uniforms.uTime.value = t;
     uniforms.uTalk.value = state.talk;
     holder.position.y = Math.sin(t * 0.9) * 0.025 * swim;
-    holder.rotation.z = Math.sin(t * 0.9 + 0.5) * 0.05 * swim + state.talk * 0.04;
+    holder.rotation.z = Math.sin(t * 0.9 + 0.5) * 0.05 * swim + state.talk * 0.05;
     holder.rotation.x = Math.sin(t * 0.7) * 0.04 * swim;
     renderer.render(scene, camera);
   });
