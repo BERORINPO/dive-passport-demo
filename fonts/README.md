@@ -9,7 +9,7 @@ BIZ UDPGothic（400・700）と BIZ UDGothic（700。英数字の束だけ）。
 
 ## ライセンス
 
-SIL Open Font License 1.1。ライセンス本文は同じ場所の `OFL.txt`（google/fonts の `ofl/bizudpgothic/OFL.txt` と同じ物）。
+SIL Open Font License 1.1。ライセンス本文は同じ場所の `OFL.txt`（google/fonts の `ofl/bizudpgothic/OFL.txt` を 2026-10-21 に取得。`ofl/bizudgothic/OFL.txt` も同じ中身）。OFL.txt の 1 行目の URL は、元の書き方のまま（mincho になっている）。
 
 - Copyright 2022 The BIZ UDGothic Project Authors (https://github.com/googlefonts/morisawa-biz-ud-gothic)
 - 各ファイルの中（name の表）にも、上の著作権の行と OFL の URL が入っている
