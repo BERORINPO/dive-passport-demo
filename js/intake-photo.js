@@ -144,6 +144,9 @@
     ui.go('review', { personId, saved: r.saved, fields: got.fields });
   }
 
+  /* 誤りの文は帯の中（ボタンの上）に出す */
+  const shotErr = () => el('p', { class: 'errors', role: 'alert', text: shot.error });
+
   function readResult(ui) {
     const s = R.rosterStore.get();
     const read = shot.reading.people[0];
@@ -175,6 +178,7 @@
         el('input', { type: 'checkbox', checked: shot.otherName, onchange: (ev) => { shot.otherName = ev.target.checked; ui.rerender(); } }),
         el('span', { text: '名前が違っても、この人に入れる' })) : null,
       ui.dock(
+        shotErr(),
         el('button', { class: 'btn', type: 'button', disabled: !people.length || (differs && !shot.otherName), text: '名簿に入れる', onclick: () => applyRead(ui) }),
         el('button', { class: 'btn btn--ghost', type: 'button', text: '写真を選び直す', onclick: () => { reset(shot.tripId, shot.doc); ui.rerender(); } }))
     ];
@@ -195,6 +199,7 @@
           ? 'いまは見本の読み取りです。読めるのは見本の写真だけです。'
           : 'いまは見本の読み取りです（AI には送らず、試験で読んだ答えを使います）。' }) : null,
         shot.reading ? readResult(ui) : ui.dock(
+          shotErr(),
           el('button', { class: 'btn', type: 'button', disabled: cannotRead || shot.busy, text: shot.busy ? '読んでいます…' : 'この写真を AI で読む', onclick: () => readPhoto(ui) }),
           el('button', { class: 'btn btn--ghost', type: 'button', disabled: shot.busy, text: '塗り直す', onclick: () => { shot.prepared = null; shot.confirmed = false; ui.rerender(); } }))
       ];
@@ -212,6 +217,7 @@
         el('input', { type: 'checkbox', checked: shot.confirmed, disabled: locked(), onchange: (e) => { shot.confirmed = e.target.checked; ui.rerender(); } }),
         el('span', { text: paper ? '健康の欄が黒く隠れているのを確かめた' : '写っているのは C カードだけ。申込書や健康の欄は写っていない' })),
       ui.dock(
+        shotErr(),
         el('button', { class: 'btn', type: 'button', disabled: !shot.confirmed || (paper && !shot.rects.length) || locked(),
           text: shot.making ? '作っています…' : 'AI に送る写真を作る', onclick: () => makePhoto(ui) }))
     ];
@@ -243,7 +249,7 @@
         el('button', { class: `btn ${shot.doc === 'paper' ? '' : 'btn--ghost'}`, type: 'button', 'aria-pressed': String(shot.doc === 'paper'), text: '申込書を撮る', onclick: chooseDoc('paper') }),
         el('button', { class: `btn ${shot.doc === 'ccard' ? '' : 'btn--ghost'}`, type: 'button', 'aria-pressed': String(shot.doc === 'ccard'), text: 'C カードを撮る', onclick: chooseDoc('ccard') })),
       el('p', { class: 'note', text: '申込書の健康の欄は、この端末の中で塗りつぶしてから AI に送ります。健康の質問は、お客さん本人が答えます。' }),
-      shot.doc ? el('div', { class: 'card' }, docStep(ui), photoStep(ui), el('p', { class: 'errors', role: 'alert', text: shot.error })) : null,
+      shot.doc ? el('div', { class: 'card' }, docStep(ui), photoStep(ui), shot.img ? null : shotErr()) : null,
       checks.length ? el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, `読み取りを確かめる（${checks.length} 人）`),
         el('ul', { class: 'checks' }, checks.map(p => el('li', {},
@@ -327,8 +333,8 @@
         el('p', { class: 'band__text', text: '写真と見比べて、違っていたら直してください。' }),
         editor(r, p))),
       el('p', { class: 'note', text: '既往症と健康の質問は、お客さん本人が答えます。AI は読んでいません。' }),
-      el('p', { class: 'errors', role: 'alert', text: review.error }),
       ui.dock(
+        el('p', { class: 'errors', role: 'alert', text: review.error }),
         el('button', { class: 'btn', type: 'button', text: 'これで合っている', onclick: () => confirmPerson(personId, ui) }),
         el('button', { class: 'btn btn--ghost', type: 'button', text: 'あとで確かめる', onclick: () => ui.go('intake', {}) }))
     ];

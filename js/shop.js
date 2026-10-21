@@ -13,7 +13,7 @@
   const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
   const dayParts = (d) => {
     const [y, m, dd] = String(d).split('-').map(Number);
-    if (!y || !m || !dd) return [d || '日付なし', ''];
+    if (!y || !m || !dd) return ['—', '日付なし'];
     return [`${m}/${dd}`, WEEK[new Date(y, m - 1, dd).getDay()]];
   };
 
@@ -56,13 +56,14 @@
   }
 
   /* 日付ごとの時刻表。左に日付、右にその日の受付 */
-  function dayBlock(date, list, s) {
+  function dayBlock(date, list, s, past) {
     const [md, wd] = dayParts(date);
-    return el('section', { class: 'trip', 'aria-label': md },
-      el('div', { class: 'trip__time trip__time--date' }, md, wd ? el('small', { text: wd }) : null),
+    const warn = list.filter(x => !x.checked && R.assess(x, s).flags.some(f => f.level === 'warn')).length;
+    return el('section', { class: `trip${past ? ' trip--past' : ''}`, 'aria-label': md },
+      el('div', { class: 'trip__time trip__time--date' }, md, el('small', { text: past ? `${wd} 過ぎた日` : wd })),
       el('div', {},
         el('div', { class: 'trip__head' },
-          el('h3', { class: 'trip__title', text: '受付' }),
+          el('h3', { class: 'trip__title' }, '受付', warn ? el('span', { class: 'st st--check', text: `　! 確かめる ${warn}` }) : null),
           el('span', { class: 'trip__count' }, el('b', { text: String(list.length) }), ' 件')),
         el('ul', { class: 'bks' }, list.map(x => intakeLine(x, s)))));
   }
@@ -109,14 +110,19 @@
 
   function render() {
     const s = R.store.get();
-    const order = (a, b) => (a.checked - b.checked) || b.at.localeCompare(a.at);
-    const dates = [...new Set(s.intakes.map(x => x.date))].sort();
+    /* その日の中は、確かめる受付・未確認・確認済みの順。同じなら新しい順 */
+    const rank = (x) => (x.checked ? 2 : R.assess(x, s).flags.some(f => f.level === 'warn') ? 0 : 1);
+    const order = (a, b) => (rank(a) - rank(b)) || b.at.localeCompare(a.at);
+    /* 今日から先の日を上に、古い順。過ぎた日はその下に、新しい順 */
+    const today = R.today();
+    const all = [...new Set(s.intakes.map(x => x.date))].sort();
+    const dates = [...all.filter(d => d >= today), ...all.filter(d => !(d >= today)).reverse()];
     root.replaceChildren(
       el('h2', { class: 'page__title', text: '受付' }),
       el('p', { class: 'page__sub', text: 'お客さまが送った受付。参加できるかはお店が決めます。印は、見落としに気づくためのものです。' }),
       counters(s),
       dates.length
-        ? el('div', { class: 'timetable' }, dates.map(d => dayBlock(d, s.intakes.filter(x => x.date === d).sort(order), s)))
+        ? el('div', { class: 'timetable' }, dates.map(d => dayBlock(d, s.intakes.filter(x => x.date === d).sort(order), s, !(d >= today))))
         : el('p', { class: 'empty', text: 'まだ受付がありません。「お客さま」の画面から送れます。' }),
       el('div', { class: 'card' }, el('h2', { class: 'h2', text: 'お店への質問（リドが答えられなかったもの）' }), questions(s)),
       settings(s),

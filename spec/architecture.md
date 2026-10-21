@@ -12,6 +12,7 @@
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - 外へ通信してよいのは js/ai-reader.js だけ（three.js の読み込みは index.html の importmap）
+- 字体（BIZ UD ゴシック）は index.html と pass.html の `<link>` で Google Fonts から読む。送るのは字体の要求だけで、画面の中身・入力・URL の # 以降は送らない。2 つの画面とも `referrer` を送らない
 
 ## 2. 外部境界表
 | adapter | 相手 | Fake | fixture | credential | 書き込み |
@@ -23,6 +24,7 @@
 - 画面のファイルと `/api` は同じ Worker から配る（同じ origin）。CORS と cross-site の Cookie は使わない
 - 入口は 2 重: Cloudflare Access（Worker 全体）と合言葉。Worker は `ctx.access` が無い呼び出しを 403 で断る
 - 監視: Worker は回数と費用だけを KV に数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える
+- 外から読む物: three.js（jsdelivr）と字体（fonts.googleapis.com / fonts.gstatic.com）。どちらも読むだけ。電波が無いときは、字体は端末の字体に替わる（display=swap）
 
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
@@ -37,3 +39,4 @@
 | 2026-10-21 redact-core | 健康の行の外し方を js/health-redact.js（core）に分け、画面と Worker の両方が使う。1 字の言葉は予約の項目の行では見ない。文ごとに外し、質問の答えは結び・署名・電話の手前まで | ジンの再レビュー（予約に要る行まで消える）とザク（取りこぼし）の両方を満たすため。行ごとに全部外す案は、1 段落のメールが丸ごと消えるので却下 | test/roster.test.mjs |
 | 2026-10-21 arch-grep | 依存の向きは grep で検査し、dependency-cruiser は使わない | script タグで読む素の JS で、npm を入れていない | test/arch.check.mjs |
 | 2026-10-21 core-clock | core は時計と乱数を使わない（at と newId を受け取る） | テストで毎回同じ結果にするため | test/arch.check.mjs |
+| 2026-10-21 fonts | 字体は試作の間 Google Fonts から読む。2 つの画面とも referrer を送らない。本物のお客さんの情報を入れる前に、repo の中に置くか決める（spec/meibo.md の 11） | 日本語の字体は 1 書体で数 MB あり、Google Fonts は使う字の分だけ配る。repo に置く案は字体の取得（ダウンロード）に Yosuke の了承が要るので、本物を入れる前の項目に回した | なし |

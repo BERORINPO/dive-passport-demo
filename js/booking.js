@@ -93,7 +93,12 @@
   const back = () => el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '予約の一覧に戻る', onclick: () => go('list') }));
   const field = (label, control, hint) => el('label', { class: 'field' }, el('span', { class: 'label', text: label }), control, hint ? el('span', { class: 'note', text: hint }) : null);
   /* 画面の下に固定する操作の帯。左が主、右が副 */
-  const dock = (...buttons) => el('div', { class: `dock${buttons.filter(Boolean).length === 1 ? ' dock--one' : ''}` }, buttons);
+  /* 誤りの文も帯の中（ボタンの上）に出す。押した所から見える位置に出すため */
+  const dock = (...nodes) => {
+    const buttons = nodes.filter(n => n && n.tagName === 'BUTTON').length;
+    return el('div', { class: `dock${buttons === 1 ? ' dock--one' : ''}` }, nodes);
+  };
+  const mailErr = () => el('p', { class: 'errors', role: 'alert', text: mail.error });
 
   /* ---------- 予約の一覧（時刻表） ---------- */
   /* 予約の状態は、色の札にせず、文字の色と短い印で見せる */
@@ -228,6 +233,7 @@
       tripPicker(want, mail, fillMail),
       el('div', { class: 'band' }, el('p', { class: 'band__title', text: 'メールに無いもの' }), el('p', { class: 'band__text', text: missingText(kind) })),
       dock(
+        mailErr(),
         el('button', { class: 'btn', type: 'button', text: '予約を入れる', onclick: commitMail }),
         el('button', { class: 'btn btn--ghost', type: 'button', text: '貼り直す', onclick: () => { mail = { ...blankMail(), text: mail.text, sampleId: mail.sampleId }; fillMail(); } }))
     ];
@@ -247,6 +253,7 @@
         ? 'いまは見本の読み取りです。読めるのは見本のメールだけです。ほかの予約は「電話などの予約を足す」から入れてください。'
         : 'いまは見本の読み取りです（AI には送らず、試験で読んだ答えを使います）。' }) : null,
       dock(
+        mailErr(),
         el('button', { class: 'btn', type: 'button', disabled: cannotRead || mail.busy, text: mail.busy ? '読んでいます…' : 'この文面を AI で読む', onclick: readMail }),
         el('button', { class: 'btn btn--ghost', type: 'button', disabled: mail.busy, text: '貼り直す', onclick: () => { mail.shown = null; fillMail(); } }))
     ];
@@ -256,8 +263,9 @@
     if (!mailOut) return;
     mailInputs.forEach(n => { n.disabled = mail.busy; });
     const body = mail.reading ? mailResult() : mail.shown ? mailPreview() : dock(
+      mailErr(),
       el('button', { class: 'btn', type: 'button', disabled: !mail.text.trim(), text: 'AI に送る前の文面を見る', onclick: showMail }));
-    R.fill(mailOut, body, el('p', { class: 'errors', role: 'alert', text: mail.error }));
+    R.fill(mailOut, body);
   }
 
   function showMail() {
@@ -366,10 +374,9 @@
           field('どこから', el('select', { class: 'input', onchange: set('source') },
             ['phone', 'form'].map(k => el('option', { value: k, selected: k === phone.source, text: SOURCE_JA[k] }))))),
         field('メモ', el('textarea', { class: 'input', rows: 3, maxlength: 400, text: phone.note, oninput: set('note') }),
-          '健康のことは書かないでください。名簿の健康の欄は、お客さんが自分で選びます。'),
-        errorsNode),
+          '健康のことは書かないでください。名簿の健康の欄は、お客さんが自分で選びます。')),
       back(),
-      dock(el('button', { class: 'btn', type: 'button', text: '予約を入れる', onclick: () => commitPhone(errorsNode) }))
+      dock(errorsNode, el('button', { class: 'btn', type: 'button', text: '予約を入れる', onclick: () => commitPhone(errorsNode) }))
     ];
   }
 
