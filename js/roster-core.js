@@ -313,7 +313,8 @@
   const NESTED = ['emergency', 'cert', 'sizes', 'health'];
   const isPlain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
-  function editPerson(state, { id, patch, who, src, at }) {
+  /* demo: デモで「当日として」答えたなど、本当の時刻と違う形で入れた印。記録に残す */
+  function editPerson(state, { id, patch, who, src, at, demo }) {
     if (!EDIT_WHO.includes(who)) throw new Error(`editPerson: who は ${EDIT_WHO.join(' / ')} のどれか (${who})`);
     const from = src || (who === 'guest' ? 'guest' : 'staff');
     if (!EDIT_SRC.includes(from)) throw new Error(`editPerson: src は ${EDIT_SRC.join(' / ')} のどれか (${from})`);
@@ -331,7 +332,7 @@
     const v = S().validatePerson(after);
     if (!v.ok) throw new Error(`editPerson: 直した後の形が合わない (${v.errors.join(',')})`);
     return withLog({ ...state, people: state.people.map(p => (p.id === id ? after : p)) },
-      entry(at, who, 'edit', 'person', id, { fields: keys, before: pick(before, keys), after: pick(after, keys) }));
+      entry(at, who, 'edit', 'person', id, { fields: keys, before: pick(before, keys), after: pick(after, keys), ...(demo === true ? { demo: true } : {}) }));
   }
 
   /* お店が全部を確かめた。自信なしの印を外す */

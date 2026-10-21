@@ -75,7 +75,7 @@
     if (ctx.bookingId) askBooking = ctx.bookingId;
     if (next === 'mail') mail = blankMail();
     if (next === 'phone') phone = blankPhone();
-    if (next === 'ask') copied = false;
+    if (next === 'ask') copied = null;
     render();
   }
 
@@ -385,7 +385,7 @@
   /* 予約 1 件に 1 つのリンク。開いた人は、この予約の人の「まだ」の所だけを入れる（js/guest-ask.js）。
      試作ではこの端末の中だけで動く。本物では Worker が予約ごとの鍵を出す（P6） */
   const askUrl = (id) => `${location.origin}${location.pathname}#ask=${encodeURIComponent(id)}`;
-  let copied = false;
+  let copied = null;        // リンクを写せたか（ok / fail）
 
   function personLine(p, trip) {
     const items = R.roster.ITEMS[trip ? trip.kind : 'dive'];
@@ -408,8 +408,9 @@
     const items = R.roster.ITEMS[trip ? trip.kind : 'dive'];
     const url = askUrl(b.id);
     const copy = () => {
-      const ok = () => { copied = true; render(); };
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(ok, () => { copied = false; render(); });
+      const tell = (how) => () => { copied = how; render(); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(tell('ok'), tell('fail'));
+      else tell('fail')();
     };
     return [
       ...head(people.length > 1 ? `${lead} ほか ${people.length - 1} 人` : lead, trip ? `${md(trip.date)} ${tripLabel(trip)}` : ''),
@@ -420,7 +421,8 @@
         el('p', { class: 'sheet__title' }, 'お客さんに送るリンク', el('small', { text: '予約 1 件に 1 つ' })),
         el('p', { class: 'url', text: url }),
         el('p', { class: 'sheet__note', text: 'LINE やメールに貼って送ります。開いた人は、この予約の人の「まだ」の所だけを入れられます。試作では、この端末の中だけで開けます。' })),
-      copied ? el('p', { class: 'flag flag--ok', role: 'status', text: 'リンクを写しました' }) : null,
+      copied === 'ok' ? el('p', { class: 'flag flag--ok', role: 'status', text: 'リンクを写しました' }) : null,
+      copied === 'fail' ? el('p', { class: 'flag flag--warn', role: 'status', text: '写せませんでした。上のリンクを長押しして写してください' }) : null,
       back(),
       dock(
         el('button', { class: 'btn', type: 'button', text: 'リンクを写す', onclick: copy }),

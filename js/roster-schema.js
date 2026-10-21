@@ -140,10 +140,12 @@
     ]);
   }
 
+  /* consentAt・consentVer は、お客さんが健康の答えに同意した日と同意の文の版（P3 で足した。無くてもよい） */
   function healthOk(h) {
-    return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today']) && isDay(h.historyAt) &&
+    return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer']) && isDay(h.historyAt) &&
       isList(h.answers, HEALTH_QUESTIONS, isAnswer) && h.answers.length === HEALTH_QUESTIONS &&
-      isDay(h.todayAt) && TODAY.includes(h.today);
+      isDay(h.todayAt) && TODAY.includes(h.today) &&
+      (h.consentAt === undefined || isDay(h.consentAt)) && (h.consentVer === undefined || isStr(h.consentVer, 20));
   }
 
   /* 人の項目（AI の答えと名簿の人で同じ検査）。入れ子の中も決まった名前だけ */
@@ -184,7 +186,8 @@
   function logOk(e) {
     return isObj(e) && isStr(e.at, 40) && LOG_WHO.includes(e.who) && LOG_ACT.includes(e.act) &&
       ['trip', 'booking', 'person', 'state'].includes(e.kind) && isStr(e.id, 40) &&
-      isList(e.fields, 30, f => isStr(f, 20)) && isObj(e.before) && isObj(e.after) && sentOk(e.sent);
+      isList(e.fields, 30, f => isStr(f, 20)) && isObj(e.before) && isObj(e.after) && sentOk(e.sent) &&
+      (e.demo === undefined || e.demo === true);   // demo: デモで「当日として」答えた印
   }
 
   function validateState(s) {

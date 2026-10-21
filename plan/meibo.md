@@ -87,7 +87,15 @@ Yosuke の確認は 3 回: ①今（この計画とモック）②P2 のあと�
 - カレンダーの購読用の URL（`/api/calendar/<長い合言葉>.ics`）。中身は .ics の書き出しと同じ（便の時刻・ツアー・人数だけ）。URL を知る人は誰でも見られるので、合言葉は長くし、作り直せるようにする。Google カレンダーは反映が数時間〜1 日遅れる
 - 画面の「本物」は、同じ origin の `/api/healthz` が通ったときだけ選べる（GitHub Pages 版から github.io に本文を送らない）
 - Access の許可はメールアドレスを 1 つずつ書く（「@gmail.com」で通さない）。ログインの有効時間は 24 時間
-- **お客さんのリンク**（P3 の本物版）: Access の外に置く道（`/ask/<鍵>`）にする。鍵は予約ごとに 128 bit 以上の乱数で作り、作り直せて、便の 1 年後に消える。受け付けるのはその予約の人の「まだ」の項目だけ（roster-guest.js の guestProblems を Worker でもかける）。お店がもう知っていることを見せる範囲（名前・生年月日など）は、置く前に決める
+- **お客さんのリンク**（P3 の本物版。ザクのレビュー 2026-10-21）
+  - お客さんの画面は pass.html と同じく別の HTML にする（お店の JS とデータの道を読まない。CSP は `connect-src 'self'`）
+  - 鍵は `crypto.getRandomValues` で 32 バイトを作り base64url にする（`crypto.randomUUID()` は 122 bit で足りない）。KV / D1 には鍵の SHA-256 だけを置く。鍵が無い・切れた・違うは、どれも同じ 404
+  - 鍵は URL の # の後ろに置き、`/api/ask` へは body で送る（path に入れると、Cloudflare の記録・ログ・Referer・履歴に残る）。応答には `Referrer-Policy: no-referrer`・`Cache-Control: no-store`・`X-Robots-Tag: noindex`
+  - リンクは便の翌日まで（名簿を残す 1 年とは別）。作り直したら古い鍵を止める。全部そろったら何も見せない
+  - 予約 1 件のリンクで受けるのは健康以外の項目だけ。既往症と当日の体調は、1 人ずつのリンクで本人に答えてもらう（子どもは保護者）
+  - 聞く項目は Worker が自分の名簿から計算し、guestProblems と guestPatch も Worker でかける（お客さんから来た ask や patch は信じない）。当日の体調は、Worker の日付が便の日のときだけ受ける。デモの「当日として答える」は外す
+  - /api/ask に Cloudflare の rate limit を付け、鍵 1 つあたり 1 日に受ける回数にも上限を付ける。`Sec-Fetch-Site: same-origin` と JSON は /api と同じく必須
+  - Access を外す道（Bypass）は `/ask` と `/api/ask` だけにする（`/ask*` と書くと `/askadmin` なども外に出る）
 
 ## 後回しにするもの
 予約サイトとの本当の連携（API）/ Google カレンダーと直接つなぐ（API・OAuth。権限付与なので株主判断。中間発表の後）/ お店ごとの申込書の書式の登録 / 2 台での乗り合いのやりとり / ログイン / 本当の保存先（お店のドライブ）

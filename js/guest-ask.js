@@ -21,7 +21,8 @@
     passHere: { ja: 'この端末にパスポートがあります', en: 'This phone has a passport' },
     fromPass: { ja: 'パスポートから入れる', en: 'Fill from passport' },
     known: { ja: 'お店がもう知っていること', en: 'What the shop already has' },
-    knownNote: { ja: '違っていたら、集合のときにお店に伝えてください。', en: 'If something is wrong, tell the shop when you meet.' },
+    knownNote: { ja: '中身はここに出しません。直したい所があれば、集合のときにお店に伝えてください。', en: 'The details are not shown here. If something needs fixing, tell the shop when you meet.' },
+    filled: { ja: '入力済み', en: 'Provided' },
     birthDate: { ja: '生年月日', en: 'Date of birth' },
     address: { ja: '住所', en: 'Address' },
     emergency: { ja: '緊急時の連絡先（一緒に潜らない人）', en: 'Emergency contact (someone not diving with you)' },
@@ -33,8 +34,8 @@
     dives: { ja: '潜った本数', en: 'Logged dives' },
     lastDive: { ja: '最後に潜った月（0 本なら空のまま）', en: 'Month of your last dive (leave empty if none)' },
     history: { ja: '健康の質問（当てはまる物に「はい」）', en: 'Health questions (answer "Yes" if it applies)' },
-    consent: { ja: '健康の答えは、県の条例の名簿としてお店が 1 年残します。見るのはお店の人だけで、AI には送りません。これに同意して答えます。',
-      en: 'The shop keeps your health answers for one year in the participant list required by Okinawa rules. Only shop staff see them, and they are never sent to an AI. I agree and will answer.' },
+    consent: { ja: '健康の答え（既往症・当日の体調）は、県の条例の名簿としてお店が 1 年残します。見るのはお店の人と、乗り合いの便では同じ船の他のお店の人です。AI には送りません。これに同意して答えます。',
+      en: 'The shop keeps your health answers (medical history and how you feel on the day) for one year in the participant list required by Okinawa rules. Shop staff see them, and on shared boats so do the other shops on the same boat. They are never sent to an AI. I agree and will answer.' },
     yes: { ja: 'はい', en: 'Yes' },
     no: { ja: 'いいえ', en: 'No' },
     todayLater: { ja: '当日の健康状態は、当日の朝にこのページで答えます。', en: 'You will answer how you feel on the morning of the tour, on this page.' },
@@ -43,7 +44,7 @@
     todayOkSub: { ja: '寝不足・二日酔い・かぜ気味ではない', en: 'No lack of sleep, hangover or cold' },
     todayBad: { ja: '少し調子が悪い', en: 'Not quite well' },
     todayBadSub: { ja: '集合のときに、スタッフに伝えてください', en: 'Please tell the staff when you meet' },
-    todayNote: { ja: '参加できるかは、お店が決めます。この答えはお店だけが見ます。', en: 'The shop decides whether you can join. Only the shop sees this answer.' },
+    todayNote: { ja: '参加できるかは、お店が決めます。この答えは名簿としてお店が 1 年残し、乗り合いの便では同じ船の他のお店にも渡します。', en: 'The shop decides whether you can join. The shop keeps this answer for one year in the participant list, and on shared boats passes it to the other shops on the same boat.' },
     todayWait: { ja: '当日の朝に、このページで体調を答えます', en: 'On the morning of the tour, answer here how you feel' },
     todayDemo: { ja: '（デモ）当日として答える', en: '(Demo) Answer as if it were the day' },
     send: { ja: '送る', en: 'Send' },
@@ -62,7 +63,9 @@
     passOld: { ja: '日前の答えなので使えません。この画面のあとで答え直してください', en: 'days old, so it cannot be used. Please answer again' },
     passNone: { ja: 'パスポートから入れられる物はありません。', en: 'Nothing on your passport is needed here.' },
     passNameDiff: { ja: '名前が違います', en: 'The names differ' },
-    passNameText: { ja: '同じ人なら、このまま入れてください', en: 'If this is the same person, go ahead' },
+    passNameText: { ja: '同じ人なら、下の印を付けて入れてください。健康の答えは、名前が同じときだけ入れられます', en: 'If this is the same person, tick the box below. Health answers can only be used when the names match' },
+    passOtherName: { ja: '名前が違っても、この人に入れる', en: 'Use it for this person even though the names differ' },
+    passNameBlocked: { ja: '名前が違うので入れられません', en: 'Cannot be used because the names differ' },
     passUse: { ja: '選んだ物を入れる', en: 'Use the selected items' },
     cancel: { ja: 'やめる', en: 'Cancel' },
     passRest: { ja: '生年月日・住所・緊急時の連絡先は、パスポートに無いので、この画面のあとで入れます。', en: 'Date of birth, address and emergency contact are not on the passport; enter them next.' }
@@ -72,7 +75,8 @@
   const COURSE_EN = { OW: 'Open Water', AOW: 'Advanced', RESCUE: 'Rescue', JOW: 'Junior', DM: 'Divemaster', OTHER: 'Other', NONE: 'None (first dive)' };
   const PROBLEM = { birthDate: T.birthDate, address: T.address, emergency: { ja: '緊急時の連絡先（名前と電話）', en: 'Emergency contact (name and phone)' },
     cert: T.cert, certDate: T.certDate, dives: T.dives, lastDive: { ja: '最後に潜った月', en: 'Last dive month' },
-    history: { ja: '健康の質問（全部）', en: 'All health questions' }, consent: { ja: '健康の答えの同意', en: 'Consent for health answers' } };
+    history: { ja: '健康の質問（全部）', en: 'All health questions' }, consent: { ja: '健康の答えの同意', en: 'Consent for health answers' },
+    name: { ja: '名前が違っても入れる、の印', en: 'The box for a different name' }, save: { ja: '保存できませんでした', en: 'Could not save' } };
 
   /* 開いている予約と、人ごとの書きかけ */
   let bookingId = '';
@@ -82,9 +86,13 @@
   let problems = [];
   let flash = null;         // 知らせる文（T のキー）。言語を切り替えても訳が合うように、文でなくキーで持つ
   let todayDemo = false;
-  let passKeys = [];
+  let passKeys = null;          // パスポートから入れる物の印。null = まだ選んでいない（最初は入れられる物に全部付ける）
+  let otherName = false;        // 名前が違っても、この人に入れる
 
   const itemLabel = (items, key) => (R.lang === 'en' ? ITEM_EN[key] : items.find(i => i.key === key).ja);
+  /* 「当日として答える」はデモ（見本の読み取り）のときだけ。本物では Worker の時計で当日かを決める（plan/meibo.md） */
+  const demoMode = () => !!R.aiReader && R.aiReader.mode() === 'sample';
+  const isTheDay = (trip) => R.today() === trip.date;
   const courseLabel = (c) => (R.lang === 'en' ? COURSE_EN[c] : C().COURSE_JA[c]);
   const md = (d) => { const [, m, dd] = d.split('-').map(Number); return `${m}/${dd}`; };
 
@@ -104,63 +112,77 @@
     const ask = entry.ask;
     const out = [];
     if (ask.includes('birthDate')) out.push(field(T.birthDate, input(d, 'birthDate', { type: 'date', max: R.today(), autocomplete: 'bday' })));
-    if (ask.includes('address')) out.push(field(T.address, input(d, 'address', { type: 'text', maxlength: 200, autocomplete: 'street-address' })));
+    if (ask.includes('address')) out.push(field(T.address, input(d, 'address', { type: 'text', maxlength: 120, autocomplete: 'street-address' })));
     if (ask.includes('emergency')) {
       const e = d.emergency;
       const sub = (key, label, type) => el('input', { class: 'input', type, value: e[key], placeholder: L(label), 'aria-label': L(label), maxlength: key === 'relation' ? 20 : 60,
         oninput: (ev) => { e[key] = ev.target.value; } });
+      const open = entry.parts.emergency;
+      const parts = [['name', T.eName, 'text'], ['relation', T.eRelation, 'text'], ['phone', T.ePhone, 'tel']];
       out.push(el('fieldset', { class: 'group' }, el('legend', { class: 'label', text: L(T.emergency) }),
-        el('div', { class: 'row' }, sub('name', T.eName, 'text'), sub('relation', T.eRelation, 'text'), sub('phone', T.ePhone, 'tel'))));
+        el('div', { class: 'row' }, parts.map(([k, label, type]) => (open.includes(k) ? sub(k, label, type)
+          : el('p', { class: 'note', text: `${L(label)}: ${L(T.filled)}` }))))));
     }
     if (ask.includes('certDate') || ask.includes('courses')) {
-      out.push(field(T.cert, el('select', { class: 'input', onchange: (e) => { d.cert.course = e.target.value; render(); } },
+      const courseOpen = entry.parts.cert.includes('course');
+      const course = courseOpen ? d.cert.course : entry.parts.course;
+      out.push(courseOpen ? field(T.cert, el('select', { class: 'input', onchange: (e) => { d.cert.course = e.target.value; render(); } },
         el('option', { value: '', text: '—' }),
-        R.roster.COURSES.filter(Boolean).map(c => el('option', { value: c, selected: d.cert.course === c, text: courseLabel(c) })))));
-      if (ask.includes('certDate') && d.cert.course && d.cert.course !== 'NONE') {
+        R.roster.COURSES.filter(Boolean).map(c => el('option', { value: c, selected: d.cert.course === c, text: courseLabel(c) }))))
+        : el('p', { class: 'note', text: `${L(T.cert)}: ${courseLabel(course)}（${L(T.filled)}）` }));
+      if (ask.includes('certDate') && entry.parts.cert.includes('date') && course && course !== 'NONE') {
         out.push(field(T.certDate, el('input', { class: 'input input--short', type: 'month', value: d.cert.date, oninput: (e) => { d.cert.date = e.target.value; } })));
       }
     }
     if (ask.includes('dives')) out.push(field(T.dives, input(d, 'dives', { type: 'number', min: 0, max: 100000, inputmode: 'numeric', class: 'input input--short' })));
     if (ask.includes('lastDive')) out.push(field(T.lastDive, input(d, 'lastDive', { type: 'month', class: 'input input--short' })));
-    if (ask.includes('history')) out.push(healthGroup(d));
+    if (ask.includes('history')) out.push(el('fieldset', { class: 'group' }, el('legend', { class: 'label', text: L(T.history) }), consentBox(d), healthRows(d)));
     return out;
   }
 
-  function healthGroup(d) {
-    const rows = R.HEALTH.map((q, i) => el('div', { class: 'hq' },
+  /* 同意のチェック。健康の答え（既往症・当日の体調）を入れる所には全部出す。同意がまだの人だけ */
+  const consentBox = (d) => el('label', { class: 'consent' },
+    el('input', { type: 'checkbox', checked: d.consent, onchange: (e) => { d.consent = e.target.checked; render(); } }),
+    el('span', { text: L(T.consent) }));
+
+  function healthRows(d) {
+    return R.HEALTH.map((q, i) => el('div', { class: 'hq' },
       el('p', { class: 'hq__q', text: L(q) }),
       el('div', { class: 'choices' }, ['yes', 'no'].map(a => el('label', { class: 'choice' },
         el('input', { type: 'radio', name: `ask-h${i}`, checked: d.answers[i] === a, disabled: !d.consent,
           onchange: () => { d.answers = d.answers.map((x, j) => (j === i ? a : x)); } }),
         el('span', { text: L(T[a]) }))))));
-    return el('fieldset', { class: 'group' }, el('legend', { class: 'label', text: L(T.history) }),
-      el('label', { class: 'consent' },
-        el('input', { type: 'checkbox', checked: d.consent, onchange: (e) => { d.consent = e.target.checked; render(); } }),
-        el('span', { text: L(T.consent) })),
-      rows);
   }
 
   /* 当日の体調。当日でなければ、デモのときだけ「当日として」答えられる */
-  function todayPart(trip, d) {
-    const isDay = R.today() === trip.date || todayDemo;
+  function todayPart(trip, d, entry) {
+    const isDay = isTheDay(trip) || (todayDemo && demoMode());
     if (!isDay) {
       return el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, L(T.todayWait), el('small', { text: md(trip.date) })),
-        el('p', { class: 'reset sheet__note' }, el('button', { class: 'linkbtn', type: 'button', text: L(T.todayDemo), onclick: () => { todayDemo = true; render(); } })));
+        demoMode() ? el('p', { class: 'reset sheet__note' }, el('button', { class: 'linkbtn', type: 'button', text: L(T.todayDemo), onclick: () => { todayDemo = true; render(); } })) : null);
     }
     const big = (value, title, sub) => el('button', { class: 'big', type: 'button', 'aria-pressed': String(d.today === value),
       onclick: () => { d.today = value; render(); } }, L(title), el('small', { text: L(sub) }));
     return el('section', { class: 'today' },
       el('h3', { class: 'h2', text: L(T.todayTitle) }),
+      entry.consented ? null : consentBox(d),
       big('ok', T.todayOk, T.todayOkSub), big('unwell', T.todayBad, T.todayBadSub),
       el('p', { class: 'note', text: L(T.todayNote) }));
   }
 
   /* ---------- 送る ---------- */
+  /* fn は { state, problems } を返す core の関数。問題があれば保存せずに problems に置く。保存できなかったときも知らせる */
   function save(fn) {
+    let found = [];
     try {
-      R.rosterStore.update(fn);
-      return true;
+      const saved = R.rosterStore.update(s => {
+        const r = fn(s);
+        found = r.problems;
+        return r.state;
+      });
+      problems = found.length ? found : saved === false ? ['save'] : [];
+      return !problems.length;
     } catch (e) {
       problems = ['save'];
       return false;
@@ -173,15 +195,11 @@
     problems = [];
     if (entry.ask.length) {
       const inputValue = { ...d, dives: d.dives === '' ? '' : Number(d.dives) };
-      const wantsHistory = entry.ask.includes('history');
-      const result = G().guestProblems(inputValue, entry.ask);
-      problems = [...result, ...(wantsHistory && !d.consent ? ['consent'] : [])];
-      if (problems.length) { render(); return; }
-      if (!save(s => G().applyGuest(s, { id: entry.person.id, input: inputValue, today: R.today(), at }).state)) { render(); return; }
+      if (!save(s => G().applyGuest(s, { id: entry.person.id, input: inputValue, today: R.today(), at }))) { render(); return; }
     }
-    const isDay = R.today() === trip.date || todayDemo;
-    if (entry.needsToday && isDay && d.today) {
-      if (!save(s => G().answerToday(s, { id: entry.person.id, answer: d.today, day: trip.date, at }))) { render(); return; }
+    const demo = !isTheDay(trip) && todayDemo && demoMode();
+    if (entry.needsToday && (isTheDay(trip) || demo) && d.today) {
+      if (!save(s => G().answerToday(s, { id: entry.person.id, answer: d.today, day: trip.date, consent: d.consent, today: R.today(), demo, at }))) { render(); return; }
     }
     flash = 'sent';
     render();
@@ -192,23 +210,25 @@
     const pass = R.passStore.get();
     const maxDays = (R.store.get().medicalDays || R.MEDICAL_DAYS_DEFAULT);
     const offer = G().passportOffer(pass, { today: R.today(), maxDays });
-    const wanted = { cert: ['certDate', 'courses'], dives: ['dives', 'lastDive'], history: ['history'] };
-    const items = offer.items.filter(i => wanted[i.key].some(k => entry.ask.includes(k)));
+    const items = G().passportChoices(R.rosterStore.get(), { id: entry.person.id, offer });
     const usable = items.filter(i => i.patch);
-    if (!passKeys.length && usable.length) passKeys = usable.map(i => i.key);
+    if (passKeys === null) passKeys = usable.map(i => i.key);
     const row = (i) => {
       const value = i.key === 'cert' ? [i.level, i.date]
         : i.key === 'dives' ? [`${i.dives} ${R.lang === 'en' ? 'dives' : '本'}`, i.lastDive]
-          : [L(T.passAnswers), i.old ? `${i.days} ${L(T.passOld)}` : `${i.answeredAt} ${L(T.passAnswered)}`];
+          : [L(T.passAnswers), i.blocked === 'name' ? L(T.passNameBlocked) : i.old ? `${i.days} ${L(T.passOld)}` : `${i.answeredAt} ${L(T.passAnswered)}`];
       return el('label', { class: 'pick' },
         el('input', { type: 'checkbox', checked: !!i.patch && passKeys.includes(i.key), disabled: !i.patch,
           onchange: (e) => { passKeys = e.target.checked ? [...passKeys, i.key] : passKeys.filter(k => k !== i.key); render(); } }),
         el('span', { class: 'rd__k', text: L({ cert: T.passCert, dives: T.passDives, history: T.passHistory }[i.key]) }),
         el('span', { class: 'rd__v' }, value[0], value[1] ? el('span', { class: 'rd__sub', text: value[1] }) : null));
     };
-    const differs = pass && entry.person.name && !C().sameName(pass.name, entry.person.name);
+    const differs = pass && pass.name && entry.person.name && !C().sameName(pass.name, entry.person.name);
     const restAsked = ['birthDate', 'address', 'emergency'].some(k => entry.ask.includes(k));
     const chosen = usable.filter(i => passKeys.includes(i.key));
+    const needsConsent = chosen.some(i => i.key === 'history') && !entry.consented;
+    const d = draftOf(entry.person);
+    const leave = () => { view = 'form'; passKeys = null; otherName = false; render(); };
     return [
       el('p', { class: 'note', text: `${v.shop}${L(T.passTo)}` }),
       el('h2', { class: 'page__title', text: L(T.passTitle) }),
@@ -216,17 +236,21 @@
       items.length ? el('div', { class: 'sheet' }, items.map(row)) : el('p', { class: 'empty', text: L(T.passNone) }),
       differs ? el('div', { class: 'band band--warn' }, el('p', { class: 'band__title', text: L(T.passNameDiff) }),
         el('p', { class: 'band__text', text: `${pass.name} / ${entry.person.name}${R.lang === 'en' ? '. ' : '。'}${L(T.passNameText)}` })) : null,
+      differs ? el('label', { class: 'check' },
+        el('input', { type: 'checkbox', checked: otherName, onchange: (e) => { otherName = e.target.checked; render(); } }),
+        el('span', { text: L(T.passOtherName) })) : null,
+      needsConsent ? consentBox(d) : null,
       restAsked ? el('p', { class: 'note', text: L(T.passRest) }) : null,
       R.dock(
-        el('button', { class: 'btn', type: 'button', disabled: !chosen.length, text: L(T.passUse),
+        el('p', { class: 'errors', role: 'alert', text: problemText() }),
+        el('button', { class: 'btn', type: 'button', disabled: !chosen.length || (differs && !otherName) || (needsConsent && !d.consent), text: L(T.passUse),
           onclick: () => {
             const at = new Date().toISOString();
-            if (save(s => G().applyPassport(s, { id: entry.person.id, offer: { items: usable }, keys: passKeys, at }))) flash = 'sent';
-            view = 'form';
-            passKeys = [];
-            render();
+            if (!save(s => G().applyPassport(s, { id: entry.person.id, offer, keys: passKeys, otherName, consent: d.consent, today: R.today(), at }))) { render(); return; }
+            flash = 'sent';
+            leave();
           } }),
-        el('button', { class: 'btn btn--ghost', type: 'button', text: L(T.cancel), onclick: () => { view = 'form'; passKeys = []; render(); } }))
+        el('button', { class: 'btn btn--ghost', type: 'button', text: L(T.cancel), onclick: () => { problems = []; leave(); } }))
     ];
   }
 
@@ -238,9 +262,10 @@
     const d = draftOf(entry.person);
     const pass = R.passStore.get();
     const done = !entry.ask.length && !entry.needsToday;
+    /* お店がもう知っていることは、項目の名前だけを出す（リンクが転送されても中身が見えないように） */
     const known = entry.known.map(k => el('div', { class: 'rd' },
-      el('span', { class: 'rd__k', text: itemLabel(items, k) }), el('span', { class: 'rd__v', text: C().cellText(entry.person, trip, k, []) })));
-    const canSend = entry.ask.length || (entry.needsToday && (R.today() === trip.date || todayDemo) && d.today);
+      el('span', { class: 'rd__k', text: itemLabel(items, k) }), el('span', { class: 'rd__v', text: L(T.filled) })));
+    const canSend = entry.ask.length || (entry.needsToday && (isTheDay(trip) || (todayDemo && demoMode())) && d.today);
     return [
       el('p', { class: 'note', text: `${v.shop}${L(T.from)}` }),
       el('h2', { class: 'page__title', text: L(trip.kind === 'snorkel' ? T.titleSnorkel : T.titleDive) }),
@@ -248,7 +273,7 @@
       flash ? el('p', { class: 'flag flag--ok', role: 'status', text: L(T[flash]) }) : null,
       pass && entry.ask.some(k => ['certDate', 'courses', 'dives', 'lastDive', 'history'].includes(k))
         ? el('div', { class: 'passbar' }, el('span', { text: R.lang === 'en' ? `${L(T.passHere)} (${pass.name})` : `${L(T.passHere)}（${pass.name}）` }),
-          el('button', { class: 'btn btn--small', type: 'button', text: L(T.fromPass), onclick: () => { view = 'passport'; flash = null; render(); } }))
+          el('button', { class: 'btn btn--small', type: 'button', text: L(T.fromPass), onclick: () => { view = 'passport'; flash = null; problems = []; passKeys = null; otherName = false; render(); } }))
         : null,
       v.people.length > 1 ? el('div', { class: 'ptabs', role: 'group' }, v.people.map(x => el('button', {
         class: 'ptab', type: 'button', 'aria-pressed': String(x.person.id === personId),
@@ -256,17 +281,19 @@
       }, x.person.name || '—', !x.ask.length && !x.needsToday ? ' ✓' : ''))) : null,
       known.length ? el('details', { class: 'sheet known' },
         el('summary', { text: R.lang === 'en' ? `${L(T.known)} (${known.length})` : `${L(T.known)}（${known.length}）` }), known, el('p', { class: 'sheet__note', text: L(T.knownNote) })) : null,
-      done ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, L(T.doneTitle), el('small', { text: `✓ ${items.length} / ${items.length}` })),
+      done ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, `✓ ${L(T.doneTitle)}`),
         el('p', { class: 'sheet__note', text: L(T.doneText) })) : null,
       entry.ask.length ? el('div', { class: 'form ask__form' }, formFields(entry, d, items)) : null,
       entry.needsToday && entry.ask.length ? el('p', { class: 'note', text: L(T.todayLater) }) : null,
-      entry.needsToday && !entry.ask.length ? todayPart(trip, d) : null,
+      entry.needsToday && !entry.ask.length ? todayPart(trip, d, entry) : null,
       canSend ? R.dock(
-        el('p', { class: 'errors', role: 'alert', text: problems.length ? `${L(T.fix)}: ${problems.map(k => L(PROBLEM[k] || { ja: '保存できませんでした', en: 'Could not save' })).join('・')}` : '' }),
+        el('p', { class: 'errors', role: 'alert', text: problemText() }),
         el('button', { class: 'btn', type: 'button', text: L(T.send), onclick: () => send(entry, trip) })) : null,
       el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: L(T.back), onclick: close }))
     ];
   }
+
+  const problemText = () => (problems.length ? `${L(T.fix)}: ${problems.map(k => L(PROBLEM[k] || PROBLEM.save)).join(R.lang === 'en' ? ', ' : '・')}` : '');
 
   function render() {
     if (!bookingId) return;
@@ -288,7 +315,7 @@
   }
 
   function open(id) {
-    if (id !== bookingId) { drafts = {}; personId = ''; todayDemo = false; }
+    if (id !== bookingId) { drafts = {}; personId = ''; todayDemo = false; passKeys = null; otherName = false; }
     bookingId = id;
     view = 'form';
     problems = [];

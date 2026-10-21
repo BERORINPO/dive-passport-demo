@@ -1,6 +1,8 @@
 /* お客さんが自分で入れる所（純ロジック）。保存・通信・画面・時計は知らない。
    お店が送ったリンクから開いた人が、その予約の人の「まだ」の所だけを入れる。パスポートからも入れられる。
-   健康の答え（既往症・当日の体調）は、ここで入れて名簿に残すだけで、AI には渡さない（AI に渡す物は roster-schema.js が決める） */
+   お店や AI が入れた所は書き換えない。一部だけ入っている欄（緊急時の連絡先・C カード）は、空の所だけを入れる。
+   健康の答え（既往症・当日の体調）は、同意のうえで入れ、同意した日と同意の文の版を名簿に残す。AI には渡さない
+   （AI に渡す物は roster-schema.js が決める） */
 (() => {
   'use strict';
 
@@ -8,7 +10,10 @@
   const S = () => R.roster;
   const C = () => R.rosterCore;
 
-  const ADDRESS_MAX = 200;
+  /* 同意の文の版。文を変えたら、ここも変える（名簿に残り、どの文に同意したかを後で示せる） */
+  const CONSENT_VER = '2026-10-21';
+  /* 長さの上限は roster-schema.js の人の形と同じ */
+  const ADDRESS_MAX = 120;
   const NAME_MAX = 60;
   const PHONE_MAX = 30;
   const RELATION_MAX = 20;
@@ -22,6 +27,7 @@
   const isDay = (v) => typeof v === 'string' && DAY.test(v) && S().realDate(v);
   const isMonth = (v) => typeof v === 'string' && (MONTH_ONLY.test(v) || DAY.test(v)) && S().realDate(v);
   const text = (v, max) => typeof v === 'string' && v.trim() !== '' && v.length <= max;
+  const blank = (v) => !String(v == null ? '' : v).trim();
 
   /* 日付の数（1970-01-01 からの日数）。時計を使わずに数える（暦の式） */
   function dayNumber(ymd) {
@@ -36,6 +42,17 @@
   const daysBetween = (from, to) => dayNumber(to) - dayNumber(from);
 
   /* ---------- 開いたリンクの中身 ---------- */
+  /* 一部だけ入っている欄の、空の所。ここだけを聞いて入れる */
+  function openParts(p) {
+    return {
+      emergency: S().SUB.emergency.filter(k => blank(p.emergency[k])),
+      cert: [p.cert.course === '' && 'course', p.cert.course !== 'NONE' && !isMonth(p.cert.date) && 'date'].filter(Boolean),
+      course: p.cert.course
+    };
+  }
+
+  const consented = (p) => isDay(p.health.consentAt || '');
+
   /* 予約 1 件と、その人ごとの「まだ」の所。ask は入力の欄で聞く項目、needsToday は当日の体調がまだか */
   function guestView(state, bookingId) {
     const booking = state.bookings.find(b => b.id === bookingId);
@@ -45,80 +62,100 @@
     const people = state.people.filter(p => p.bookingId === bookingId).map(person => {
       const missing = C().askGuest(person, trip);
       const known = items.filter(i => !i.trip && !i.health && C().filled(person, trip, i.key)).map(i => i.key);
-      return { person, ask: missing.filter(k => k !== TODAY_KEY), needsToday: missing.includes(TODAY_KEY), known };
+      return { person, ask: missing.filter(k => k !== TODAY_KEY), needsToday: missing.includes(TODAY_KEY), known,
+        parts: openParts(person), consented: consented(person) };
     });
     return { booking, trip, people, items };
   }
 
+  const entryOf = (state, id) => {
+    const person = state.people.find(p => p.id === id);
+    if (!person) throw new Error(`お客さんの入力: 人が見つからない (${id})`);
+    return guestView(state, person.bookingId).people.find(v => v.person.id === id);
+  };
+
   /* ---------- 入力の欄 ---------- */
-  /* 入力の形: { birthDate, address, emergency: { name, relation, phone }, cert: { course, date }, courses, dives, lastDive, answers }
-     聞いた項目（ask）の所だけを見る。返すのは、直してほしい項目の名前の一覧 */
-  function guestProblems(input, ask) {
+  /* 入力の形: { birthDate, address, emergency: { name, relation, phone }, cert: { course, date }, courses, dives, lastDive, answers, consent }
+     聞いた項目（ask）と、一部だけ入っている欄の空の所（parts）だけを見る。返すのは、直してほしい項目の名前の一覧 */
+  function guestProblems(input, ask, parts) {
     const x = input || {};
     const e = x.emergency || {};
     const c = x.cert || {};
+    const open = parts || { emergency: S().SUB.emergency, cert: ['course', 'date'], course: '' };
     const wants = (k) => ask.includes(k);
-    const certNeeded = wants('certDate') || wants('courses');
-    const noCard = c.course === 'NONE';
+    const openE = (k) => open.emergency.includes(k);
+    const courseOpen = (wants('certDate') || wants('courses')) && open.cert.includes('course');
+    const course = courseOpen ? c.course : open.course;
     return [
       wants('birthDate') && !isDay(x.birthDate) && 'birthDate',
       wants('address') && !text(x.address, ADDRESS_MAX) && 'address',
-      wants('emergency') && !(text(e.name, NAME_MAX) && text(e.phone, PHONE_MAX) &&
-        typeof e.relation === 'string' && e.relation.length <= RELATION_MAX) && 'emergency',
-      certNeeded && !(S().COURSES.includes(c.course) && c.course !== '') && 'cert',
-      wants('certDate') && !noCard && !isMonth(c.date) && 'certDate',
+      wants('emergency') && !((!openE('name') || text(e.name, NAME_MAX)) && (!openE('phone') || text(e.phone, PHONE_MAX)) &&
+        (!openE('relation') || (typeof (e.relation || '') === 'string' && (e.relation || '').length <= RELATION_MAX))) && 'emergency',
+      courseOpen && !(S().COURSES.includes(c.course) && c.course !== '') && 'cert',
+      wants('certDate') && open.cert.includes('date') && course !== 'NONE' && !isMonth(c.date) && 'certDate',
       wants('courses') && typeof x.courses === 'string' && x.courses.length > COURSES_MAX && 'courses',
       wants('dives') && !(Number.isInteger(x.dives) && x.dives >= 0 && x.dives <= DIVES_MAX) && 'dives',
       wants('lastDive') && !(x.dives === 0 && wants('dives')) && !isMonth(x.lastDive) && 'lastDive',
       wants('history') && !(Array.isArray(x.answers) && x.answers.length === S().HEALTH_QUESTIONS &&
-        x.answers.every(a => a === 'yes' || a === 'no')) && 'history'
+        x.answers.every(a => a === 'yes' || a === 'no')) && 'history',
+      wants('history') && x.consent !== true && 'consent'
     ].filter(Boolean);
   }
 
-  /* 入力を、人の項目に直す。聞いた項目の所だけ。既往症の答えは、答えた日（today）と一緒に入れる */
-  function guestPatch(input, ask, today) {
+  /* 入力を、人の項目に直す。聞いた項目の、空の所だけ。既往症の答えは、答えた日と同意と一緒に入れる */
+  function guestPatch(input, ask, today, parts) {
     const x = input;
+    const open = parts || { emergency: S().SUB.emergency, cert: ['course', 'date'], course: '' };
     const patch = {};
     if (ask.includes('birthDate')) patch.birthDate = x.birthDate;
     if (ask.includes('address')) patch.address = x.address.trim();
     if (ask.includes('emergency')) {
-      patch.emergency = { name: x.emergency.name.trim(), relation: (x.emergency.relation || '').trim(), phone: x.emergency.phone.trim() };
+      patch.emergency = Object.fromEntries(open.emergency.map(k => [k, String(x.emergency[k] || '').trim()]));
     }
-    /* 取得年月を聞いたときは講習と年月を入れ直す。講習だけを聞いたときは、AI が読んだ年月を残す（cert の一部だけ直す） */
-    if (ask.includes('certDate')) patch.cert = { course: x.cert.course, date: x.cert.course === 'NONE' ? '' : x.cert.date };
-    else if (ask.includes('courses')) patch.cert = { course: x.cert.course };
+    if (ask.includes('certDate') || ask.includes('courses')) {
+      const cert = {};
+      if (open.cert.includes('course')) cert.course = x.cert.course;
+      const course = cert.course || open.course;
+      if (ask.includes('certDate') && open.cert.includes('date')) cert.date = course === 'NONE' ? '' : x.cert.date;
+      if (Object.keys(cert).length) patch.cert = cert;
+    }
     if (ask.includes('courses') && typeof x.courses === 'string' && x.courses.trim()) patch.courses = x.courses.trim();
     if (ask.includes('dives')) patch.dives = x.dives;
     if (ask.includes('lastDive') && isMonth(x.lastDive)) patch.lastDive = x.lastDive;
-    if (ask.includes('history')) patch.health = { answers: [...x.answers], historyAt: today };
+    if (ask.includes('history')) patch.health = { answers: [...x.answers], historyAt: today, consentAt: today, consentVer: CONSENT_VER };
     return patch;
   }
 
   /* お客さんが入れた。形が合わなければ { problems } を返し、state は変えない */
   function applyGuest(state, { id, input, today, at }) {
     if (!DAY.test(today)) throw new Error(`applyGuest: today は YYYY-MM-DD (${today})`);
-    const person = state.people.find(p => p.id === id);
-    if (!person) throw new Error(`applyGuest: 人が見つからない (${id})`);
-    const view = guestView(state, person.bookingId);
-    const ask = view.people.find(v => v.person.id === id).ask;
-    const problems = guestProblems(input, ask);
+    const entry = entryOf(state, id);
+    const problems = guestProblems(input, entry.ask, entry.parts);
     if (problems.length) return { state, problems };
-    const patch = guestPatch(input, ask, today);
+    const patch = guestPatch(input, entry.ask, today, entry.parts);
     return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'guest', at }), problems: [] };
   }
 
-  /* 当日の体調。day は答えた日（当日の朝に答える。デモでは便の日として答えられる） */
-  function answerToday(state, { id, answer, day, at }) {
+  /* 当日の体調。day は答えた日。同意がまだなら consent が要る。
+     demo は「デモで当日として答えた」印で、記録に残す（本物では Worker の時計で day を決める。plan/meibo.md） */
+  function answerToday(state, { id, answer, day, consent, today, demo, at }) {
     if (!['ok', 'unwell'].includes(answer)) throw new Error(`answerToday: answer は ok / unwell (${answer})`);
     if (!DAY.test(day)) throw new Error(`answerToday: day は YYYY-MM-DD (${day})`);
-    return C().editPerson(state, { id, patch: { health: { today: answer, todayAt: day } }, who: 'guest', src: 'guest', at });
+    const entry = entryOf(state, id);
+    if (!entry.consented && consent !== true) return { state, problems: ['consent'] };
+    const agree = entry.consented ? {} : { consentAt: DAY.test(today || '') ? today : day, consentVer: CONSENT_VER };
+    return { state: C().editPerson(state, { id, patch: { health: { today: answer, todayAt: day, ...agree } }, who: 'guest', src: 'guest', at, demo: demo === true }),
+      problems: [] };
   }
 
   /* ---------- パスポートから ---------- */
-  /* C カードの名前（自由に書いた字）から、名簿の講習の記号にする。いちばん上の講習を選ぶ */
+  /* C カードの名前（自由に書いた字・略した字）から、名簿の講習の記号にする。いちばん上の講習を選ぶ */
   const COURSE_WORDS = [
-    ['DM', /dive\s*master|divemaster|ダイブマスター/i], ['RESCUE', /rescue|レスキュー/i],
-    ['AOW', /advanced|アドバンス/i], ['JOW', /junior|ジュニア/i], ['OW', /open\s*water|オープン\s*ウォーター/i]
+    ['DM', /dive\s*master|divemaster|ダイブ[\s・･]*マスター|\bDM\b/i],
+    ['RESCUE', /rescue|レスキュー/i],
+    ['AOW', /advanced|アドバンス|\bAOW\b/i],
+    ['JOW', /junior|ジュニア|\bJOW\b/i],
+    ['OW', /open[\s・･-]*water|オープン[\s・･]*ウォーター|\bOW\b/i]
   ];
   const RANK = ['DM', 'RESCUE', 'AOW', 'OW', 'JOW', 'OTHER'];
   function courseOf(level) {
@@ -145,22 +182,59 @@
     const answered = m.form === R.pass.FORM && m.answers.length === S().HEALTH_QUESTIONS && m.answers.every(a => a === 'yes' || a === 'no');
     if (answered && DAY.test(m.answeredAt) && DAY.test(today)) {
       const days = daysBetween(m.answeredAt, today);
-      if (days >= 0 && days <= maxDays) {
-        items.push({ key: 'history', answeredAt: m.answeredAt, days, patch: { health: { answers: [...m.answers], historyAt: m.answeredAt } } });
-      } else {
-        items.push({ key: 'history', answeredAt: m.answeredAt, days, old: true, patch: null });
-      }
+      const fresh = days >= 0 && days <= maxDays;
+      items.push({ key: 'history', answeredAt: m.answeredAt, days, old: !fresh,
+        patch: fresh ? { health: { answers: [...m.answers], historyAt: m.answeredAt } } : null });
     }
     return { items, name: pass.name };
   }
 
-  /* 選んだ物だけを入れる。出どころは「パスポート」、した人は「お客さん」 */
-  function applyPassport(state, { id, offer, keys, at }) {
-    const chosen = offer.items.filter(i => keys.includes(i.key) && i.patch);
-    if (!chosen.length) return state;
-    const patch = chosen.reduce((acc, i) => ({ ...acc, ...i.patch }), {});
-    return C().editPerson(state, { id, patch, who: 'guest', src: 'passport', at });
+  /* パスポートの物を、この人の「まだ」の所に合わせて絞る。分かっている所は入れない（C カードの講習、本数など） */
+  function narrow(item, entry) {
+    const ask = entry.ask;
+    if (item.key === 'cert') {
+      if (!(ask.includes('certDate') || ask.includes('courses'))) return null;
+      const cert = {};
+      if (entry.parts.cert.includes('course')) cert.course = item.patch.cert.course;
+      if (ask.includes('certDate') && entry.parts.cert.includes('date') && (cert.course || entry.parts.course) !== 'NONE' && item.patch.cert.date) cert.date = item.patch.cert.date;
+      return Object.keys(cert).length ? { cert } : null;
+    }
+    if (item.key === 'dives') {
+      const p = {};
+      if (ask.includes('dives')) p.dives = item.patch.dives;
+      if (ask.includes('lastDive') && item.patch.lastDive) p.lastDive = item.patch.lastDive;
+      return Object.keys(p).length ? p : null;
+    }
+    return ask.includes('history') ? item.patch : null;
   }
 
-  R.rosterGuest = { TODAY_KEY, guestView, guestProblems, guestPatch, applyGuest, answerToday, courseOf, passportOffer, applyPassport, daysBetween };
+  /* この人に入れられる物（選ぶ画面に出す物）。名前が違うと、健康の答えは入れられない（別の人の答えが名簿に入るのを防ぐ） */
+  function passportChoices(state, { id, offer }) {
+    const entry = entryOf(state, id);
+    const sameName = !offer.name || !entry.person.name || C().sameName(offer.name, entry.person.name);
+    return offer.items.map(i => {
+      const patch = i.patch ? narrow(i, entry) : null;
+      const blocked = i.key === 'history' && !sameName ? 'name' : i.old ? 'old' : !patch ? 'none' : '';
+      return { ...i, patch: blocked ? null : patch, blocked };
+    }).filter(i => i.blocked !== 'none');
+  }
+
+  /* 選んだ物だけを入れる。出どころは「パスポート」、した人は「お客さん」。
+     名前が違うときは otherName（この人に入れる、の印）が要る。健康の答えを入れるときは、同意がまだなら consent が要る */
+  function applyPassport(state, { id, offer, keys, otherName, consent, today, at }) {
+    const entry = entryOf(state, id);
+    const sameName = !offer.name || !entry.person.name || C().sameName(offer.name, entry.person.name);
+    const chosen = passportChoices(state, { id, offer }).filter(i => keys.includes(i.key) && i.patch);
+    const problems = [
+      !sameName && otherName !== true && 'name',
+      chosen.some(i => i.key === 'history') && !entry.consented && consent !== true && 'consent'
+    ].filter(Boolean);
+    if (problems.length || !chosen.length) return { state, problems };
+    const patch = chosen.reduce((acc, i) => ({ ...acc, ...i.patch }), {});
+    if (patch.health && !entry.consented) patch.health = { ...patch.health, consentAt: DAY.test(today || '') ? today : patch.health.historyAt, consentVer: CONSENT_VER };
+    return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'passport', at }), problems: [] };
+  }
+
+  R.rosterGuest = { CONSENT_VER, TODAY_KEY, guestView, openParts, guestProblems, guestPatch, applyGuest, answerToday, courseOf,
+    passportOffer, passportChoices, applyPassport, daysBetween };
 })();
