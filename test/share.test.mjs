@@ -344,14 +344,20 @@ test('ポイントを離れる前: 前の記録から 10 秒たたずに押し�
   assert.equal(X.leaveRepeat(t0, t0 - 1), false, '端末の時計が戻っても止めない');
 });
 
-test('合同名簿: お店ごとに、札の番号と条例の項目。ガイドは名簿に入れず、他店のお客さんのガイドはそのお店のガイド', () => {
+test('合同名簿: お店ごとに、札の番号と船の上で要る 7 項目だけ。住所・生年月日などは載せない。ガイドは名簿に入れない', () => {
   const st = X.assignTags(addTwo(withPartner, false).state, { tripId: 't1', at: AT });
   const j = X.jointRows(st, 't1', HEALTH_SHORT);
   assert.deepEqual([j.people, j.guides, j.owner], [4, 2, OWN]);
+  assert.deepEqual(j.items.map(i => i.ja), ['氏名', '店', '種類', 'ガイド', '緊急時の連絡先', '既往症', '当日の健康状態']);
   assert.deepEqual(j.groups.map(g => g.rows.map(r => r.tag)), [['B-2', 'B-3'], ['C-2', 'C-3']]);
   const ichiro = j.groups[1].rows[0].cells;
-  assert.deepEqual([ichiro.name, ichiro.guide, ichiro.history, ichiro.today, ichiro.site], ['見本 一郎', '見本 三郎', `${PARTNER}が確かめた`, '', '北の根']);
-  assert.equal(j.groups[0].rows[0].cells.guide, '見本 ガイド');
+  assert.deepEqual(Object.keys(ichiro), X.JOINT_KEYS, '載せる項目のほかは、行にも持たない');
+  assert.deepEqual([ichiro.name, ichiro.shop, ichiro.kind, ichiro.guide, ichiro.emergency, ichiro.history, ichiro.today],
+    ['見本 一郎', PARTNER, 'ファン', '見本 三郎', '見本 京子（妻） 090-5555-6666', `${PARTNER}が確かめた`, '']);
+  assert.equal(j.groups[1].rows[0].blank, 1, '当日の欄だけ空（便の日に「渡す」を押すまで）');
+  assert.deepEqual([j.groups[0].rows[0].cells.guide, j.groups[0].rows[0].cells.shop], ['見本 ガイド', OWN]);
+  const snorkel = X.jointRows({ ...st, trips: st.trips.map(t => ({ ...t, kind: 'snorkel' })) }, 't1', HEALTH_SHORT);
+  assert.deepEqual([snorkel.items.length, snorkel.groups[1].rows[0].cells.kind], [7, 'スノーケル']);
 });
 
 test('受け取った記録: 人数と、健康の欄を受け取ったかだけ', () => {

@@ -226,17 +226,23 @@
   }
 
   /* ---------- 合同名簿（印刷） ---------- */
-  /* お店ごとに、お客さんの行（札の番号と条例の項目）。ガイドは名簿に入れず、札だけ */
+  /* 合同名簿に載せる項目。船の上で要る物だけ（札は別の列）。住所・生年月日・C カード・潜水経験などは、各店の条例の名簿（P4）だけに残す */
+  const JOINT_KEYS = ['name', 'shop', 'kind', 'guide', 'emergency', 'history', 'today'];
+  const JOINT_JA = { shop: '店', kind: '種類', guide: 'ガイド' };
+  const jointItems = (kind) => JOINT_KEYS.map(key => ({ key, ja: JOINT_JA[key] || S().ITEMS[kind].find(i => i.key === key).ja }));
+
+  /* お店ごとに、お客さんの行（札の番号と合同名簿の項目）。ガイドは名簿に入れず、札だけ。blank は空の欄の数 */
   function jointRows(state, tripId, healthShort) {
     const g = boatGroups(state, tripId);
     if (!g) return null;
-    const items = S().ITEMS[g.trip.kind];
+    const items = jointItems(g.trip.kind);
+    const cellOf = (m, group, key) => (key === 'shop' ? group.name : key === 'kind' ? m.label : C().cellText(m.person, g.trip, key, healthShort));
     const groups = g.groups.map(group => ({
       name: group.name, own: group.own, owner: group.owner, guides: group.guides,
-      rows: group.members.filter(m => m.kind === 'person').map(m => ({
-        personId: m.person.id, tag: m.tag, done: m.status.done,
-        cells: Object.fromEntries(items.map(i => [i.key, C().cellText(m.person, g.trip, i.key, healthShort)]))
-      }))
+      rows: group.members.filter(m => m.kind === 'person').map(m => {
+        const cells = Object.fromEntries(items.map(i => [i.key, cellOf(m, group, i.key)]));
+        return { personId: m.person.id, tag: m.tag, done: m.status.done, blank: items.filter(i => !cells[i.key]).length, cells };
+      })
     }));
     return { trip: g.trip, owner: g.owner, items, groups, people: groups.reduce((n, x) => n + x.rows.length, 0),
       guides: groups.reduce((n, x) => n + x.guides, 0) };
@@ -257,7 +263,7 @@
   const leaveRepeat = (lastMs, nowMs) => Number.isFinite(lastMs) && nowMs >= lastMs && nowMs - lastMs < LEAVE_GUARD_MS;
 
   R.rosterShare = {
-    PARTNER_CONSENT_VER, MAX_PARTNERS, boatOwner, shopsOf, shopPeople, shopProblem, addPartner, removePartner, setHost,
+    PARTNER_CONSENT_VER, MAX_PARTNERS, JOINT_KEYS, boatOwner, shopsOf, shopPeople, shopProblem, addPartner, removePartner, setHost,
     partnerGuide, partnerShares, addPartnerPeople, setPartnerGuide, setPartnerShare, handOver,
     kindLabel, boatGroups, assignTags, jointRows, recordLeave, leaveChecks, leaveRepeat
   };

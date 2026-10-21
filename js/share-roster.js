@@ -271,8 +271,8 @@
   function jointPaper(j) {
     const { trip, items } = j;
     const law = R.dayRoster.LAW[trip.kind];
-    const label = (key) => items.find(i => i.key === key).ja;
-    const notDone = j.groups.reduce((n, x) => n + x.rows.filter(r => !r.done).length, 0);
+    const label = (key) => R.roster.ITEMS[trip.kind].find(i => i.key === key).ja;   // 上の欄（日時・場所）の見出しは、条例の項目の名前
+    const notDone = j.groups.reduce((n, x) => n + x.rows.filter(r => r.blank > 0).length, 0);
     const noTag = j.groups.reduce((n, x) => n + x.rows.filter(r => !r.tag).length, 0);
     const riders = j.groups.filter(x => x.name !== j.owner).map(x => x.name).join('・') || '—';
     const meta = [['船', trip.boat || '—'], ['船を出す店', j.owner], ['乗る店', riders],
@@ -282,16 +282,16 @@
     return el('section', { class: 'paper', 'aria-label': JOINT_TITLE, 'data-trip': trip.id, 'data-people': String(j.people), 'data-paper': 'joint' },
       el('h3', { class: 'paper__title', text: JOINT_TITLE }),
       el('p', { class: 'paper__meta' }, meta.map(([k, v]) => el('span', {}, `${k} `, el('b', { text: v })))),
-      notDone ? el('p', { class: 'paper__warn', text: `まだそろっていない人が ${notDone} 人います（— の欄）。そろってから印刷し直してください。` }) : null,
+      notDone ? el('p', { class: 'paper__warn', text: `空の欄（—）がある人が ${notDone} 人います。そろってから印刷し直してください。` }) : null,
       noTag ? el('p', { class: 'paper__warn', text: `札の番号がまだの人が ${noTag} 人います。合同名簿の画面で番号を付けてください。` }) : null,
       el('div', { class: 'paper__wrap' }, el('table', { class: 'paper__table' },
-        el('thead', {}, el('tr', {}, el('th', { scope: 'col', class: 'paper__tagcol', text: '札' }), items.map(i => el('th', { scope: 'col', text: i.ja })))),
+        el('thead', {}, el('tr', {}, el('th', { scope: 'col', class: 'paper__tagcol', text: '札' }), items.map(i => el('th', { scope: 'col', class: `paper__col--${i.key}`, text: i.ja })))),
         el('tbody', {}, j.groups.flatMap(x => [
           el('tr', { class: 'paper__shop' }, el('td', { colspan: String(items.length + 1), text: `${x.name}　お客さん ${x.rows.length} 人` })),
           ...x.rows.map(r => el('tr', {}, el('td', { class: r.tag ? 'paper__tag' : 'paper__none', text: r.tag || '—' }), items.map(i => cell(r.cells[i.key]))))
         ])))),
       el('p', { class: 'paper__foot' },
-        el('span', { text: `条例の${law.title}は、お店ごとに自分のお客さんの分を作る（今日の名簿から印刷）` }),
+        el('span', { text: `住所・生年月日などを含む条例の${law.title}（${R.roster.ITEMS[trip.kind].length} 項目）は、お店ごとに自分のお客さんの分を作る（今日の名簿から印刷）` }),
         el('span', { text: `印刷 ${shortTime(nowIso())}　見る人はこの船のお店の人だけ。健康の欄は人に見せない` })));
   }
 
