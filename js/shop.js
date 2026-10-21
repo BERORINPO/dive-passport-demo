@@ -113,16 +113,20 @@
     /* その日の中は、確かめる受付・未確認・確認済みの順。同じなら新しい順 */
     const rank = (x) => (x.checked ? 2 : R.assess(x, s).flags.some(f => f.level === 'warn') ? 0 : 1);
     const order = (a, b) => (rank(a) - rank(b)) || b.at.localeCompare(a.at);
-    /* 今日から先の日を上に、古い順。過ぎた日はその下に、新しい順 */
+    /* 今日から先の日を上に、古い順。過ぎた日はその下に、新しい順。日付の読めない受付は一番下にまとめる */
     const today = R.today();
-    const all = [...new Set(s.intakes.map(x => x.date))].sort();
-    const dates = [...all.filter(d => d >= today), ...all.filter(d => !(d >= today)).reverse()];
+    const valid = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+    const all = [...new Set(s.intakes.filter(x => valid(x.date)).map(x => x.date))].sort();
+    const blocks = [...all.filter(d => d >= today).map(d => [d, false]), ...all.filter(d => d < today).reverse().map(d => [d, true])];
+    const undated = s.intakes.filter(x => !valid(x.date)).sort(order);
     root.replaceChildren(
       el('h2', { class: 'page__title', text: '受付' }),
       el('p', { class: 'page__sub', text: 'お客さまが送った受付。参加できるかはお店が決めます。印は、見落としに気づくためのものです。' }),
       counters(s),
-      dates.length
-        ? el('div', { class: 'timetable' }, dates.map(d => dayBlock(d, s.intakes.filter(x => x.date === d).sort(order), s, !(d >= today))))
+      blocks.length || undated.length
+        ? el('div', { class: 'timetable' },
+          blocks.map(([d, past]) => dayBlock(d, s.intakes.filter(x => x.date === d).sort(order), s, past)),
+          undated.length ? dayBlock('', undated, s, false) : null)
         : el('p', { class: 'empty', text: 'まだ受付がありません。「お客さま」の画面から送れます。' }),
       el('div', { class: 'card' }, el('h2', { class: 'h2', text: 'お店への質問（リドが答えられなかったもの）' }), questions(s)),
       settings(s),

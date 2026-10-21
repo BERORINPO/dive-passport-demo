@@ -392,6 +392,16 @@
       : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui }) : renderList();
     R.fill(root, body);
+    if (mode === 'list') showPickedDay();
+  }
+
+  /* 日付の並びは横に送るので、選んだ日が見える所まで横だけ動かす（画面は上下に動かさない） */
+  function showPickedDay() {
+    const on = root.querySelector('.day[aria-pressed="true"]');
+    if (!on) return;
+    const box = on.parentElement.getBoundingClientRect();
+    const r = on.getBoundingClientRect();
+    if (r.left < box.left || r.right > box.right) on.parentElement.scrollLeft += r.left - box.left;
   }
 
   R.renderBooking = render;

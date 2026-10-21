@@ -24,7 +24,8 @@
 - 画面のファイルと `/api` は同じ Worker から配る（同じ origin）。CORS と cross-site の Cookie は使わない
 - 入口は 2 重: Cloudflare Access（Worker 全体）と合言葉。Worker は `ctx.access` が無い呼び出しを 403 で断る
 - 監視: Worker は回数と費用だけを KV に数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える
-- 外から読む物: three.js（jsdelivr）と字体（fonts.googleapis.com / fonts.gstatic.com）。どちらも読むだけ。電波が無いときは、字体は端末の字体に替わる（display=swap）
+- 外から読む物: three.js（cdn.jsdelivr.net、index.html の importmap）、qrcode-generator 1.4.4（cdnjs.cloudflare.com、index.html の script）、字体（fonts.googleapis.com / fonts.gstatic.com、index.html と pass.html）。どれも読むだけで、こちらから中身は送らない。電波が無いときは、字体は端末の字体に替わる（display=swap）
+- three.js と qrcode-generator は動くコードなのに integrity（中身が書き換えられていないかをブラウザが確かめる指定）が無い。付けるかどうかはザクの確認待ち
 
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
