@@ -80,8 +80,9 @@
     if (!person) throw new Error(`お客さんの入力: 人が見つからない (${id})`);
     return guestView(state, person.bookingId).people.find(v => v.person.id === id);
   };
-  /* 乗り合いの他のお店が健康の答えを持つ人。この店では健康の答えを入れない */
-  const held = (entry) => !!entry.person.health.heldBy;
+  /* 乗り合いの他のお店が健康の答えを持つ人。この店では健康の答えを入れない。
+     applyGuest・applyPassport では、askGuest が健康を聞かないので今は届かない（後から入口が増えたときの守り） */
+  const held = (entry) => C().isHeld(entry.person);
 
   /* ---------- 入力の欄 ---------- */
   /* 入力の形: { birthDate, address, emergency: { name, relation, phone }, cert: { course, date }, courses, dives, lastDive, answers, consent }

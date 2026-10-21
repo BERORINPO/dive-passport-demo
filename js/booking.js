@@ -112,11 +112,13 @@
     const unsure = row.people.some(p => p.unsure.length);
     const waiting = row.people.filter(p => !p.done).length;
     const guests = row.people.filter(p => p.ask.length).length;   // お客さんの入力を待っている人。残りは便の項目（ポイント・ガイド）
+    const heldToday = row.people.some(p => p.heldToday);            // 当日の体調を、乗り合いの他のお店が便の日に確かめる
     const st = unsure ? ['check', '! 確かめる'] : waiting ? ['wait', `・名簿 ${row.done}/${total}`] : ['ok', '✓ そろった'];
     const lead = b.leadName || (row.people[0] && row.people[0].name) || '名前の分からない予約';
     const others = Math.max(b.people, total) - 1;
     const where = C().isPartnerBooking(b) ? `${b.shop}（乗り合い）` : b.site ? `${b.site}（${SOURCE_JA[b.source]}）` : SOURCE_JA[b.source];
-    const status = unsure ? '確かめてほしい所がある' : guests ? `${guests} 人分の入力を待っている` : waiting ? '便のポイントかガイドがまだ' : '';
+    const status = unsure ? '確かめてほしい所がある' : guests ? `${guests} 人分の入力を待っている`
+      : heldToday ? `当日の体調は${b.shop}が便の日に確かめる` : waiting ? '便のポイントかガイドがまだ' : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, lead, others > 0 ? el('span', { class: 'nw', text: ` ほか ${others} 人` }) : null),
       el('span', { class: `st st--${st[0]}`, text: st[1] }),

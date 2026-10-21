@@ -194,10 +194,16 @@
       Number.isInteger(s.redacted) && s.redacted >= 0);
   }
 
+  /* 人の記録の health は中身を持たない形だけ（答えた数・当日の答えの有無・日・誰が確かめたか・同意の版。roster-core.js の logHealth） */
+  const logHealthOk = (h) => h === undefined || (onlyKeys(h, ['answered', 'today', 'todayAt', 'heldBy', 'consentVer']) &&
+    Number.isInteger(h.answered) && h.answered >= 0 && h.answered <= HEALTH_QUESTIONS && typeof h.today === 'boolean' &&
+    isDay(h.todayAt) && isStr(h.heldBy, 60) && isStr(h.consentVer, 20));
+
   function logOk(e) {
     return isObj(e) && isStr(e.at, 40) && LOG_WHO.includes(e.who) && LOG_ACT.includes(e.act) &&
       ['trip', 'booking', 'person', 'state'].includes(e.kind) && isStr(e.id, 40) &&
       isList(e.fields, 30, f => isStr(f, 20)) && isObj(e.before) && isObj(e.after) && sentOk(e.sent) &&
+      (e.kind !== 'person' || (logHealthOk(e.before.health) && logHealthOk(e.after.health))) &&   // 印刷・受け取りの health は「健康の欄を出したか」の真偽
       (e.demo === undefined || e.demo === true);   // demo: デモで「当日として」答えた印
   }
 

@@ -132,9 +132,10 @@
     try { raw = localStorage.getItem(ROSTER_KEY); } catch (e) { /* 保存場所が使えないときは、空の名簿から始める */ }
     let parsed = null;
     try { parsed = raw ? JSON.parse(raw) : null; } catch (e) { parsed = null; }
-    if (parsed && R.roster.validateState(parsed).ok) {
-      roster = R.rosterCore.purgeExpired(parsed, { today: ymd(new Date()), at: new Date().toISOString() });
-      if (roster !== parsed) writeRoster(roster);   // 期限切れを消したら、保存場所からも消す
+    const cleaned = parsed && typeof parsed === 'object' ? R.rosterCore.scrubLog(parsed) : parsed;   // 前の版の記録に残った健康の答えの中身を消す
+    if (cleaned && R.roster.validateState(cleaned).ok) {
+      roster = R.rosterCore.purgeExpired(cleaned, { today: ymd(new Date()), at: new Date().toISOString() });
+      if (roster !== parsed) writeRoster(roster);   // 書き換えたり期限切れを消したりしたら、保存場所にも入れる
     } else {
       roster = R.roster.blankState(ROSTER_SHOP);
       if (raw) {

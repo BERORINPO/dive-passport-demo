@@ -193,7 +193,7 @@
       print: e.after.paper === 'board' ? `札ボードの印刷の画面を開いた（札 ${e.after.people} 枚）` : `${PAPER_JA[e.after.paper] || '名簿'}の印刷の画面を開いた（${e.after.people} 人）`,
       csv: `名簿を CSV に書き出した（${e.after.people} 人、健康の欄${e.after.health === false ? 'なし' : 'あり'}）`, remove: '保存期間を過ぎた便を消した',
       handover: `${(booking && booking.shop) || '乗り合いのお店'}から ${e.after.people} 人を受け取った（健康の欄${e.after.health ? 'あり' : 'なし'}）`,
-      tags: `札の番号を付けた（${e.after.added} 枚。全部で ${e.after.tags} 枚）`,
+      tags: e.after.renamed ? `ガイドの名前を直して、札を付け替えた（全部で ${e.after.tags} 枚）` : `札の番号を付けた（${e.after.added} 枚。全部で ${e.after.tags} 枚）`,
       aboard: `ポイントを離れる前: 全員戻った（札 ${e.after.tags} 枚）`
     }[e.act] || e.act;
     /* 便の項目（潜水場所・ガイド）だけは前と後を出す。人の中身（健康の答えなど）は出さない */

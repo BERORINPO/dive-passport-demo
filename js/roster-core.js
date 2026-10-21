@@ -30,6 +30,8 @@
   const bookingsOf = (state, tripId) => state.bookings.filter(b => b.tripId === tripId);
   /* 乗り合いの他のお店の予約（出どころ partner。shop にそのお店の名前） */
   const isPartnerBooking = (b) => b.source === 'partner';
+  /* 健康の答えを乗り合いの他のお店が持っている人（この店は答えを持たない） */
+  const isHeld = (p) => !!p.health.heldBy;
   /* own: 乗り合いの他のお店の予約を除く。条例の名簿は、お店ごとに自分のお客さんの分を作る */
   function peopleOf(state, tripId, { own } = {}) {
     const ids = new Set(bookingsOf(state, tripId).filter(b => !own || !isPartnerBooking(b)).map(b => b.id));
@@ -68,9 +70,9 @@
       case 'courses': return p.courses.trim() !== '' || p.cert.course !== '';
       case 'dives': return p.dives !== '';
       case 'lastDive': return MONTH.test(p.lastDive) || p.dives === 0;
-      case 'history': return !!p.health.heldBy || (p.health.historyAt !== '' && p.health.answers.every(a => a !== null));
+      case 'history': return isHeld(p) || (p.health.historyAt !== '' && p.health.answers.every(a => a !== null));
       /* 他のお店が確かめる人（heldBy）は、そのお店が便の日に「渡す」を押したら（todayAt がその日）そろう */
-      case 'today': return !!trip && p.health.todayAt === trip.date && (!!p.health.heldBy || p.health.today !== '');
+      case 'today': return !!trip && p.health.todayAt === trip.date && (isHeld(p) || p.health.today !== '');
       case 'when': return !!trip && trip.date !== '' && trip.start !== '';
       case 'site': return !!trip && trip.site.trim() !== '';
       case 'guide': return p.guide.trim() !== '' || (!!trip && trip.guides.length > 0);
@@ -90,7 +92,7 @@
   /* お客さんに聞く項目（便とお店が決める項目は除く） */
   function askGuest(p, trip) {
     const items = S().ITEMS[trip ? trip.kind : 'dive'];
-    const heldKey = (k) => !!p.health.heldBy && (k === 'history' || k === 'today');   // 健康は他のお店が確かめる人には聞かない
+    const heldKey = (k) => isHeld(p) && (k === 'history' || k === 'today');   // 健康は他のお店が確かめる人には聞かない
     return status(p, trip).missing.filter(k => !items.find(i => i.key === k).trip && !heldKey(k));
   }
 
@@ -258,11 +260,15 @@
   /* 確かめる必要がある人（AI が自信なしと言った所が残っている人）。便ごと */
   const toCheck = (state, tripId) => peopleOf(state, tripId).filter(p => p.unsure.length > 0);
 
-  /* 予約の一覧の 1 便分。予約ごとに、人のそろい具合を付ける */
+  /* 予約の一覧の 1 便分。予約ごとに、人のそろい具合を付ける。
+     heldToday: 当日の体調を他のお店が便の日に確かめるのを待っている（お客さんにも便の項目にも足りない物は無い） */
   function bookingRows(state, tripId) {
     const trip = state.trips.find(t => t.id === tripId) || null;
     return bookingsOf(state, tripId).map(b => {
-      const people = state.people.filter(p => p.bookingId === b.id).map(p => ({ id: p.id, name: p.name, ...status(p, trip), ask: askGuest(p, trip) }));
+      const people = state.people.filter(p => p.bookingId === b.id).map(p => {
+        const st = status(p, trip);
+        return { id: p.id, name: p.name, ...st, ask: askGuest(p, trip), heldToday: isHeld(p) && st.missing.includes('today') };
+      });
       return { booking: b, people, done: people.filter(p => p.done).length };
     });
   }
@@ -320,9 +326,16 @@
   const isPlain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
   /* 記録に残す前と後。健康の答えは中身を残さず、答えた数・当日の答えの有無・誰が確かめたか・同意の版だけにする。
      同意を取り消したら答えを消すので、記録にも残さない。書き換えたことは、いつ・誰が・どの項目かで分かる */
-  const logHealth = (h) => ({ answered: h.answers.filter(a => a !== null).length, today: h.today !== '', todayAt: h.todayAt,
-    heldBy: h.heldBy || '', consentVer: h.consentVer || '' });
+  const logHealth = (h) => ({ answered: (Array.isArray(h.answers) ? h.answers : []).filter(a => a !== null && a !== undefined).length,
+    today: !!h.today, todayAt: typeof h.todayAt === 'string' ? h.todayAt : '', heldBy: h.heldBy || '', consentVer: h.consentVer || '' });
   const logPick = (o, keys) => Object.fromEntries(keys.map(k => [k, k === 'health' ? logHealth(o.health) : o[k]]));
+  /* 前の版で記録に残った健康の答えの中身を、logHealth の形に書き換える。保存から読み込むとき、形の検査の前に 1 回（決定ログ health-log） */
+  function scrubLog(state) {
+    const old = (side) => isPlain(side) && isPlain(side.health) && has(side.health, 'answers');
+    const fix = (side) => (old(side) ? { ...side, health: logHealth(side.health) } : side);
+    if (!Array.isArray(state.log) || !state.log.some(e => isPlain(e) && (old(e.before) || old(e.after)))) return state;
+    return { ...state, log: state.log.map(e => (isPlain(e) ? { ...e, before: fix(e.before), after: fix(e.after) } : e)) };
+  }
 
   /* demo: デモで「当日として」答えたなど、本当の時刻と違う形で入れた印。記録に残す。
      markUnsure: 組の片方だけを別の出どころで入れた項目（C カードの講習と年月など）。出どころを入れた方にし、自信なしの印を付けて、お店の「確かめる」に必ず出す */
@@ -364,8 +377,11 @@
     if (!keys.length) return state;
     const v = S().validateTrip(after);
     if (!v.ok) throw new Error(`editTrip: 便の形が合わない (${v.errors.join(',')})`);
-    return withLog({ ...state, trips: state.trips.map(t => (t.id === tripId ? after : t)) },
+    const st = withLog({ ...state, trips: state.trips.map(t => (t.id === tripId ? after : t)) },
       entry(at, 'staff', 'edit', 'trip', tripId, { fields: keys, before: pick(before, keys), after: pick(after, keys) }));
+    /* ガイドの名前を直した（人数が同じで、同じ位置の名前が変わった）なら、札を新しい名前に付け替える。番号は変えない */
+    if (!keys.includes('guides') || before.guides.length !== after.guides.length) return st;
+    return before.guides.reduce((s, from, i) => renameGuideTag(s, { tripId, shop: '', from, to: after.guides[i], at }), st);
   }
 
   /* 名簿を印刷した・CSV に書き出した。人数と、健康の欄を入れたかだけを残す（中身は残さない）。
@@ -455,7 +471,7 @@
     return yes.length ? `あり（${yes.join('・')}）` : 'なし';
   }
   /* 乗り合いの他のお店が、健康の答えを渡さずに確かめた */
-  const heldText = (p) => (p.health.heldBy ? `${p.health.heldBy}が確かめた` : '');
+  const heldText = (p) => (isHeld(p) ? `${p.health.heldBy}が確かめた` : '');
   function emergencyText(e) {
     if (!e.name && !e.phone) return '';
     return `${e.name}${e.relation ? `（${e.relation}）` : ''} ${e.phone}`.trim();
@@ -471,8 +487,8 @@
       case 'courses': return p.courses || COURSE_JA[p.cert.course] || '';
       case 'dives': return p.dives === '' ? '' : p.dives === 0 ? 'なし（初めて）' : `${p.dives} ${unit}`;
       case 'lastDive': return p.lastDive ? slash(p.lastDive) : p.dives === 0 ? 'なし' : '';
-      case 'history': return p.health.heldBy ? heldText(p) : historyText(p, healthShort);
-      case 'today': return p.health.todayAt !== trip.date ? '' : p.health.heldBy ? heldText(p) : ({ ok: '良好', unwell: '不調あり' }[p.health.today] || '');
+      case 'history': return isHeld(p) ? heldText(p) : historyText(p, healthShort);
+      case 'today': return p.health.todayAt !== trip.date ? '' : isHeld(p) ? heldText(p) : ({ ok: '良好', unwell: '不調あり' }[p.health.today] || '');
       case 'when': return trip.date ? `${slash(trip.date)} ${trip.start}` : '';
       case 'site': return trip.site;
       case 'guide': return p.guide || trip.guides.join('・');
@@ -531,9 +547,9 @@
   }
 
   R.rosterCore = {
-    COURSE_JA, isPartnerBooking, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
+    COURSE_JA, isPartnerBooking, isHeld, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromReading, missingForReading, bookingProblems, bookingRows,
-    reviewRows, toCheck,
+    reviewRows, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
     addPerson, addTags, renameGuideTag, addCheck, logHandover,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired

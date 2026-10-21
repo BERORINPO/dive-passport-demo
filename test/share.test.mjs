@@ -152,6 +152,36 @@ test('記録には健康の答えの中身を残さない（印を外して答�
     { answered: 0, today: false, todayAt: '', heldBy: PARTNER, consentVer: '' }], '答えた数と、誰が確かめたかだけ');
 });
 
+test('渡す形のお店に、同意の無い人（share が無い）を足すときは入れない。答えを入れない', () => {
+  const sharing = addTwo(withPartner, true).state;
+  const no = X.addPartnerPeople(sharing, { tripId: 't1', shop: PARTNER, people: [ICHIRO], guide: '見本 三郎', share: false, today: TODAY, at: AT, newId });
+  assert.deepEqual([no.problem, no.state, no.ids], ['share', sharing, []]);
+  assert.equal(X.addPartnerPeople(sharing, { tripId: 't1', shop: PARTNER, people: [ICHIRO], guide: '見本 三郎', today: TODAY, at: AT, newId }).problem, 'share');
+  const yes = X.addPartnerPeople(sharing, { tripId: 't1', shop: PARTNER, people: [ICHIRO], guide: '見本 三郎', share: true, today: TODAY, at: AT, newId });
+  assert.equal(yes.problem, null);
+});
+
+test('自分の店のお客さんの答え（当日の体調）も、記録には中身を残さない', () => {
+  const own = C.peopleOf(base, 't1', { own: true })[0];
+  const r = G.answerToday(base, { id: own.id, answer: 'unwell', day: '2026-10-24', consent: true, today: TODAY, at: AT });
+  assert.deepEqual(r.problems, []);
+  assert.ok(!JSON.stringify(r.state.log).includes('unwell'));
+  assert.ok(S.validateState(r.state).ok);
+});
+
+test('前の版の記録に残った健康の答えは、読み込むときに中身の無い形へ書き換える。中身のある記録は形が合わない', () => {
+  const own = C.peopleOf(base, 't1', { own: true })[0];
+  const oldEntry = { at: AT, who: 'guest', act: 'edit', kind: 'person', id: own.id, fields: ['health'], sent: null,
+    before: { health: { ...own.health } }, after: { health: { ...own.health, answers: ['yes', 'no', 'no', 'no', 'no'], historyAt: TODAY, today: 'unwell', todayAt: '2026-10-24' } } };
+  const old = { ...base, log: [...base.log, oldEntry] };
+  assert.equal(S.validateState(old).ok, false, '中身のある記録は形の検査で止まる');
+  const cleaned = C.scrubLog(old);
+  assert.ok(S.validateState(cleaned).ok);
+  assert.ok(!JSON.stringify(cleaned.log).includes('unwell') && !JSON.stringify(cleaned.log).includes('"yes"'));
+  assert.deepEqual(cleaned.log[cleaned.log.length - 1].after.health, { answered: 5, today: true, todayAt: '2026-10-24', heldBy: '', consentVer: '' });
+  assert.equal(C.scrubLog(base), base, '書き換える物が無ければそのまま');
+});
+
 test('他のお店の当日の体調は、答えた日で入れる（便の日の前に答えた物は当日の分にしない）', () => {
   const r = X.addPartnerPeople(withPartner, { tripId: 't1', shop: PARTNER, people: [ICHIRO], guide: '見本 三郎', share: true, today: TODAY, at: AT, newId });
   const ichiro = r.state.people.find(p => p.id === r.ids[0]);
@@ -174,6 +204,7 @@ test('健康を渡さない人には、この店の側で健康の答えを入�
   const id = r.ids[0];
   assert.deepEqual(G.answerToday(r.state, { id, answer: 'unwell', day: '2026-10-24', consent: true, today: TODAY, at: AT }).problems, ['held']);
   const offer = { name: '見本 一郎', items: [{ key: 'history', label: '既往症', patch: { health: { answers: NO5, historyAt: TODAY } } }] };
+  /* パスポートは、askGuest が健康を聞かないので健康を選べない（core の守りは、入口が増えたときの多重防御） */
   const fromPass = G.applyPassport(r.state, { id, offer, keys: ['history'], otherName: true, consent: true, today: TODAY, at: AT }).state;
   assert.ok(fromPass.people.find(p => p.id === id).health.answers.every(a => a === null), 'パスポートからも入らない');
   const person = r.state.people.find(p => p.id === id);
@@ -197,6 +228,26 @@ test('札を付けた後にガイドの名前を直しても、札の番号は�
   const g = X.boatGroups(r.state, 't1');
   assert.deepEqual([g.groups[1].members[0].tag, g.untagged, g.tagged], ['C-1', 0, 6]);
   assert.ok(S.validateState(r.state).ok);
+});
+
+test('自分の店のガイドの名前を直しても、札の番号は変わらない（今日の名簿の画面から）', () => {
+  const tagged = X.assignTags(addTwo(withPartner, true).state, { tripId: 't1', at: AT });
+  const st = C.editTrip(tagged, { tripId: 't1', patch: { guides: ['見本 ガイド二'] }, at: AT });
+  assert.deepEqual(tripOf(st).tags.find(x => x.no === 'B-1'), { guide: '見本 ガイド二', shop: '', no: 'B-1' });
+  const g = X.boatGroups(st, 't1');
+  assert.deepEqual([g.groups[0].members[0].name, g.groups[0].members[0].tag, g.untagged], ['見本 ガイド二', 'B-1', 0]);
+  const e = st.log[st.log.length - 1];
+  assert.deepEqual([e.act, e.after], ['tags', { renamed: 1, tags: 6 }]);
+  const two = C.editTrip(tagged, { tripId: 't1', patch: { guides: ['見本 ガイド', '見本 ガイド三'] }, at: AT });
+  assert.equal(tripOf(two).tags.length, 6, 'ガイドを足しただけなら付け替えない');
+});
+
+test('予約の一覧: 他のお店が当日の体調を確かめるのを待っている予約は、その印が付く', () => {
+  const held = addTwo(withPartner, false).state;
+  const row = C.bookingRows(held, 't1').find(r => r.booking.source === 'partner');
+  assert.deepEqual(row.people.map(p => p.heldToday), [true, true]);
+  const shared = C.bookingRows(addTwo(withPartner, true).state, 't1').find(r => r.booking.source === 'partner');
+  assert.ok(shared.people.every(p => !p.heldToday));
 });
 
 test('名簿の取り込み（自分の店の申込書）は、同じ名前の他のお店のお客さんに入れない', () => {

@@ -92,7 +92,8 @@
 
   /* 他のお店が自分のお客さんを入れる。people は人の項目（name・birthDate・… と health: { answers, today }）。
      share（同じ船のお店に健康の答えを渡す同意をお客さんからもらった）が無いときは、健康の答えを入れず、そのお店が確かめた印だけ付ける。
-     もう人のいるお店は、今のお店の share に合わせる（渡す人と渡さない人を混ぜない）。
+     もう人のいるお店が渡さない形なら、share があっても渡さない（混ぜない）。渡す形のお店に share の無い人を足すときは problem: 'share'
+     （同意の無い人の答えを入れない。先に印を外してもらう）。
      health.today は答えた日（today）の体調として入れ、便の日に答えた物だけが当日の分になる。見本（demo）は便の日として入れ、記録に印を付ける。ガイドは要る */
   function addPartnerPeople(state, { tripId, shop, people, guide, share, today, demo, at, newId }) {
     const trip = tripById(state, tripId);
@@ -101,7 +102,10 @@
     const g = String(guide || '').trim();
     if (!g || g.length > GUIDE_MAX) return { state, problem: 'guide', ids: [] };
     if (!people.length) return { state, problem: null, ids: [] };
-    const sharing = shopPeople(state, tripId, shop).length ? partnerShares(state, tripId, shop) : share === true;
+    const existing = shopPeople(state, tripId, shop).length > 0;
+    const shopShares = existing && partnerShares(state, tripId, shop);
+    if (shopShares && share !== true) return { state, problem: 'share', ids: [] };
+    const sharing = share === true && (!existing || shopShares);
     let st = state;
     const ids = [];
     people.forEach(data => {

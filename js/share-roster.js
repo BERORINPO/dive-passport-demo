@@ -26,8 +26,10 @@
     { name: '見本 陸', birthDate: '1998-11-11', address: '大阪府大阪市見本区 4-5', emergency: { name: '見本 さくら', relation: '妹', phone: '090-7777-9999' },
       cert: { course: 'NONE', date: '' }, dives: 0, lastDive: '', health: { answers: NO5, today: 'ok' } }
   ];
-  const PRINT_ARM_MS = 700;
-  const LEAVE_PROBLEM_JA = { untagged: '札の番号がまだの人がいます。番号を付けて札ボードを作り直してから押してください', empty: 'まだ誰も乗っていません' };       // 印刷のボタンが出てすぐの押し（前の画面のボタンを続けて押した物）は受け付けない間
+  const PRINT_ARM_MS = 700;       // 印刷のボタンが出てすぐの押し（前の画面のボタンを続けて押した物）は受け付けない間
+  const ADD_PROBLEM_JA = { shop: 'このお店は乗り合いから外れています。乗り合いの画面で足してください',
+    share: '健康の答えを渡す形のお店です。同意の無い人を足すときは、先に健康の 2 欄の印を外してください' };
+  const LEAVE_PROBLEM_JA = { untagged: '札の番号がまだの人がいます。番号を付けて札ボードを作り直してから押してください', empty: 'まだ誰も乗っていません' };
 
   /* 入れかけの文字（画面を描き直しても消さない）。便とお店が替わったら空に戻す */
   let draft = blankDraft('');
@@ -154,7 +156,7 @@
     const { tripId, shop, people, d, guide } = v;
     const add = (list, demo, onOk) => apply(ui, st => X().addPartnerPeople(st, { tripId, shop, people: list,
       guide: list === PARTNER_SAMPLE ? guide || SAMPLE_GUIDE : guide, share: v.shares, today: R.today(), demo, at: nowIso(), newId: R.newId }),
-    v.back, (p) => (p === 'shop' ? 'このお店は乗り合いから外れています。乗り合いの画面で足してください' : GUIDE_FIRST), onOk);
+    v.back, (p) => ADD_PROBLEM_JA[p] || GUIDE_FIRST, onOk);
     const setGuide = (value) => {
       if (!people.length) { d.guide = value.trim(); ui.rerender(); return; }
       apply(ui, st => X().setPartnerGuide(st, { tripId, shop, guide: value, at: nowIso() }), v.back, () => GUIDE_FIRST);
