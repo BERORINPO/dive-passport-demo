@@ -456,6 +456,33 @@ test('便: ツアーの名前から種類を決め、同じ日・同じ種類の
   assert.throws(() => C.addTrip(s2, { trip: { date: '2026-02-31', kind: 'dive' }, at: AT, newId }), /便の形/);
 });
 
+test('便の種類: スノーケリング・シュノーケル体験もスノーケル。お店が選んだ種類が先', () => {
+  assert.deepEqual(['青の洞窟シュノーケリング', 'スノーケリング体験', 'しゅのーける', 'Snorkelling'].map(C.kindOf), ['snorkel', 'snorkel', 'snorkel', 'snorkel']);
+  assert.equal(C.suggestTrip(base, { date: '2026-10-24', start: '', tour: '体験ダイビング', kind: 'snorkel' }).kind, 'snorkel');
+});
+
+test('予約を便に入れる: 便が無ければ作る。読み取りから予約を組み、聞く項目を数える', () => {
+  const r = SAMPLES.e4;
+  const want = { date: '2026-10-25', start: '', tour: 'シュノーケリング', kind: '' };
+  const { state: s, trip } = C.addBookingToTrip(base, { tripId: 'nope', want, booking: C.bookingFromReading(r), reading: r, src: 'mail', at: AT, newId });
+  assert.deepEqual([trip.date, trip.kind, s.trips.length, C.peopleOf(s, trip.id).length], ['2026-10-25', 'snorkel', 2, 3]);
+  assert.ok(S.validateState(s).ok);
+  const again = C.addBookingToTrip(s, { tripId: trip.id, want, booking: C.bookingFromReading(r), reading: r, src: 'mail', at: AT, newId });
+  assert.equal(again.state.trips.length, 2, '便があればそこへ');
+  assert.deepEqual(C.bookingFromReading({ booking: null, people: [], healthSeen: false }), { source: 'mail', site: '', ref: '', leadName: '', leadPhone: '', people: 1 });
+  const miss = C.missingForReading(SAMPLES.e1, 'dive');
+  assert.equal(miss.unknown, 0);
+  assert.deepEqual(miss.items.map(i => i.key), ['birthDate', 'address', 'emergency', 'history', 'today']);
+  assert.equal(C.missingForReading({ ...SAMPLES.e2, people: [SAMPLES.e2.people[0]] }, 'dive').unknown, 1, '名前の分からない人を数える');
+});
+
+test('手で入れる予約の誤りを、項目の名前で返す', () => {
+  assert.deepEqual(C.bookingProblems({ date: '2026-10-24', people: 2, leadName: '見本', leadPhone: '090', note: '' }), []);
+  assert.deepEqual(C.bookingProblems({ date: '', people: NaN, leadName: 'x'.repeat(61), leadPhone: '0'.repeat(31), note: 'x'.repeat(401) }),
+    ['date', 'leadName', 'leadPhone', 'people', 'note']);
+  assert.deepEqual(C.bookingProblems({ date: '2026-02-31', people: 31, leadName: '', leadPhone: '', note: '' }), ['date', 'people']);
+});
+
 test('予約の一覧の 1 便分: 予約ごとに人のそろい具合を付ける', () => {
   const s = withMail('e1');
   const rows = C.bookingRows(s, 't1');

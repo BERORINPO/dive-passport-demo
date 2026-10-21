@@ -53,7 +53,10 @@ const PURE_BAN = [
   [/\bdocument\b/, '画面 (document)'], [/\bwindow\b/, 'window'], [/localStorage|sessionStorage|indexedDB/, '保存'],
   [/\bfetch\b|XMLHttpRequest|WebSocket|EventSource/, '通信'], [/\bnavigator\b/, 'navigator'],
   [/\bDate\b|performance\.now|Intl\.DateTimeFormat|\bTemporal\b/, '時計'], [/Math\.random|\bcrypto\b/, '乱数'], [/\bprocess\b/, '環境変数'],
-  [/\bglobalThis\s*\??\.?\s*\[/, 'globalThis[…] (文字の名前で外のものを引く)']
+  [/\bglobalThis\s*\??\.?\s*\[/, 'globalThis[…] (文字の名前で外のものを引く)'],
+  [/\beval\b|\bFunction\s*\(|\bReflect\s*\.|\bself\b/, 'eval / Function / Reflect / self (文字の名前で外のものを引く)'],
+  [/['"`](?:Date|fetch|localStorage|sessionStorage|indexedDB|document|window|navigator|performance|crypto|process|XMLHttpRequest|WebSocket|EventSource|Temporal)['"`]/,
+    '外のものの名前を文字で書いている', true]
 ];
 const DOT = '\\s*\\??\\.\\s*';                                         // R.x / R?.x / R .x
 const HUB = `(?:R|globalThis${DOT}REDUX|window${DOT}REDUX)`;
@@ -63,7 +66,7 @@ const usesNames = (names, what) => [
 ];
 /* 分割代入（const { aiReader } = R）は複数行にまたがり、入れ子（{ aiReader: { read } }）もありうるので、ファイル全体で全件見る */
 const BRACE = '(?:[^{}]|\\{[^{}]*\\})*';
-const destructures = (names, what) => [new RegExp(`\\{${BRACE}\\b(${names.join('|')})\\b${BRACE}\\}\\s*=\\s*${HUB}\\b`, 'g'), what];
+const destructures = (names, what) => [new RegExp(`\\{${BRACE}\\b(${names.join('|')})\\b${BRACE}\\}\\s*=\\s*${HUB}\\b`, 'g'), what, true];
 const rulesFor = {
   shared: { line: [...PURE_BAN, ...usesNames(ADAPTER, 'adapter'), ...usesNames(CORE, 'core')],
     file: [destructures(ADAPTER, 'adapter'), destructures(CORE, 'core')] },
@@ -131,8 +134,8 @@ function violations(src, rules) {
   rules.line.forEach(([re, what, keepStrings]) => {
     (keepStrings ? keep : code).forEach((c, i) => { if (re.test(c)) hit(i, what); });
   });
-  const joined = code.join('\n');
-  rules.file.forEach(([re, what]) => {
+  rules.file.forEach(([re, what, keepStrings]) => {
+    const joined = (keepStrings ? keep : code).join('\n');
     for (const m of joined.matchAll(re)) hit(joined.slice(0, m.index).split('\n').length - 1, what);
   });
   return out;
@@ -168,6 +171,9 @@ const PROBES = [
   [HTML_BAN, 'box.innerHTML = name;'], [HTML_BAN, 'el.insertAdjacentHTML("beforeend", x);'], [HTML_BAN, 'document.write(x);']
 ];
 PROBES.push([rulesFor.core, 'const s = `${Date.now()}`;'], [rulesFor.core, "const f = globalThis['fetch'];"],
+  [rulesFor.core, "const f = self['fetch'];"], [rulesFor.core, "const t = Function('return 1')();"], [rulesFor.core, "eval('x');"],
+  [rulesFor.core, "const d = Reflect.get(globalThis, 'x');"], [rulesFor.core, "const g = globalThis; const d = g['Date'];"],
+  [rulesFor.core, "const { ['aiReader']: a } = R;"],
   [rulesFor.core, 'const s = `a\n${R.today()}\nb`;']);
 /* 文字列の中に言葉があるだけなら通る（見本のメールの文面など） */
 const CLEAN = ['const s = "Date of birth";', "const u = 'window.document and fetch(x)';", 'const t = `Date: ${n}`;'];

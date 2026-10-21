@@ -13,7 +13,7 @@ const memory = (init) => {
 
 /* index.html と同じ順で読む。同じ保存場所でもう一度読めば、開き直したのと同じ */
 function boot(local) {
-  const ctx = vm.createContext({ localStorage: local, sessionStorage: memory(), setTimeout, clearTimeout, TextEncoder, btoa, console });
+  const ctx = vm.createContext({ localStorage: local, sessionStorage: memory(), setTimeout, clearTimeout, TextEncoder, btoa, console, addEventListener: () => {} });
   ctx.window = ctx;
   SCRIPTS.forEach(f => vm.runInContext(readFileSync(new URL(`../js/${f}`, import.meta.url), 'utf8'), ctx, { filename: f }));
   return ctx.REDUX;
@@ -21,21 +21,19 @@ function boot(local) {
 
 const AT = '2026-10-21T09:00:00.000Z';
 
+/* 予約の画面（booking.js の commitMail）と同じ順で、core の同じ関数を呼ぶ */
 async function importMail(R, id) {
   const { text } = R.SAMPLE_MAILS[id];
   const req = { doc: 'mail', text, sampleId: id };
   const shown = R.aiReader.preview(req);
   const { reading, sent } = await R.aiReader.read(req);
+  R.rosterStore.update(s => R.rosterCore.logAi(s, { at: AT, sent }));
   const b = reading.booking;
-  R.rosterStore.update(state => {
-    const pick = R.rosterCore.suggestTrip(state, b);
-    const made = pick.tripId ? null : R.rosterCore.addTrip(state, { trip: { date: b.date, start: b.start, kind: pick.kind, tour: b.tour.slice(0, 40) }, at: AT, newId: R.newId });
-    const s = made ? made.state : state;
-    const trip = made ? made.trip : s.trips.find(t => t.id === pick.tripId);
-    const booking = { source: 'mail', site: b.site, ref: b.ref, leadName: b.leadName, leadPhone: b.leadPhone, people: b.people || 1 };
-    return R.rosterCore.logAi(R.rosterCore.addBooking(s, { trip, booking, reading, src: 'mail', at: AT, newId: R.newId }), { at: AT, sent });
-  });
-  return shown;
+  const want = { date: b.date, start: b.start, tour: b.tour, kind: '' };
+  const sug = R.rosterCore.suggestTrip(R.rosterStore.get(), want);
+  const saved = R.rosterStore.update(s => R.rosterCore.addBookingToTrip(s, { tripId: sug.tripId, want: { ...want, kind: sug.kind },
+    booking: R.rosterCore.bookingFromReading(reading), reading, src: 'mail', at: AT, newId: R.newId }).state);
+  return { shown, saved };
 }
 
 const tests = [];
@@ -46,7 +44,8 @@ test('見本の予約メール 4 通で、予約と人が入り、送る文面�
   const R = boot(local);
   assert.equal(R.aiReader.mode(), 'sample');
   for (const id of ['e1', 'e2', 'e3', 'e4']) {
-    const shown = await importMail(R, id);
+    const { shown, saved } = await importMail(R, id);
+    assert.equal(saved, true, id);
     assert.equal(shown.redacted, 0, id);
     assert.equal(shown.text, R.SAMPLE_MAILS[id].text.replace(/\r\n?/g, '\n'), id);
   }
@@ -73,6 +72,36 @@ test('保存された名簿が壊れていたら、消さずに別の場所へ�
   const backup = local.keys().find(k => k.startsWith('redux-roster-v1-broken-'));
   assert.ok(backup);
   assert.equal(local.getItem(backup), '{"v":1,"trips":"broken"}');
+});
+
+test('壊れた名簿の退避は 1 回だけ。開き直しても増えない', () => {
+  const local = memory({ 'redux-roster-v1': 'not json' });
+  const first = boot(local).rosterStore;
+  first.get();
+  assert.equal(first.recovered(), true, '1 回目は退避したと知らせる');
+  boot(local).rosterStore.get();
+  boot(local).rosterStore.get();
+  assert.equal(local.keys().filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1);
+  const again = boot(local).rosterStore;
+  again.get();
+  assert.equal(again.recovered(), false, '2 回目からは、読めた名簿として開く');
+});
+
+test('保存期間を過ぎた便は、開いたときに保存場所からも消える', async () => {
+  const local = memory();
+  const R = boot(local);
+  R.rosterStore.update(s => R.rosterCore.addTrip(s, { trip: { date: '2020-01-01', start: '08:30', kind: 'dive' }, at: AT, newId: R.newId }).state);
+  assert.equal(JSON.parse(local.getItem('redux-roster-v1')).trips.length, 1);
+  boot(local).rosterStore.get();
+  assert.equal(JSON.parse(local.getItem('redux-roster-v1')).trips.length, 0);
+});
+
+test('端末に保存できないときは、保存できなかったと返す', () => {
+  const local = memory();
+  const R = boot(local);
+  local.setItem = () => { throw new Error('QuotaExceededError'); };
+  assert.equal(R.rosterStore.update(s => R.rosterCore.addTrip(s, { trip: { date: '2026-10-24', kind: 'dive' }, at: AT, newId: R.newId }).state), false);
+  assert.equal(R.rosterStore.get().trips.length, 1, '開いている間は画面の中で動く');
 });
 
 test('形の合わない state は保存しない', () => {

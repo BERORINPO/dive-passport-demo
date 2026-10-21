@@ -165,15 +165,16 @@
      便は「日付・開始時刻・ツアー」で 1 つ。予約をどの便に入れるかはお店が画面で決める（ここは候補を出すだけ）。
      候補: 同じ日・同じ種類で開始時刻まで同じ便があればそれ。時刻の分からない予約は、その日・その種類の便が 1 つだけならそれ */
   const TRIP_FIELDS = ['date', 'start', 'kind', 'tour', 'boat', 'site', 'guides', 'host', 'partners'];
-  const SNORKEL = /snorkel|スノーケル|シュノーケル|すのーける|しゅのーける/i;
+  const SNORKEL = /snorkel|スノーケ|シュノーケ|すのーけ|しゅのーけ/i;   // スノーケリング・シュノーケル体験 なども
   const kindOf = (tour) => (SNORKEL.test(String(tour || '')) ? 'snorkel' : 'dive');
   const byStart = (a, b) => (a.start || '99:99').localeCompare(b.start || '99:99');
 
   /* 便の一覧（日付、開始時刻の順。時刻の決まっていない便はその日の最後） */
   const tripList = (state) => [...state.trips].sort((a, b) => a.date.localeCompare(b.date) || byStart(a, b));
 
-  function suggestTrip(state, { date, start, tour }) {
-    const kind = kindOf(tour);
+  /* kind はお店が選んだ種類。空ならツアーの名前から決める */
+  function suggestTrip(state, { date, start, tour, kind: chosen }) {
+    const kind = chosen || kindOf(tour);
     const candidates = state.trips.filter(t => t.date === date && t.kind === kind).sort(byStart);
     const exact = start ? candidates.find(t => t.start === start) : null;
     const tripId = exact ? exact.id : !start && candidates.length === 1 ? candidates[0].id : null;
@@ -186,6 +187,45 @@
     const v = S().validateTrip(t);
     if (!v.ok) throw new Error(`addTrip: 便の形が合わない (${v.errors.join(',')})`);
     return { state: withLog({ ...state, trips: [...state.trips, t] }, entry(at, 'staff', 'add', 'trip', t.id, { fields })), trip: t };
+  }
+
+  /* 予約を便に入れる。tripId の便が無ければ、want（日付・時刻・ツアー・種類）から便を作ってから入れる */
+  function addBookingToTrip(state, { tripId, want, booking, reading, src, at, newId }) {
+    let st = state;
+    let trip = st.trips.find(t => t.id === tripId);
+    if (!trip) {
+      const made = addTrip(st, { trip: { date: want.date, start: want.start || '', kind: want.kind || kindOf(want.tour),
+        tour: String(want.tour || '').slice(0, 40) }, at, newId });
+      st = made.state;
+      trip = made.trip;
+    }
+    return { state: addBooking(st, { trip, booking, reading, src, at, newId }), trip };
+  }
+
+  /* AI の読み取りから、予約の形を組む */
+  function bookingFromReading(reading) {
+    const b = reading.booking || {};
+    return { source: 'mail', site: b.site || '', ref: b.ref || '', leadName: b.leadName || '', leadPhone: b.leadPhone || '',
+      people: Number.isInteger(b.people) && b.people >= 1 ? b.people : 1 };
+  }
+
+  /* 読み取りから予約を入れたら、お客さんに聞くことになる項目。予約を入れるときと同じ組み立てで数える */
+  function missingForReading(reading, kind) {
+    const trip = { ...S().blankTrip(), id: 'preview', kind, date: (reading.booking && reading.booking.date) || '' };
+    let n = 0;
+    const st = addBooking({ ...S().blankState(''), trips: [trip] },
+      { trip, booking: bookingFromReading(reading), reading, src: 'mail', at: '', newId: () => `preview${(n += 1)}` });
+    const people = peopleOf(st, trip.id);
+    const keys = new Set(people.flatMap(p => askGuest(p, trip)));
+    return { unknown: people.filter(p => !p.name).length, items: S().ITEMS[kind].filter(i => keys.has(i.key) && i.key !== 'name') };
+  }
+
+  /* 手で入れる予約の誤り。誤りのある項目の名前を返す（date / people / leadName / leadPhone / note） */
+  function bookingProblems({ date, people, leadName, leadPhone, note }) {
+    const b = { ...S().blankBooking(), id: 'check', tripId: 'check', leadName, leadPhone, people, note };
+    const bad = S().validateBooking(b).errors.filter(e => ['people', 'leadName', 'leadPhone', 'note'].includes(e));
+    const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(date || '') && S().realDate(date);
+    return [...(dateOk ? [] : ['date']), ...bad];
   }
 
   /* 予約の一覧の 1 便分。予約ごとに、人のそろい具合を付ける */
@@ -361,7 +401,7 @@
 
   R.rosterCore = {
     COURSE_JA, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
-    kindOf, tripList, suggestTrip, addTrip, bookingRows,
+    kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
   };

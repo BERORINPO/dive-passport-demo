@@ -89,6 +89,16 @@
   const ROSTER_SHOP = 'B マリン（見本）';
   const rosterListeners = [];
   let roster = null;
+  let rosterRecovered = false;   // 保存されていた名簿が読めず、退避して空から始めた
+
+  function writeRoster(next) {
+    try {
+      localStorage.setItem(ROSTER_KEY, JSON.stringify(next));
+      return true;
+    } catch (e) {
+      return false;   // 容量切れや、保存を止めているブラウザ。呼ぶ側が知らせる
+    }
+  }
 
   function loadRoster() {
     if (roster) return roster;
@@ -98,25 +108,36 @@
     try { parsed = raw ? JSON.parse(raw) : null; } catch (e) { parsed = null; }
     if (parsed && R.roster.validateState(parsed).ok) {
       roster = R.rosterCore.purgeExpired(parsed, { today: ymd(new Date()), at: new Date().toISOString() });
+      if (roster !== parsed) writeRoster(roster);   // 期限切れを消したら、保存場所からも消す
     } else {
+      roster = R.roster.blankState(ROSTER_SHOP);
       if (raw) {
         try { localStorage.setItem(`${ROSTER_KEY}-broken-${Date.now()}`, raw); } catch (e) { /* 退避できなくても、開いている間は動く */ }
+        writeRoster(roster);   // 開くたびに同じ物を退避し直さないように、空の名簿で置き換える
+        rosterRecovered = true;
       }
-      roster = R.roster.blankState(ROSTER_SHOP);
     }
     return roster;
   }
 
+  /* 保存できたかを返す（形が合わなければ例外） */
   function saveRoster(next) {
     const v = R.roster.validateState(next);
     if (!v.ok) throw new Error(`rosterStore: 形が合わない (${v.errors.join(',')})`);
     roster = next;
-    try {
-      localStorage.setItem(ROSTER_KEY, JSON.stringify(next));
-    } catch (e) {
-      // 保存できなくても、開いている間は画面の中で動く
-    }
+    const saved = writeRoster(next);
     rosterListeners.forEach(fn => fn(next));
+    return saved;
+  }
+
+  /* 別のタブで名簿が変わったら読み直す（後から保存した方で上書きしない）。テスト（Node）には無いので、あるときだけ */
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('storage', (e) => {
+      if (e.key !== ROSTER_KEY) return;
+      roster = null;
+      const next = loadRoster();
+      rosterListeners.forEach(fn => fn(next));
+    });
   }
 
   const R = window.REDUX = {
@@ -150,6 +171,7 @@
       get: loadRoster,
       update: (fn) => saveRoster(fn(loadRoster())),
       reset: () => saveRoster(R.roster.blankState(ROSTER_SHOP)),
+      recovered: () => rosterRecovered,
       subscribe: (fn) => { rosterListeners.push(fn); }
     },
     today: () => ymd(new Date())
