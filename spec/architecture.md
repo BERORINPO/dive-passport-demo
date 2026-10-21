@@ -11,8 +11,11 @@
 | entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
-- 外へ通信してよいのは js/ai-reader.js だけ。HTML から外を読むのは表 3 の「外から読む物」だけ（`test/arch.check.mjs` が読み込み先と integrity を検査する）
-- 字体（BIZ UD ゴシック）は index.html だけが Google Fonts から読む。URL の # 以降は送らない。ただし Google には IP・端末の種類・時刻・サイトの origin（字体ファイルの要求に Origin ヘッダが付く。referrer を止めても付く）と、画面に出た字・打った字を含む約 50 字ごとの束の番号が伝わる。pass.html は健康の「はい」の項目だけを出すので、束の組み合わせで答えが分かる。だから pass.html は端末の字体だけで描く
+- 外へ通信してよいのは js/ai-reader.js だけ。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）
+- 字体（BIZ UD ゴシック）は index.html だけが Google Fonts から読む。URL の # 以降は送らない
+  - Google には IP・端末の種類・時刻と、サイトの origin が伝わる（字体ファイルの要求には Origin ヘッダが付き、referrer を止めても消えない）
+  - Google は日本語の字体を約 50 字ずつのファイルに分けて配る（unicode-range）。端末は画面に出た字・打った字を含むファイルだけを取りに行くので、どのファイルを取ったかで字の一部が分かる
+  - pass.html は健康の「はい」の項目だけを出すので、取ったファイルの組み合わせで答えが分かる。だから pass.html は端末の字体だけで描く
 
 ## 2. 外部境界表
 | adapter | 相手 | Fake | fixture | credential | 書き込み |
@@ -24,9 +27,20 @@
 - 画面のファイルと `/api` は同じ Worker から配る（同じ origin）。CORS と cross-site の Cookie は使わない
 - 入口は 2 重: Cloudflare Access（Worker 全体）と合言葉。Worker は `ctx.access` が無い呼び出しを 403 で断る
 - 監視: Worker は回数と費用だけを KV に数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える
-- 外から読む物（index.html だけ。pass.html は外を読まない）:
-  - three.js 0.160.0（cdn.jsdelivr.net、importmap）と qrcode-generator 1.4.4（cdnjs.cloudflare.com、script）。画面と同じ権限で動くコードで、qrcode-generator は健康の答えを含むパスポートの URL を受け取る。両方に integrity（中身が書き換えられていないかをブラウザが確かめる指定）を付けた。importmap の integrity が効くのは Chrome/Edge 127・Safari/iOS 18・Firefox 138 から（古い iPhone では確かめないまま読む）
-  - 字体（fonts.googleapis.com / fonts.gstatic.com）。上の表 1 の注のとおり、画面の字の一部が伝わる。字体の CSS の `<link>` は描画を止めるので、遅い電波だと画面が白いまま待つことがある
+
+### 外から読む先（test/arch.check.mjs の 8 番はこの表だけを読む）
+`…` で囲んだ先を前方一致で許す。表に書いて使っていない先も FAIL にする。ここに無いファイルからは外を読まない。
+| ファイル | 外から読んでよい先 | integrity なしでよい先 |
+|---|---|---|
+| index.html | `https://cdn.jsdelivr.net/npm/three@0.160.0/` `https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/` `https://fonts.googleapis.com/` `https://fonts.gstatic.com/` | `https://fonts.googleapis.com/css2` |
+| pass.html | なし | なし |
+| css/app.css | なし | なし |
+
+- three.js（importmap）と qrcode-generator（script）は、画面と同じ権限で動くコード。qrcode-generator は健康の答えを含むパスポートの URL を受け取る。両方に integrity（中身が書き換えられていないかをブラウザが確かめる指定）を付けた
+- importmap の integrity が効くのは Chrome/Edge 127・Safari/iOS 18・Firefox 138 から（古い iPhone では確かめないまま読む）
+- js の import は importmap で URL に直し、1 つずつ integrity を求める。CDN のファイルの中の import（GLTFLoader.js → BufferGeometryUtils.js）は検査で追えないので、integrity に並べて、Network で漏れが無いか確かめる
+- Google の字体の CSS は端末ごとに中身が変わるので integrity を付けられない（上の表の右の列）。この `<link>` は描画を止めるので、遅い電波だと画面が白いまま待つことがある
+- js では、ai-reader.js 以外の fetch、全部の js の動的な import・sendBeacon・XMLHttpRequest・WebSocket・EventSource・Worker、読み込むタグ（script・link・iframe など）を作ること、外の URL を文字で書くことを禁止する（同じ 8 番）
 
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
@@ -42,4 +56,4 @@
 | 2026-10-21 arch-grep | 依存の向きは grep で検査し、dependency-cruiser は使わない | script タグで読む素の JS で、npm を入れていない | test/arch.check.mjs |
 | 2026-10-21 core-clock | core は時計と乱数を使わない（at と newId を受け取る） | テストで毎回同じ結果にするため | test/arch.check.mjs |
 | 2026-10-21 fonts | 字体は試作の間だけ index.html が Google Fonts から読む。pass.html は外の字体を読まない。本物のお客さんの情報を入れる前に、外から読むのをやめる（spec/meibo.md の 11） | ザクのレビュー（字体の束の取り寄せで、画面に出た字・打った字が Google に推測される）。repo に置く案は字体の取得に Yosuke の了承が要る | test/arch.check.mjs（読み込み先） |
-| 2026-10-21 outside-reads | HTML から外を読むのは表 3 に書いた所だけ。外のスクリプトには integrity を付ける | ザクのレビュー（CDN の中身が差し替えられると、画面と同じ権限で localStorage の健康の答えを読める。2024 年の polyfill.io の件）。cdnjs が spec から漏れていたのを検査で捕まえるため | test/arch.check.mjs |
+| 2026-10-21 outside-reads | HTML と CSS から外を読むのは、3. の表「外から読む先」にファイルごとに書いた先だけ。外のスクリプトと読み込む link には integrity を付ける。js の通信の道具と外の URL の文字は禁止 | ザクのレビュー（CDN の中身が差し替えられると、画面と同じ権限で localStorage の健康の答えを読める。2024 年の polyfill.io の件）。cdnjs が spec から漏れていたのを検査で捕まえるため。許可は表「外から読む先」だけから読み、ファイルごとに分ける（散文のサイト名を拾うと、書いただけで許可になる） | test/arch.check.mjs（test/outside.mjs） |
