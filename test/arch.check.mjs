@@ -253,12 +253,14 @@ const FILE_PROBES = [
   [IDX, '<img src="https:/&#9;/evil.example.com/p.png">', true],
   [IDX, '<img src="https:/\t/evil.example.com/p.png">', true],
   [IDX, "<style>.a{background:url('https:\\2f\\2f evil.example.com/p.png')}</style>", true],
+  [IDX, '<img src="/\t/evil.example.com/p.png">', true],
   [NONE, '@import url("https://fonts.googleapis.com/css2?family=X");', false],
   [NONE, '.a{background:url(//evil.example.com/p.png)}', false]
 ];
 const FILE_CLEAN = [
   [IDX, `<script src="${QR}x.js" integrity="sha512-x" crossorigin="anonymous"></script><link rel="stylesheet" href="css/fonts.css">`, true],
   [NONE, '<img src="https:/evil.example.com/p.png">', true],   /* https のページでは自分のサイトのパスになる（外ではない） */
+  [NONE, '/* one */\n/* two */\n.a { grid-column: 1 /\n/* three */\n-1; }', false],   /* 改行を消すと //* ができる（ジンのレビュー） */
   [NONE, '<a href="index.html">x</a><script src="js/app.js"></script><svg xmlns="http://www.w3.org/2000/svg"></svg>', true],
   [NONE, '.a{background:url(assets/x.png)}', false]
 ];

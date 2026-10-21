@@ -60,12 +60,18 @@ export function external(value) {
 }
 
 /* (a) の網: 「//」（\\ も同じに読まれる）で始まる行き先を全部拾う。scheme（https: の部分）は有っても無くてもよい。
-   タブと改行は消してから探す（https:/<タブ>/ をブラウザは // と読む）。CSS のエスケープを戻した物でも探す */
+   HTML と CSS のコメントは先に外す。タブと改行は、空白にした物と消した物の両方で探す（https:/<タブ>/ をブラウザは // と読む）。
+   消した物では、行がつながって無い // ができるので（2 行続けたコメントなど）、scheme で始まる物だけ拾う。
+   CSS のエスケープを戻した物でも探す */
 const DEST = /(?:[a-z][a-z0-9+.-]*:)?[\\/]{2}[^\s"'<>()`,]+/gi;
+const SCHEMED = /^[a-z][a-z0-9+.-]*:/i;
 export function destinations(text) {
-  const clean = decode(text.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\sxmlns(?::[\w-]+)?\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' '))
-    .replace(/[\t\r\n]/g, '');
-  return [...new Set([...clean.matchAll(DEST), ...cssUnescape(clean).matchAll(DEST)].map(m => m[0]))];
+  const base = decode(text.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\sxmlns(?::[\w-]+)?\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' '));
+  const spaced = base.replace(/[\t\r\n]/g, ' ');
+  const joined = base.replace(/[\t\r\n]/g, '');
+  const all = (t) => [...t.matchAll(DEST), ...cssUnescape(t).matchAll(DEST)].map(m => m[0]);
+  return [...new Set([...all(spaced), ...all(joined).filter(d => SCHEMED.test(d))])];
 }
 
 /* 属性を 1 つ読む。名前、値（引用符あり・なし）、次に読む位置を返す */
@@ -119,6 +125,7 @@ export function tags(source) {
 
 const allowedBy = (list, u) => list.some(p => u.href.startsWith(p));
 const show = (u) => String(u.href || u).slice(0, 80);
+const URL_ATTRS = new Set(['src', 'href', 'xlink:href', 'srcset', 'action', 'formaction', 'poster', 'data', 'background', 'ping', 'manifest', 'cite', 'icon', 'longdesc', 'lowsrc', 'codebase', 'archive']);
 const scheme = (v) => (String(v || '').replace(/[\t\n\r]/g, '').trim().match(/^([a-z][a-z0-9+.-]*):/i) || [])[1];
 
 /* 1 つのタグの問題（HTML の中のコード・script・link） */
@@ -126,6 +133,13 @@ function tagProblems({ tag, attrs, content }, rule) {
   const out = [];
   const integrity = INTEGRITY.test(attrs.get('integrity') || '');
   attrs.forEach((v, k) => {
+    /* URL を受け取る属性は、タブを消して読む（/<タブ>/evil を // と読むため。(a) の網は scheme の無い物を拾わない） */
+    if (URL_ATTRS.has(k)) {
+      (k === 'srcset' ? v.split(',').map(x => x.trim().split(/\s+/)[0]) : [v]).forEach(x => {
+        const u = external(x);
+        if (u && u !== 'bad' && !allowedBy(rule.allow, u)) out.push(`外の読み込み先が許可に無い（${k}）: ${show(u)}`);
+      });
+    }
     if (/^on[a-z]+$/.test(k)) out.push(`HTML の中にコードを書いている（${k}=）`);
     if (/^(?:javascript|vbscript)$/i.test(scheme(v) || '')) out.push(`javascript: の URL を使っている（${k}）`);
   });

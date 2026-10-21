@@ -1,5 +1,6 @@
 // Google Fonts の CSS に並んだ woff2 を全部取り、名前を付け直して置く。あわせて自前の @font-face を書く。
 // 使い方: node get-fonts.mjs <google.css> <取ったファイルを置く所> <書く fonts.css>
+// google.css は、woff2 を返させるため新しい Chrome の User-Agent を付けて取る（fonts/README.md）
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -12,7 +13,7 @@ const faces = [...css.matchAll(/(?:\/\*\s*([\w-]+)\s*\*\/\s*)?@font-face\s*\{([\
   const get = (k) => (body.match(new RegExp(`${k}:\\s*([^;]+);`)) || [])[1];
   const url = (body.match(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.woff2)\)/) || [])[1];
   const index = (url && url.match(/\.(\d+)\.woff2$/)) ? url.match(/\.(\d+)\.woff2$/)[1] : label;
-  return { family: get('font-family').replace(/'/g, ''), weight: get('font-weight'), range: get('unicode-range'), url, index };
+  return { family: (get('font-family') || '').replace(/'/g, ''), weight: get('font-weight'), range: get('unicode-range'), url, index };
 });
 if (faces.some(f => !f.url || !f.range || !f.family || !f.weight || !f.index)) throw new Error('読めない @font-face がある');
 
