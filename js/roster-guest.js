@@ -10,8 +10,10 @@
   const S = () => R.roster;
   const C = () => R.rosterCore;
 
-  /* 同意の文の版。文を変えたら、ここも変える（名簿に残り、どの文に同意したかを後で示せる） */
+  /* 同意の文の版。文を変えたら、ここも変える（名簿に残り、どの文に同意したかを後で示せる）。
+     目的を足すなど前の同意が使えなくなる変え方をしたら、古い版を VALID_CONSENT から外す（同意し直してもらう） */
   const CONSENT_VER = '2026-10-21';
+  const VALID_CONSENT = [CONSENT_VER];
   /* 長さの上限は roster-schema.js の人の形と同じ */
   const ADDRESS_MAX = 120;
   const NAME_MAX = 60;
@@ -42,16 +44,21 @@
   const daysBetween = (from, to) => dayNumber(to) - dayNumber(from);
 
   /* ---------- 開いたリンクの中身 ---------- */
-  /* 一部だけ入っている欄の、空の所。ここだけを聞いて入れる */
+  /* 聞く所。緊急時の連絡先は、名前か電話が欠けていたら組ごと聞き直して入れ替える（片方だけ別の人の値が混ざらないように）。
+     C カードは、分かっている方を残して空の方だけを聞き、片方だけ入れたら自信なしの印を付ける（お店が確かめる） */
   function openParts(p) {
+    const e = p.emergency;
     return {
-      emergency: S().SUB.emergency.filter(k => blank(p.emergency[k])),
+      emergency: blank(e.name) || blank(e.phone) ? [...S().SUB.emergency] : [],
       cert: [p.cert.course === '' && 'course', p.cert.course !== 'NONE' && !isMonth(p.cert.date) && 'date'].filter(Boolean),
-      course: p.cert.course
+      course: p.cert.course,
+      date: p.cert.date
     };
   }
 
-  const consented = (p) => isDay(p.health.consentAt || '');
+  const consented = (p) => isDay(p.health.consentAt || '') && VALID_CONSENT.includes(p.health.consentVer);
+  /* 組の片方だけを入れたか（もう片方は前から入っていた） */
+  const halfCert = (patch, parts) => !!patch.cert && Object.keys(patch.cert).length === 1 && parts.cert.length === 1;
 
   /* 予約 1 件と、その人ごとの「まだ」の所。ask は入力の欄で聞く項目、needsToday は当日の体調がまだか */
   function guestView(state, bookingId) {
@@ -109,7 +116,7 @@
     const patch = {};
     if (ask.includes('birthDate')) patch.birthDate = x.birthDate;
     if (ask.includes('address')) patch.address = x.address.trim();
-    if (ask.includes('emergency')) {
+    if (ask.includes('emergency') && open.emergency.length) {
       patch.emergency = Object.fromEntries(open.emergency.map(k => [k, String(x.emergency[k] || '').trim()]));
     }
     if (ask.includes('certDate') || ask.includes('courses')) {
@@ -133,7 +140,8 @@
     const problems = guestProblems(input, entry.ask, entry.parts);
     if (problems.length) return { state, problems };
     const patch = guestPatch(input, entry.ask, today, entry.parts);
-    return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'guest', at }), problems: [] };
+    const markUnsure = halfCert(patch, entry.parts) ? ['cert'] : [];
+    return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'guest', at, markUnsure }), problems: [] };
   }
 
   /* 当日の体調。day は答えた日。同意がまだなら consent が要る。
@@ -172,7 +180,8 @@
       .sort((a, b) => RANK.indexOf(a.course) - RANK.indexOf(b.course));
     if (certs.length) {
       const top = certs[0];
-      items.push({ key: 'cert', level: top.level, date: top.date, patch: { cert: { course: top.course, date: isMonth(top.date) ? top.date : '' } } });
+      items.push({ key: 'cert', level: top.level, date: top.date, certs: certs.map(c => ({ course: c.course, date: isMonth(c.date) ? c.date : '', level: c.level })),
+        patch: { cert: { course: top.course, date: isMonth(top.date) ? top.date : '' } } });
     }
     if (pass.dives !== '' && pass.dives !== undefined) {
       items.push({ key: 'dives', dives: pass.dives, lastDive: pass.lastDive,
@@ -189,15 +198,25 @@
     return { items, name: pass.name };
   }
 
-  /* パスポートの物を、この人の「まだ」の所に合わせて絞る。分かっている所は入れない（C カードの講習、本数など） */
+  /* パスポートの物を、この人の「まだ」の所に合わせて絞る。分かっている所は入れない（C カードの講習、本数など）。
+     C カードの片方だけを入れるときは、名簿にある方と同じカード（講習か取得年月が同じ物）からだけ取る */
+  const sameMonth = (a, b) => isMonth(a) && isMonth(b) && a.slice(0, 7) === b.slice(0, 7);
   function narrow(item, entry) {
     const ask = entry.ask;
     if (item.key === 'cert') {
       if (!(ask.includes('certDate') || ask.includes('courses'))) return null;
-      const cert = {};
-      if (entry.parts.cert.includes('course')) cert.course = item.patch.cert.course;
-      if (ask.includes('certDate') && entry.parts.cert.includes('date') && (cert.course || entry.parts.course) !== 'NONE' && item.patch.cert.date) cert.date = item.patch.cert.date;
-      return Object.keys(cert).length ? { cert } : null;
+      const open = entry.parts.cert;
+      const wantDate = ask.includes('certDate') && open.includes('date');
+      if (open.includes('course') && (wantDate || !isMonth(entry.parts.date))) return item.patch;   // どちらも空: 一番上のカードを組で
+      if (open.includes('course')) {
+        const card = item.certs.find(c => sameMonth(c.date, entry.parts.date));
+        return card ? { cert: { course: card.course } } : null;
+      }
+      if (wantDate && entry.parts.course !== 'NONE') {
+        const card = item.certs.find(c => c.course === entry.parts.course && isMonth(c.date));
+        return card ? { cert: { date: card.date } } : null;
+      }
+      return null;
     }
     if (item.key === 'dives') {
       const p = {};
@@ -208,10 +227,16 @@
     return ask.includes('history') ? item.patch : null;
   }
 
-  /* この人に入れられる物（選ぶ画面に出す物）。名前が違うと、健康の答えは入れられない（別の人の答えが名簿に入るのを防ぐ） */
+  /* パスポートと名簿の名前が、両方あって同じか。どちらかが空なら、同じ人とは確かめられない */
+  const namesMatch = (offer, person) => !!offer.name && !!person.name && C().sameName(offer.name, person.name);
+  function passportSameName(state, { id, offer }) {
+    return namesMatch(offer, entryOf(state, id).person);
+  }
+
+  /* この人に入れられる物（選ぶ画面に出す物）。名前が同じと確かめられないと、健康の答えは入れられない（別の人の答えが名簿に入るのを防ぐ） */
   function passportChoices(state, { id, offer }) {
     const entry = entryOf(state, id);
-    const sameName = !offer.name || !entry.person.name || C().sameName(offer.name, entry.person.name);
+    const sameName = namesMatch(offer, entry.person);
     return offer.items.map(i => {
       const patch = i.patch ? narrow(i, entry) : null;
       const blocked = i.key === 'history' && !sameName ? 'name' : i.old ? 'old' : !patch ? 'none' : '';
@@ -223,7 +248,7 @@
      名前が違うときは otherName（この人に入れる、の印）が要る。健康の答えを入れるときは、同意がまだなら consent が要る */
   function applyPassport(state, { id, offer, keys, otherName, consent, today, at }) {
     const entry = entryOf(state, id);
-    const sameName = !offer.name || !entry.person.name || C().sameName(offer.name, entry.person.name);
+    const sameName = namesMatch(offer, entry.person);
     const chosen = passportChoices(state, { id, offer }).filter(i => keys.includes(i.key) && i.patch);
     const problems = [
       !sameName && otherName !== true && 'name',
@@ -232,9 +257,10 @@
     if (problems.length || !chosen.length) return { state, problems };
     const patch = chosen.reduce((acc, i) => ({ ...acc, ...i.patch }), {});
     if (patch.health && !entry.consented) patch.health = { ...patch.health, consentAt: DAY.test(today || '') ? today : patch.health.historyAt, consentVer: CONSENT_VER };
-    return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'passport', at }), problems: [] };
+    const markUnsure = halfCert(patch, entry.parts) ? ['cert'] : [];
+    return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'passport', at, markUnsure }), problems: [] };
   }
 
-  R.rosterGuest = { CONSENT_VER, TODAY_KEY, guestView, openParts, guestProblems, guestPatch, applyGuest, answerToday, courseOf,
-    passportOffer, passportChoices, applyPassport, daysBetween };
+  R.rosterGuest = { CONSENT_VER, VALID_CONSENT, TODAY_KEY, guestView, openParts, guestProblems, guestPatch, applyGuest, answerToday, courseOf,
+    passportOffer, passportChoices, passportSameName, applyPassport, daysBetween };
 })();

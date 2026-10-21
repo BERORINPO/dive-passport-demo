@@ -116,20 +116,31 @@ test('聞いていない項目は、入力に入っていても書き換えな�
   assert.equal(personOf(r.state, hanako.id).address, 'お店が入れた住所');
 });
 
-test('一部だけ入っている欄は、空の所だけを入れる（緊急時の連絡先・C カード）', () => {
-  const partial = staffEdit(base, hanako.id, { emergency: { name: 'お店が聞いた名前', relation: '', phone: '' } });
+test('緊急時の連絡先: 名前か電話が欠けていたら、組ごと聞き直して入れ替える（別の人の電話が混ざらないように）', () => {
+  const partial = freeze(C.applyReadingTo(base, { personId: hanako.id, read: { ...S.blankPerson(), name: '見本 花子', emergency: { name: '見本 母', relation: '母', phone: '' } }, src: 'paper', at: AT }).state);
   const v = G.guestView(partial, bookingId).people.find(x => x.person.id === hanako.id);
-  assert.deepEqual(v.parts.emergency, ['relation', 'phone']);
-  assert.deepEqual(G.guestProblems(fullInput({ emergency: { name: '', phone: '090-1' } }), v.ask, v.parts), [], '分かっている名前は求めない');
-  const r = G.applyGuest(partial, { id: hanako.id, input: fullInput({ emergency: { name: '上書きしたい名前', relation: '母', phone: '090-1' } }), today: TODAY, at: AT });
-  assert.deepEqual(personOf(r.state, hanako.id).emergency, { name: 'お店が聞いた名前', relation: '母', phone: '090-1' });
+  assert.deepEqual(v.parts.emergency, ['name', 'relation', 'phone']);
+  assert.ok(G.guestProblems(fullInput({ emergency: { name: '', phone: '090-1' } }), v.ask, v.parts).includes('emergency'), '名前も聞く');
+  const r = G.applyGuest(partial, { id: hanako.id, input: fullInput({ emergency: { name: '見本 兄', relation: '兄', phone: '090-1' } }), today: TODAY, at: AT });
+  const p = personOf(r.state, hanako.id);
+  assert.deepEqual(p.emergency, { name: '見本 兄', relation: '兄', phone: '090-1' });
+  assert.equal(p.src.emergency, 'guest');
+  /* 名前と電話がそろっていれば聞かない */
+  const full = staffEdit(base, hanako.id, { emergency: { name: '見本 母', relation: '', phone: '090-9' } });
+  assert.ok(!G.guestView(full, bookingId).people.find(x => x.person.id === hanako.id).ask.includes('emergency'));
+});
 
+test('C カード: 分かっている方は残し、片方だけ入れたら自信なしの印を付けてお店の確かめに出す', () => {
   /* AI が写真から読んだ講習（年月が空）は、お客さんが講習を選んでも替わらない */
   const read = staffEdit(base, taro.id, { cert: { course: 'AOW', date: '' } });
   const t = G.guestView(read, bookingId).people.find(x => x.person.id === taro.id);
   assert.deepEqual(t.parts.cert, ['date']);
   const after = G.applyGuest(read, { id: taro.id, input: fullInput({ cert: { course: 'OW', date: '2023-07' } }), today: TODAY, at: AT });
-  assert.deepEqual(personOf(after.state, taro.id).cert, { course: 'AOW', date: '2023-07' });
+  const p = personOf(after.state, taro.id);
+  assert.deepEqual(p.cert, { course: 'AOW', date: '2023-07' });
+  assert.ok(p.unsure.includes('cert'), '片方だけ入れたら自信なし');
+  assert.equal(p.src.cert, 'guest');
+  assert.ok(C.status(p, trip).unsure.includes('certDate') || C.status(p, trip).unsure.includes('courses'), 'お店の確かめに出る');
 });
 
 test('講習だけを聞いたときは、AI が読んだ取得年月を残す', () => {
@@ -169,6 +180,37 @@ test('パスポートから: 分かっている所は入れない（メールで
   const r = G.applyPassport(known, { id: taro.id, offer, keys: ['dives'], at: AT });
   assert.equal(personOf(r.state, taro.id).dives, 40);
   assert.equal(personOf(r.state, taro.id).lastDive, '2026-03');
+});
+
+test('パスポートから: C カードの片方だけは、名簿にある方と同じカードからだけ取る', () => {
+  const pass = passOf({ certs: [{ agency: 'PADI', level: 'Rescue Diver', no: '1', date: '2021-03' }, { agency: 'PADI', level: 'Open Water Diver', no: '2', date: '2019-07' }] });
+  const offer = G.passportOffer(pass, { today: TODAY, maxDays: 365 });
+  /* C カードの写真から年月 2019-07 だけ読めた → 同じ年月の OW を取る（一番上の RESCUE ではない） */
+  const dateOnly = staffEdit(base, taro.id, { cert: { course: '', date: '2019-07' } });
+  assert.deepEqual(G.passportChoices(dateOnly, { id: taro.id, offer }).find(i => i.key === 'cert').patch, { cert: { course: 'OW' } });
+  const r = G.applyPassport(dateOnly, { id: taro.id, offer, keys: ['cert'], at: AT });
+  assert.deepEqual(personOf(r.state, taro.id).cert, { course: 'OW', date: '2019-07' });
+  assert.ok(personOf(r.state, taro.id).unsure.includes('cert'));
+  /* 同じ年月のカードが無ければ出さない */
+  const other = staffEdit(base, taro.id, { cert: { course: '', date: '2018-01' } });
+  assert.equal(G.passportChoices(other, { id: taro.id, offer }).find(i => i.key === 'cert'), undefined);
+  /* 講習 AOW が分かっていて年月が空 → AOW のカードが無ければ出さない */
+  const courseOnly = staffEdit(base, taro.id, { cert: { course: 'AOW', date: '' } });
+  assert.equal(G.passportChoices(courseOnly, { id: taro.id, offer }).find(i => i.key === 'cert'), undefined);
+});
+
+test('パスポートから: 名簿の名前が空だと、同じ人と確かめられないので健康の答えは入れない', () => {
+  const noName = staffEdit(base, taro.id, { name: '', cert: { course: '', date: '' } });
+  const offer = G.passportOffer(passOf(), { today: TODAY, maxDays: 365 });
+  assert.equal(G.passportSameName(noName, { id: taro.id, offer }), false);
+  assert.equal(G.passportChoices(noName, { id: taro.id, offer }).find(i => i.key === 'history').blocked, 'name');
+  assert.deepEqual(G.applyPassport(noName, { id: taro.id, offer, keys: ['cert'], at: AT }).problems, ['name']);
+});
+
+test('同意の文の版が古いと、同意し直してもらう', () => {
+  const old = freeze(C.editPerson(base, { id: hanako.id, patch: { health: { consentAt: '2026-01-01', consentVer: '2025-01-01' } }, who: 'guest', at: AT }));
+  assert.equal(G.guestView(old, bookingId).people.find(x => x.person.id === hanako.id).consented, false);
+  assert.deepEqual(G.answerToday(old, { id: hanako.id, answer: 'ok', day: trip.date, at: AT }).problems, ['consent']);
 });
 
 test('パスポートから: 名前が違うと、健康の答えは入れられず、ほかの物は「この人に入れる」の印が要る', () => {

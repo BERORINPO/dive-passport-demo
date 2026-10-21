@@ -63,9 +63,10 @@
     passOld: { ja: '日前の答えなので使えません。この画面のあとで答え直してください', en: 'days old, so it cannot be used. Please answer again' },
     passNone: { ja: 'パスポートから入れられる物はありません。', en: 'Nothing on your passport is needed here.' },
     passNameDiff: { ja: '名前が違います', en: 'The names differ' },
+    passNameEmpty: { ja: '名簿にまだ名前が無いので、同じ人か確かめられません', en: 'The list has no name yet, so we cannot check it is the same person' },
     passNameText: { ja: '同じ人なら、下の印を付けて入れてください。健康の答えは、名前が同じときだけ入れられます', en: 'If this is the same person, tick the box below. Health answers can only be used when the names match' },
     passOtherName: { ja: '名前が違っても、この人に入れる', en: 'Use it for this person even though the names differ' },
-    passNameBlocked: { ja: '名前が違うので入れられません', en: 'Cannot be used because the names differ' },
+    passNameBlocked: { ja: '同じ人と確かめられないので入れられません', en: 'Cannot be used: we cannot confirm it is the same person' },
     passUse: { ja: '選んだ物を入れる', en: 'Use the selected items' },
     cancel: { ja: 'やめる', en: 'Cancel' },
     passRest: { ja: '生年月日・住所・緊急時の連絡先は、パスポートに無いので、この画面のあとで入れます。', en: 'Date of birth, address and emergency contact are not on the passport; enter them next.' }
@@ -223,7 +224,7 @@
         el('span', { class: 'rd__k', text: L({ cert: T.passCert, dives: T.passDives, history: T.passHistory }[i.key]) }),
         el('span', { class: 'rd__v' }, value[0], value[1] ? el('span', { class: 'rd__sub', text: value[1] }) : null));
     };
-    const differs = pass && pass.name && entry.person.name && !C().sameName(pass.name, entry.person.name);
+    const differs = !!pass && !G().passportSameName(R.rosterStore.get(), { id: entry.person.id, offer });
     const restAsked = ['birthDate', 'address', 'emergency'].some(k => entry.ask.includes(k));
     const chosen = usable.filter(i => passKeys.includes(i.key));
     const needsConsent = chosen.some(i => i.key === 'history') && !entry.consented;
@@ -234,8 +235,8 @@
       el('h2', { class: 'page__title', text: L(T.passTitle) }),
       el('p', { class: 'page__sub', text: `${entry.person.name || '—'}${R.lang === 'en' ? '' : ' '}${L(T.passFor)}` }),
       items.length ? el('div', { class: 'sheet' }, items.map(row)) : el('p', { class: 'empty', text: L(T.passNone) }),
-      differs ? el('div', { class: 'band band--warn' }, el('p', { class: 'band__title', text: L(T.passNameDiff) }),
-        el('p', { class: 'band__text', text: `${pass.name} / ${entry.person.name}${R.lang === 'en' ? '. ' : '。'}${L(T.passNameText)}` })) : null,
+      differs ? el('div', { class: 'band band--warn' }, el('p', { class: 'band__title', text: L(entry.person.name ? T.passNameDiff : T.passNameEmpty) }),
+        el('p', { class: 'band__text', text: `${pass.name || '—'} / ${entry.person.name || '—'}${R.lang === 'en' ? '. ' : '。'}${L(T.passNameText)}` })) : null,
       differs ? el('label', { class: 'check' },
         el('input', { type: 'checkbox', checked: otherName, onchange: (e) => { otherName = e.target.checked; render(); } }),
         el('span', { text: L(T.passOtherName) })) : null,

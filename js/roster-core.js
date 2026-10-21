@@ -313,8 +313,9 @@
   const NESTED = ['emergency', 'cert', 'sizes', 'health'];
   const isPlain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
-  /* demo: デモで「当日として」答えたなど、本当の時刻と違う形で入れた印。記録に残す */
-  function editPerson(state, { id, patch, who, src, at, demo }) {
+  /* demo: デモで「当日として」答えたなど、本当の時刻と違う形で入れた印。記録に残す。
+     markUnsure: 組の片方だけを別の出どころで入れた項目（C カードの講習と年月など）。出どころを入れた方にし、自信なしの印を付けて、お店の「確かめる」に必ず出す */
+  function editPerson(state, { id, patch, who, src, at, demo, markUnsure }) {
     if (!EDIT_WHO.includes(who)) throw new Error(`editPerson: who は ${EDIT_WHO.join(' / ')} のどれか (${who})`);
     const from = src || (who === 'guest' ? 'guest' : 'staff');
     if (!EDIT_SRC.includes(from)) throw new Error(`editPerson: src は ${EDIT_SRC.join(' / ')} のどれか (${from})`);
@@ -326,9 +327,11 @@
     if (!keys.length) return state;
     /* 入れ子の一部だけ直したときは、触っていない所（AI が読んだ電話など）を確かめ済みにしない。自信なしの印と AI の出どころを残す */
     const partial = (k) => has(S().SUB, k) && isPlain(patch[k]) && !S().SUB[k].every(x => has(patch[k], x));
-    const srcOf = (k) => (partial(k) && AI_SRC.includes(before.src[k]) ? before.src[k] : from);
+    const flagged = (markUnsure || []).filter(k => keys.includes(k) && S().AI_FIELDS.includes(k));
+    const srcOf = (k) => (!flagged.includes(k) && partial(k) && AI_SRC.includes(before.src[k]) ? before.src[k] : from);
+    const kept = before.unsure.filter(u => !keys.includes(u) || partial(u));
     const after = { ...before, ...pick(full, keys), src: { ...before.src, ...Object.fromEntries(keys.map(k => [k, srcOf(k)])) },
-      unsure: before.unsure.filter(u => !keys.includes(u) || partial(u)) };
+      unsure: [...kept, ...flagged.filter(k => !kept.includes(k))] };
     const v = S().validatePerson(after);
     if (!v.ok) throw new Error(`editPerson: 直した後の形が合わない (${v.errors.join(',')})`);
     return withLog({ ...state, people: state.people.map(p => (p.id === id ? after : p)) },

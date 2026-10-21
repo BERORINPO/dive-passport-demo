@@ -93,7 +93,7 @@ Yosuke の確認は 3 回: ①今（この計画とモック）②P2 のあと�
   - 鍵は URL の # の後ろに置き、`/api/ask` へは body で送る（path に入れると、Cloudflare の記録・ログ・Referer・履歴に残る）。応答には `Referrer-Policy: no-referrer`・`Cache-Control: no-store`・`X-Robots-Tag: noindex`
   - リンクは便の翌日まで（名簿を残す 1 年とは別）。作り直したら古い鍵を止める。全部そろったら何も見せない
   - 予約 1 件のリンクで受けるのは健康以外の項目だけ。既往症と当日の体調は、1 人ずつのリンクで本人に答えてもらう（子どもは保護者）
-  - 聞く項目は Worker が自分の名簿から計算し、guestProblems と guestPatch も Worker でかける（お客さんから来た ask や patch は信じない）。当日の体調は、Worker の日付が便の日のときだけ受ける。デモの「当日として答える」は外す
+  - 聞く項目は Worker が自分の名簿から計算し、guestProblems と guestPatch も Worker でかける（お客さんから来た ask や patch は信じない）。当日の体調は、Worker の日付が便の日のときだけ受ける。デモの「当日として答える」は外し、`aiReader.mode()` でデモかを決める試作の判定も持ち込まない
   - /api/ask に Cloudflare の rate limit を付け、鍵 1 つあたり 1 日に受ける回数にも上限を付ける。`Sec-Fetch-Site: same-origin` と JSON は /api と同じく必須
   - Access を外す道（Bypass）は `/ask` と `/api/ask` だけにする（`/ask*` と書くと `/askadmin` なども外に出る）
 
