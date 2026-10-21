@@ -382,6 +382,36 @@ test('予約の項目に書かれた健康の話も外す。名前・住所の�
   }
 });
 
+test('健康の答えの中に日付や「お願いします」があっても外す。予約の話で始まる文で止まる', () => {
+  const removed = [
+    ['健康上の問題はありますか？\nはい、1名が毎日通っています', 2],
+    ['持病はありますか？\nはい、薬を飲んでいるので浅めでお願いします', 2],
+    ['Any medical conditions?\nYes, every day on 10/23 so I am tired on 10/24', 2],
+    ['持病があります。2人とも毎日飲んでいます。', 2],
+    ['息子は喘息です。持参しますのでよろしくお願いします。', 2],
+    ['持病はありますか？\n■ご回答：毎日しています', 2],
+    ['持病はありますか？\nお答え：毎日', 2],
+    ['Any medical conditions?\nResponse: every day', 2],
+    ['Any medical conditions?\nYour answer: every day', 2]
+  ];
+  for (const [input, n] of removed) assert.equal(H.redact(input).redacted, n, input);
+  assert.equal(H.redact('持病で喘息があります。代表は見本 花子です。').text, `${H.REDACTED_PART}代表は見本 花子です。`);
+  assert.equal(H.redact('My friend has asthma. We stay at Hotel Mihon in Onna.').text, `${H.REDACTED_PART} We stay at Hotel Mihon in Onna.`);
+  assert.equal(H.redact('備考: 喘息があります\nピックアップ希望 ホテル見本').text, `${H.REDACTED_LINE}\nピックアップ希望 ホテル見本`);
+});
+
+test('固有名詞の項目でも、項目名に健康の字があるか、名前の後ろの注記なら外す。ふりがなは残す', () => {
+  for (const line of ['お薬の名前：ワーファリン', 'かかりつけ医の名前：山田（循環器）', '主治医の電話番号：090-1234-5678',
+    '代表者：見本 花子、腰痛あり', '代表者：見本 花子【腰痛】', '代表者：見本 花子（腰痛があります', 'Hotel: Hilton, 医者に止められたら連絡します']) {
+    assert.ok(H.redact(line).redacted >= 1, line);
+  }
+  const para = H.redact('お名前：見本 花子。10/24 に2名で予約したいです。息子が鼻炎で耳が痛くなりやすいです。').text;
+  assert.equal(para, `お名前：見本 花子。10/24 に2名で予約したいです。${H.REDACTED_PART}`);
+  for (const line of ['代表者：池上 花子（イケガミ ハナコ）', '代表：見本 花子 (うつみ)', '参加者2: イケガミ タロウ', '同行者: ウツミ タロウ']) {
+    assert.equal(H.redact(line).redacted, 0, line);
+  }
+});
+
 test('外した後の文面にもう一度かけても同じ（Worker で 2 回かけるため）', () => {
   const inputs = ['10月24日に2名でお願いします。持病で喘息があります。代表は見本 花子、電話は090-1234-5678です。',
     'Hi, we would like to book 2 people.\nMy friend has a mild heart condition, is it ok?\nThanks,\nSeo-yeon Kim',
@@ -394,7 +424,18 @@ test('外した後の文面にもう一度かけても同じ（Worker で 2 回�
   }
 });
 
+test('入れ子の一部だけ直しても、触っていない所は確かめ済みにならない', () => {
+  const s = C.addBooking(base, { trip, booking: { source: 'mail', people: 1 }, reading: { booking: null, healthSeen: false,
+    people: [{ ...emptyRead(), name: '見本 花子', emergency: { name: '見本 母', relation: '', phone: '090-9999-9999' }, unsure: ['emergency'] }] }, src: 'paper', at: AT, newId });
+  const id = C.peopleOf(s, 't1')[0].id;
+  const part = C.editPerson(s, { id, patch: { emergency: { relation: '母' } }, who: 'guest', at: AT }).people.find(p => p.id === id);
+  assert.deepEqual([part.unsure, part.src.emergency], [['emergency'], 'paper'], '続柄だけ直しても、AI が読んだ電話は自信なしのまま');
+  const whole = C.editPerson(s, { id, patch: { emergency: { name: '見本 母', relation: '母', phone: '090-9999-9999' } }, who: 'guest', at: AT }).people.find(p => p.id === id);
+  assert.deepEqual([whole.unsure, whole.src.emergency], [[], 'guest'], '全部を確かめて入れ直せば、確かめ済み');
+});
+
 test('予約は形の項目の値が undefined なら拾わず、形が合わなければ例外にする', () => {
+  assert.throws(() => C.addBooking(base, { trip, booking: { source: 'phone', people: '3' }, reading: null, src: 'staff', at: AT, newId }), /人数は数/);
   const s = C.addBooking(base, { trip, booking: { source: 'mail', leadName: undefined, people: 1 }, reading: null, src: 'mail', at: AT, newId });
   assert.ok(S.validateState(s).ok);
   assert.throws(() => C.addBooking(base, { trip, booking: { source: 'fax' }, reading: null, src: 'staff', at: AT, newId }), /予約の形/);

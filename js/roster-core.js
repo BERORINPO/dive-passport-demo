@@ -164,6 +164,9 @@
   /* ---------- 予約を足す（読み取りから・手入力から）。名前の分からない人は空の行で人数分そろえる ---------- */
   function addBooking(state, { trip, booking, reading, src, at, newId }) {
     const given = booking || {};
+    if (has(given, 'people') && given.people !== '' && given.people !== undefined && !Number.isInteger(given.people)) {
+      throw new Error(`addBooking: 人数は数で渡す (${JSON.stringify(given.people)})`);
+    }
     const fields = BOOKING_FIELDS.filter(k => has(given, k) && given[k] !== undefined);   // 予約の形の項目だけ拾う（読み取りの date や unsure を混ぜない）
     const b = { ...S().blankBooking(), ...pick(given, fields), id: newId(), tripId: trip.id, createdAt: at };
     const want = Number.isInteger(b.people) && b.people >= 1 ? Math.min(b.people, S().MAX_PEOPLE) : 1;
@@ -219,8 +222,11 @@
       .map(k => [k, NESTED.includes(k) && isPlain(patch[k]) ? { ...before[k], ...patch[k] } : patch[k]]));
     const keys = Object.keys(full).filter(k => !same(full[k], before[k]));
     if (!keys.length) return state;
-    const after = { ...before, ...pick(full, keys), src: { ...before.src, ...Object.fromEntries(keys.map(k => [k, from])) },
-      unsure: before.unsure.filter(u => !keys.includes(u)) };
+    /* 入れ子の一部だけ直したときは、触っていない所（AI が読んだ電話など）を確かめ済みにしない。自信なしの印と AI の出どころを残す */
+    const partial = (k) => has(S().SUB, k) && isPlain(patch[k]) && !S().SUB[k].every(x => has(patch[k], x));
+    const srcOf = (k) => (partial(k) && AI_SRC.includes(before.src[k]) ? before.src[k] : from);
+    const after = { ...before, ...pick(full, keys), src: { ...before.src, ...Object.fromEntries(keys.map(k => [k, srcOf(k)])) },
+      unsure: before.unsure.filter(u => !keys.includes(u) || partial(u)) };
     const v = S().validatePerson(after);
     if (!v.ok) throw new Error(`editPerson: 直した後の形が合わない (${v.errors.join(',')})`);
     return withLog({ ...state, people: state.people.map(p => (p.id === id ? after : p)) },
