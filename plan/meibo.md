@@ -76,7 +76,11 @@ Yosuke の確認は 3 回: ①今（この計画とモック）②P2 のあと�
 - **お金の上限はワークスペースで**: この Worker 専用のワークスペースを作って月の上限を付け、鍵はその中で作る（上限は鍵ごとではなくワークスペースごと）
 - **KV の数は目安**: 数えるのは呼び出す前。KV が失敗したら断る。合言葉の失敗は書かない。正確にしたければ Durable Object
 - **ログに中身を出さない**: 残すのは状態・doc・量・時間だけ。Anthropic のエラー本文は画面に返さない
-- **画面のスクリプトを自前で配る**: cdnjs と jsDelivr の物を Static Assets に置き、CSP を付ける（`script-src 'self'; connect-src 'self'; frame-ancestors 'none'`）
+- **画面のスクリプトと字体を自前で配る**: cdnjs・jsDelivr・Google Fonts の物を Static Assets に置き、CSP を付ける（ザクのレビュー 2026-10-21）
+  - index.html: `default-src 'none'; script-src 'self' 'sha256-<importmap の中身の hash>'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; connect-src 'self' blob:; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'`
+  - pass.html: `default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
+  - importmap は HTML の中のスクリプトなので hash で許す（`<script type="importmap">` と `</script>` の間の文字そのまま。CSP を付けて開くと、Chrome のコンソールに要る `sha256-...` が出る）。blob: は写真と 3D の模様、media-src は亀の声のため
+  - CDN を残す間は、サイト名だけで許さずパスまで書き（`https://cdn.jsdelivr.net/npm/three@0.160.0/`）、integrity と組み合わせる。付けたら、コンソールに違反が出ないか、亀・QR・写真・声が動くかを確かめる
 - 合言葉は header `x-redux-code` に UTF-8 の base64url で来る。両方を SHA-256 にしてから `crypto.subtle.timingSafeEqual` で比べ、空なら 401
 - /api は `application/json` と `Sec-Fetch-Site: same-origin` を必須にし、CORS のヘッダは出さず、OPTIONS は断る
 - カレンダーの購読用の URL（`/api/calendar/<長い合言葉>.ics`）。中身は .ics の書き出しと同じ（便の時刻・ツアー・人数だけ）。URL を知る人は誰でも見られるので、合言葉は長くし、作り直せるようにする。Google カレンダーは反映が数時間〜1 日遅れる

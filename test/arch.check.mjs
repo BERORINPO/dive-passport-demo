@@ -6,6 +6,7 @@
 // 5. AI の読み取りには見本（Fake）がある
 // 6. entry と adapter は HTML の文字列を直接入れない（innerHTML など）
 // 7. この検査自身が、わざと違反を入れた見本で落ちる（何も検査していないのに通る、を防ぐ）
+// 8. HTML から外を読むのは、表 3 に書いたサイトだけ。外のスクリプトには integrity を付ける
 // 決まりを外すときは、その行に「// arch-allow: 理由」を書く。外した数を毎回出す。
 // 実行: node test/arch.check.mjs
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -153,6 +154,36 @@ jsFiles.filter(f => f !== 'js/ai-reader.js').forEach(p => {
 });
 if (!/function readSample\(/.test(read('js/ai-reader.js'))) fail('js/ai-reader.js に見本 (readSample) が無い');
 
+/* 8. HTML から外を読む先。表 3（## 3.）に書いたサイト名だけを許す。表と検査を 1 か所で合わせるため */
+const OUTSIDE = new Set(doc.slice(doc.indexOf('## 3.'), doc.indexOf('## 4.')).match(/[a-z0-9-]+(?:\.[a-z0-9-]+)+\.(?:com|net|org|io)/g) || []);
+if (!OUTSIDE.size) fail('表 3 に外から読むサイトが 1 つも無い（検査が何も見ていない）');
+function outsideProblems(html) {
+  const out = [];
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return u; } };
+  for (const m of html.matchAll(/\b(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["']/g)) {
+    if (!OUTSIDE.has(hostOf(m[1]))) out.push(`外の読み込み先が表 3 に無い: ${hostOf(m[1])}`);
+  }
+  for (const m of html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']https?:[^>]*>/g)) {
+    if (!/\bintegrity\s*=\s*["']sha(?:256|384|512)-/.test(m[0])) out.push(`外のスクリプトに integrity が無い: ${m[0].slice(0, 90)}`);
+  }
+  for (const m of html.matchAll(/<script\b[^>]*type\s*=\s*["']importmap["'][^>]*>([\s\S]*?)<\/script>/g)) {
+    let map;
+    try { map = JSON.parse(m[1]); } catch { out.push('importmap が JSON として読めない'); continue; }
+    const integ = map.integrity || {};
+    Object.values(map.imports || {}).filter(u => /^https?:/.test(u)).forEach(u => {
+      if (!OUTSIDE.has(hostOf(u))) out.push(`importmap の読み込み先が表 3 に無い: ${hostOf(u)}`);
+      /* ファイルは自分の integrity、フォルダ（/ で終わる）はその下に 1 つ以上の integrity */
+      const ok = u.endsWith('/') ? Object.keys(integ).some(k => k.startsWith(u)) : Boolean(integ[u]);
+      if (!ok) out.push(`importmap の ${u} に integrity が無い`);
+    });
+    Object.keys(integ).filter(u => !OUTSIDE.has(hostOf(u))).forEach(u => out.push(`importmap の integrity の先が表 3 に無い: ${hostOf(u)}`));
+  }
+  return out;
+}
+const htmlFiles = readdirSync(new URL('./', root)).filter(f => f.endsWith('.html') && !f.endsWith('.local.html'));
+if (!htmlFiles.length) fail('検査する HTML が無い');
+htmlFiles.forEach(f => outsideProblems(read(f)).forEach(v => fail(`${f}: ${v}`)));
+
 /* 7. わざと違反を入れた見本。どれか 1 つでも見逃したら、この検査が甘い */
 const PROBES = [
   [rulesFor.core, 'const x = Date.now();'], [rulesFor.core, 'const d = new Date;'], [rulesFor.core, 'const d = Date();'],
@@ -180,11 +211,23 @@ PROBES.push([rulesFor.core, 'const s = `${Date.now()}`;'], [rulesFor.core, "cons
 const CLEAN = ['const s = "Date of birth";', "const u = 'window.document and fetch(x)';", 'const t = `Date: ${n}`;'];
 const before = allowed;
 PROBES.forEach(([rules, code]) => { if (!violations(code, rules).length) fail(`検査が甘い: 「${code.replace(/\n/g, ' ')}」を見逃した`); });
+const HTML_PROBES = [
+  '<script src="https://evil.example.com/x.js" integrity="sha512-x"></script>',
+  '<script src="https://cdnjs.cloudflare.com/x.js" crossorigin="anonymous"></script>',
+  '<link rel="stylesheet" href="https://evil.example.com/a.css">',
+  '<script type="importmap">{ "imports": { "a": "https://cdn.jsdelivr.net/npm/a@1/a.js" } }</script>',
+  '<script type="importmap">{ "imports": { "b/": "https://cdn.jsdelivr.net/npm/b@1/" } }</script>',
+  '<script type="importmap">{ "imports": { "a": "https://evil.example.com/a.js" }, "integrity": { "https://evil.example.com/a.js": "sha256-x" } }</script>'
+];
+const HTML_CLEAN = '<script src="https://cdnjs.cloudflare.com/x.js" integrity="sha512-x" crossorigin="anonymous"></script><script src="js/app.js"></script>';
+HTML_PROBES.forEach(h => { if (!outsideProblems(h).length) fail(`検査が甘い: 「${h.slice(0, 70)}」を見逃した`); });
+if (outsideProblems(HTML_CLEAN).length) fail('検査が厳しすぎる: integrity 付きの外のスクリプトを違反と見た');
 CLEAN.forEach(code => { if (violations(code, rulesFor.core).length) fail(`検査が厳しすぎる: 「${code}」を違反と見た`); });
 allowed = before;
 
 console.log(`files: shared ${roles.shared?.length || 0} / core ${roles.core?.length || 0} / adapter ${roles.adapter?.length || 0} / entry ${roles.entry?.length || 0}`);
-console.log(`names: adapter ${ADAPTER.length} / core ${CORE.length} / probes: ${PROBES.length} / arch-allow: ${allowed}`);
+console.log(`names: adapter ${ADAPTER.length} / core ${CORE.length} / probes: ${PROBES.length} + html ${HTML_PROBES.length} / arch-allow: ${allowed}`);
+console.log(`outside: ${[...OUTSIDE].join(' ')} / html: ${htmlFiles.join(' ')}`);
 if (problems.length) {
   problems.forEach(p => console.log(`FAIL ${p}`));
   process.exit(1);
