@@ -186,7 +186,7 @@ if (!htmlFiles.length) fail('検査する HTML が無い');
   const text = read(f);
   fileProblems(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: ${v}`));
   if (f.endsWith('.html') && !rule.fonts) fontFaceProblems(text, read).forEach(v => fail(`${f}: ${v}`));
-  unusedAllows(text, rule).forEach(v => fail(`${f}: 表で許しているのに使っていない: ${v}`));
+  unusedAllows(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: 表で許しているのに使っていない: ${v}`));
 });
 Object.keys(ALLOW || {}).filter(f => !existsSync(new URL(f, root))).forEach(f => fail(`表「外から読む先」のファイルが無い: ${f}`));
 /* 字体ファイルの中身の指紋。repo が字体の出どころなので、すり替えを見えるようにする（作り直しは tools/font-sums.mjs） */
@@ -276,6 +276,8 @@ const FILE_PROBES = [
   [IDX, `<!-- a --!><script src="${QR}x.js"></script><!-- -->`, true],
   [IDX, "<iframe srcdoc='&lt;script&gt;fetch(atob(\"aHR0cHM6Ly9ldmls\"))&lt;/script&gt;'></iframe>", true],
   [NONE, '.a{background:url("/\\\n/evil.example.com/p.png")}', false],
+  [IDX, '<input accept="image/*"><style>.a{background:url(//evil.example.com/p.png)}</style><p>a */ b</p>', true],
+  [NONE, '@import "app.css";', false],
   [NONE, '@import url("https://fonts.googleapis.com/css2?family=X");', false],
   [NONE, '.a{background:url(//evil.example.com/p.png)}', false]
 ];
@@ -283,6 +285,7 @@ const FILE_CLEAN = [
   [IDX, `<script src="${QR}x.js" integrity="sha512-x" crossorigin="anonymous"></script><link rel="stylesheet" href="css/fonts.css">`, true],
   [NONE, '<img src="https:/evil.example.com/p.png">', true],   /* https のページでは自分のサイトのパスになる（外ではない） */
   [NONE, '/* one */\n/* two */\n.a { grid-column: 1 /\n/* three */\n-1; }', false],   /* 改行を消すと //* ができる（ジンのレビュー） */
+  [NONE, '<style>/* one */\n/* two */</style><p>2026/10/24//まで</p>', true],
   [NONE, '<a href="index.html">x</a><script src="js/app.js"></script><svg xmlns="http://www.w3.org/2000/svg"></svg>', true],
   [NONE, '.a{background:url(assets/x.png)}', false]
 ];
@@ -297,9 +300,18 @@ const IMPORT_PROBES = ["import { OrbitControls } from 'three/addons/controls/Orb
 const IMPORT_CLEAN = "import * as THREE from 'three';\nimport { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';\nimport { a } from './a.js';";
 const TABLE_PROBES = [{ 'a.html': { allow: ['https://cdn.jsdelivr.net'], bare: [] } }, { 'a.html': { allow: ['https://a.example.com/x/'], bare: ['https://b.example.com/'] } },
   { 'a.html': { allow: ['http://a.example.com/'], bare: [] } }];
-const FONT_PROBES = ['<link rel="stylesheet" href="css/fonts.css">', '<style>@font-face { font-family: x; src: url(fonts/a.woff2); }</style>'];
-FONT_PROBES.forEach(h => { if (!fontFaceProblems(h, read).length) fail(`検査が甘い: 字体を読まないページの「${h.slice(0, 60)}」を見逃した`); });
-if (fontFaceProblems('<link rel="stylesheet" href="css/app.css">', read).length) fail('検査が厳しすぎる: @font-face の無い css/app.css を違反と見た');
+/* 字体を読まないページの見本。CSP を付けた頭の後ろに、見本の 1 行を足して試す */
+const CSP_OK = '<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\'; style-src \'self\'; img-src \'none\'; connect-src \'none\'">';
+const FONT_PROBES = [`${CSP_OK}<link rel="stylesheet" href="css/fonts.css">`, `${CSP_OK}<style>@font-face { font-family: x; src: url(fonts/a.woff2); }</style>`,
+  `${CSP_OK}<style>@font-fac\\65 { font-family: x; }</style>`, `${CSP_OK}<link rel="preload" as="font" href="fonts/a.woff2">`,
+  '<link rel="stylesheet" href="css/app.css">',   /* CSP が無い */
+  '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src \'none\'; connect-src \'self\'">',
+  '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src \'none\'; connect-src \'none\'; font-src \'self\'">',
+  '<link rel="stylesheet" href="css/app.css"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src \'none\'; connect-src \'none\'">',
+  '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src \'none\'; connect-src \'none\'; style-src \'unsafe-inline\'">'];
+FONT_PROBES.forEach(h => { if (!fontFaceProblems(h, read).length) fail(`検査が甘い: 字体を読まないページの「${h.slice(-60)}」を見逃した`); });
+const FONT_CLEAN = `${CSP_OK}<link rel="stylesheet" href="css/app.css">`;
+if (fontFaceProblems(FONT_CLEAN, read).length) fail(`検査が厳しすぎる: ${fontFaceProblems(FONT_CLEAN, read)[0]}`);
 const probeCount = FILE_PROBES.length + NET_PROBES.length + IMPORT_PROBES.length + TABLE_PROBES.length + FONT_PROBES.length;
 TABLE_PROBES.forEach(t => { if (!tableProblems(t).length) fail(`検査が甘い: 表の書き方 ${JSON.stringify(t)} を見逃した`); });
 FILE_PROBES.forEach(([rule, text, isHtml]) => { if (!fileProblems(text, rule, isHtml).length) fail(`検査が甘い: 「${text.slice(0, 70)}」を見逃した`); });

@@ -69,12 +69,19 @@ export function external(value) {
    CSS のエスケープを戻した物でも探す */
 const DEST = /(?:[a-z][a-z0-9+.-]*:)?[\\/]{2}[^\s"'<>()`,]+/gi;
 const SCHEMED = /^[a-z][a-z0-9+.-]*:/i;
-export function destinations(text) {
-  const base = decode(text.replace(HTML_COMMENT, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+// CSS のコメントは、CSS ファイルと <style> の中だけから外す。HTML の地の文から外すと、accept="image/*" の「/*」から
+// 後ろの「*/」までを消して、間の <style> が見えなくなる（ジンのレビュー）
+const CSS_COMMENT = /\/\*[\s\S]*?\*\//g;
+const stripCssComments = (text, isCss) => (isCss ? text.replace(CSS_COMMENT, ' ')
+  : text.replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style)/gi, (_, a, body, b) => a + body.replace(CSS_COMMENT, ' ') + b));
+/* scheme の無い // は、点の入ったホスト名のときだけ拾う（本文の「2026/10/24//まで」を拾わない） */
+const keep = (d) => SCHEMED.test(d) || /^[\\/]{2}[a-z0-9-]+(?:\.[a-z0-9-]+)+/i.test(d);
+export function destinations(text, isCss = false) {
+  const base = decode(stripCssComments(text.replace(HTML_COMMENT, ' '), isCss)
     .replace(/\sxmlns(?::[\w-]+)?\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' '));
   const found = [];
   [base, cssUnescape(base)].forEach(v => {
-    found.push(...[...v.replace(/[\t\r\n]/g, ' ').matchAll(DEST)].map(m => m[0]));
+    found.push(...[...v.replace(/[\t\r\n]/g, ' ').matchAll(DEST)].map(m => m[0]).filter(keep));
     found.push(...[...v.replace(/[\t\r\n]/g, '').matchAll(DEST)].map(m => m[0]).filter(d => SCHEMED.test(d)));
   });
   return [...new Set(found)];
@@ -178,7 +185,8 @@ function tagProblems({ tag, attrs, content }, rule) {
 /* 1 つのファイル（HTML か CSS）の問題。rule は表の 1 行 */
 export function fileProblems(text, rule, isHtml) {
   const out = [];
-  destinations(text).forEach(d => {
+  if (!isHtml && /@import/i.test(cssUnescape(text.replace(CSS_COMMENT, ' ')))) out.push('CSS の @import は使わない（読み込む CSS は HTML の link に並べる）');
+  destinations(text, !isHtml).forEach(d => {
     const u = external(d);
     if (!u) return;
     if (u === 'bad') out.push(`読めない行き先: ${d.slice(0, 60)}`);
@@ -189,23 +197,44 @@ export function fileProblems(text, rule, isHtml) {
 }
 
 /* 字体を読まないページ（表の字体の列が「読まない」）が、@font-face のある CSS を読んでいないか。readLocal は repo のファイルを読む関数 */
+const hasFontFace = (css) => /@font-face/i.test(cssUnescape(css.replace(CSS_COMMENT, ' ')));   // @font-fac\65 も @font-face と読む
 export function fontFaceProblems(html, readLocal) {
   const out = [];
   tags(html).forEach(({ tag, attrs, content }) => {
-    if (tag === 'style' && /@font-face/i.test(content)) out.push('字体を読まないページの <style> に @font-face がある');
-    if (tag !== 'link' || !(attrs.get('rel') || '').toLowerCase().split(/\s+/).includes('stylesheet')) return;
+    if (tag === 'style' && hasFontFace(content)) out.push('字体を読まないページの <style> に @font-face がある');
+    const rel = (attrs.get('rel') || '').toLowerCase().split(/\s+/);
+    if (tag === 'link' && rel.includes('preload') && (attrs.get('as') || '').trim().toLowerCase() === 'font') out.push('字体を読まないページが字体を preload している');
+    if (tag !== 'link' || !rel.includes('stylesheet')) return;
     const href = String(attrs.get('href') || '').trim();
     if (external(href)) return;   // 外の CSS は fileProblems が見る
     let css = '';
     try { css = readLocal(href.replace(/^\.?\//, '').split(/[?#]/)[0]); } catch { out.push(`読めない CSS: ${href}`); return; }
-    if (/@font-face/i.test(css)) out.push(`字体を読まないページが、@font-face のある CSS を読んでいる: ${href}`);
+    if (hasFontFace(css)) out.push(`字体を読まないページが、@font-face のある CSS を読んでいる: ${href}`);
   });
+  out.push(...cspProblems(html));
+  return out;
+}
+
+/* 字体を読まないページの守りの本体は meta の CSP。消したり緩めたりしたら落とす。
+   charset の次（どの読み込みよりも前）に置き、default-src・connect-src・img-src は 'none'、font-src と 'unsafe- は書かない */
+export function cspProblems(html) {
+  const all = tags(html);
+  const i = all.findIndex(t => t.tag === 'meta' && (t.attrs.get('http-equiv') || '').trim().toLowerCase() === 'content-security-policy');
+  if (i < 0) return ['字体を読まないページに CSP の meta が無い'];
+  const firstLoad = all.findIndex(t => ['link', 'script', 'style', 'img'].includes(t.tag));
+  const out = [];
+  if (firstLoad >= 0 && firstLoad < i) out.push('CSP の meta が、読み込みより後ろにある');
+  const csp = (all[i].attrs.get('content') || '').toLowerCase();
+  const dir = (name) => (csp.split(';').map(s => s.trim()).find(s => s.split(/\s+/)[0] === name) || '').split(/\s+/).slice(1).join(' ');
+  ['default-src', 'connect-src', 'img-src'].filter(d => dir(d) !== "'none'").forEach(d => out.push(`CSP の ${d} が 'none' でない`));
+  if (/(^|;)\s*font-src\b/.test(csp)) out.push('CSP に font-src がある（字体は読まない）');
+  if (/'unsafe-/.test(csp)) out.push("CSP に 'unsafe-…' がある");
   return out;
 }
 
 /* 表で許しているのに、そのファイルが使っていない先（表と中身を両方向で合わせる） */
-export function unusedAllows(text, rule) {
-  const found = destinations(text).map(external).filter(u => u && u !== 'bad');
+export function unusedAllows(text, rule, isHtml = true) {
+  const found = destinations(text, !isHtml).map(external).filter(u => u && u !== 'bad');
   return rule.allow.filter(p => !found.some(u => u.href.startsWith(p)));
 }
 

@@ -37,7 +37,9 @@
 | css/app.css | なし | なし | — |
 | css/fonts.css | なし | なし | — |
 
-- 字体の列が「読まない」のページは、@font-face のある CSS を読めない（検査する）。fonts/ の字体は fonts/SHA256SUMS と中身を突き合わせる
+- 字体の列が「読まない」のページは、@font-face のある CSS・字体の preload を読めない。守りの本体は meta の CSP なので、charset の次に置き、default-src・connect-src・img-src を 'none'、font-src と 'unsafe-…' は書かない（どれも検査する）
+- css/*.css では @import を使わない（読む CSS は HTML の link に並べ、検査がたどれる形にする）
+- fonts/ の字体は fonts/SHA256SUMS と中身を突き合わせる
 
 - three.js（importmap）と qrcode-generator（script）は、画面と同じ権限で動くコード。qrcode-generator は健康の答えを含むパスポートの URL を受け取る。両方に integrity（中身が書き換えられていないかをブラウザが確かめる指定）を付けた
 - importmap の integrity が効くのは Chrome/Edge 127・Safari/iOS 18・Firefox 138 から（古い iPhone では確かめないまま読む）
