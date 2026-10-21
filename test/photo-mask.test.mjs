@@ -73,8 +73,19 @@ test('写真の外の四角は使わない。写真にした後は、縁を除�
   jpegish[(p.y0 * w + p.x0) * 4] = 120;               // 縁のにじみは見ない
   jpegish[((p.y0 + 5) * w + p.x0 + 5) * 4] = 30;       // JPEG の小さな揺れは許す
   assert.equal(M.darkInside(jpegish, w, h, rect), true);
-  jpegish[((p.y0 + 10) * w + p.x0 + 10) * 4] = 200;   // 中に明るい画素があれば塗れていない
+  jpegish[((p.y0 + 8) * w + p.x0 + 8) * 4] = 120;     // 赤のにじみ（明るさは 36）は許す
+  assert.equal(M.darkInside(jpegish, w, h, rect), true);
+  jpegish[((p.y0 + 10) * w + p.x0 + 10) * 4 + 1] = 200;   // 中に明るい画素があれば塗れていない
   assert.equal(M.darkInside(jpegish, w, h, rect), false);
+});
+
+test('暗い写真を塗らずに出しても、塗ったとはみなさない（平均で見分ける）', () => {
+  const w = 60; const h = 60;
+  const dim = new Uint8ClampedArray(w * h * 4).fill(40);   // 紙が明るさ 40 の暗い写真
+  for (let i = 0; i < dim.length; i += 4 * 7) { dim[i] = 5; dim[i + 1] = 5; dim[i + 2] = 5; }   // 字
+  const rect = { x0: 0.1, y0: 0.1, x1: 0.9, y1: 0.9 };
+  assert.equal(M.darkInside(dim, w, h, rect), false);
+  assert.equal(M.darkInside(M.maskRGBA(dim, w, h, [rect]), w, h, rect), true);
 });
 
 test('大きい写真は長い辺を 1600 まで縮め、小さい写真は大きくしない', () => {

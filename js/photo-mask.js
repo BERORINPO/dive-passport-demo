@@ -72,18 +72,22 @@
     return r.x1 - r.x0 >= 0.05 && r.y1 - r.y0 >= 0.03;
   }
 
-  /* 写真にした後（JPEG）でも、四角の中が暗いか。縁は JPEG でにじむので inset 画素だけ内側を見る */
-  function darkInside(data, width, height, rect, { max = 48, inset = 2 } = {}) {
+  /* 写真にした後（JPEG）でも、四角の中が塗られているか。明るさ（Y）で見る（JPEG は色をにじませるので、色ごとには見ない）。
+     縁は JPEG でにじむので inset 画素だけ内側を見る。いちばん明るい所が max 以下で、平均が mean 以下（暗い写真と塗った写真を見分ける） */
+  function darkInside(data, width, height, rect, { max = 48, mean = 8, inset = 2 } = {}) {
     const p = toPixels(rect, width, height);
     let seen = 0;
+    let sum = 0;
     for (let y = p.y0 + inset; y < p.y1 - inset; y += 1) {
       for (let x = p.x0 + inset; x < p.x1 - inset; x += 1) {
         const i = (y * width + x) * 4;
-        if (data[i] > max || data[i + 1] > max || data[i + 2] > max) return false;
+        const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        if (lum > max) return false;
+        sum += lum;
         seen += 1;
       }
     }
-    return seen > 0;
+    return seen > 0 && sum / seen <= mean;
   }
 
   R.photoMask = { SAMPLE_FORM_HEALTH, MAX_SIDE, rectFrom, toPixels, fitSize, maskRGBA, covered, usable, darkInside };

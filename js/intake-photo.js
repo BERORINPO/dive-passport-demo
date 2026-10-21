@@ -111,7 +111,9 @@
     try {
       const { reading, sent } = await R.aiReader.read(job.prepared.req);
       ui.save(s => C().logAi(s, { at: now(), sent }));
-      if (reading.healthSeen) {   // 塗り残しか、撮る書類の間違い。読み取りは使わない
+      if (reading.healthSeen) {   // 塗り残しか、撮る書類の間違い。読み取りは使わず、塗る画面に戻す（同じ写真をもう一度送らせない）
+        job.prepared = null;
+        job.confirmed = false;
         job.error = 'AI が「健康の情報が見えた」と答えたので、この読み取りは使いません。撮った書類と、塗った所を確かめてください。';
         return;
       }
