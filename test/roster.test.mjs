@@ -506,6 +506,14 @@ test('手で入れる予約の誤りを、項目の名前で返す', () => {
   assert.deepEqual(C.bookingProblems({ date: '2026-02-31', people: 31, leadName: '', leadPhone: '', note: '' }), ['date', 'people']);
 });
 
+test('確かめる画面には、名簿の項目に無い自信なし（電話・サイズ・スノーケル便の C カード）も出す', () => {
+  const snorkel = { ...trip, kind: 'snorkel' };
+  const p = person({ phone: '090', sizes: { height: 160, weight: '', foot: 24 }, cert: { course: 'OW', date: '2023' }, unsure: ['phone', 'sizes', 'cert'] });
+  const rows = C.reviewRows(p, snorkel);
+  assert.deepEqual(rows.filter(r => r.unsure).map(r => [r.field, r.text]), [['phone', '090'], ['sizes', '160 cm 足 24 cm'], ['cert', 'オープンウォーター 2023']]);
+  assert.equal(C.reviewRows(p, trip).filter(r => r.field === 'cert').length, 2, 'ダイビングの便では cert は名簿の 2 行（取得日・講習）に出る');
+});
+
 test('予約の一覧の 1 便分: 予約ごとに人のそろい具合を付ける', () => {
   const s = withMail('e1');
   const rows = C.bookingRows(s, 't1');

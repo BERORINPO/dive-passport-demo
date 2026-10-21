@@ -230,12 +230,24 @@
 
   /* 確かめる画面の行。名簿の項目のうち読み取りで入る項目を、名簿と同じ書き方で、出どころと自信なしの印を付けて返す */
   const REVIEW_KEYS = ['name', 'birthDate', 'address', 'emergency', 'certDate', 'courses', 'dives', 'lastDive'];
+  /* 名簿の項目に無くても AI が読む項目。自信なしの印があれば、確かめる画面に出す（見せないまま印を外さない） */
+  const EXTRA_REVIEW = { phone: '電話', sizes: '身長・体重・足', cert: 'C カード' };
+  function extraText(p, field) {
+    if (field === 'phone') return p.phone;
+    if (field === 'cert') return `${COURSE_JA[p.cert.course] || ''} ${p.cert.date}`.trim();
+    const s = p.sizes;
+    return [s.height !== '' && `${s.height} cm`, s.weight !== '' && `${s.weight} kg`, s.foot !== '' && `足 ${s.foot} cm`].filter(Boolean).join(' ');
+  }
   function reviewRows(p, trip) {
-    return S().ITEMS[trip.kind].filter(i => REVIEW_KEYS.includes(i.key)).map(i => {
+    const rows = S().ITEMS[trip.kind].filter(i => REVIEW_KEYS.includes(i.key)).map(i => {
       const field = FIELD_OF[i.key] || i.key;
       return { key: i.key, field, label: i.ja, text: cellText(p, trip, i.key, []), src: p.src[field] || '',
         unsure: p.unsure.includes(field), filled: filled(p, trip, i.key) };
     });
+    const shown = new Set(rows.map(r => r.field));
+    const extra = p.unsure.filter(f => !shown.has(f) && has(EXTRA_REVIEW, f))
+      .map(f => ({ key: f, field: f, label: EXTRA_REVIEW[f], text: extraText(p, f), src: p.src[f] || '', unsure: true, filled: true }));
+    return [...rows, ...extra];
   }
 
   /* 確かめる必要がある人（AI が自信なしと言った所が残っている人）。便ごと */

@@ -63,6 +63,20 @@ test('なぞった 2 点から四角を作る。小さすぎる四角は使わ�
   assert.equal(M.usable(M.SAMPLE_FORM_HEALTH), true);
 });
 
+test('写真の外の四角は使わない。写真にした後は、縁を除いて四角の中が暗いかで確かめる', () => {
+  assert.equal(M.usable({ x0: 1.2, y0: 0.1, x1: 1.5, y1: 0.5 }), false, '写真の外');
+  assert.equal(M.usable({ x0: 0.97, y0: 0.1, x1: 1.5, y1: 0.5 }), false, '写真の中に残るのが細すぎる');
+  const w = 100; const h = 100;
+  const rect = { x0: 0.2, y0: 0.2, x1: 0.6, y1: 0.6 };
+  const jpegish = M.maskRGBA(new Uint8ClampedArray(w * h * 4).fill(255), w, h, [rect]);
+  const p = M.toPixels(rect, w, h);
+  jpegish[(p.y0 * w + p.x0) * 4] = 120;               // 縁のにじみは見ない
+  jpegish[((p.y0 + 5) * w + p.x0 + 5) * 4] = 30;       // JPEG の小さな揺れは許す
+  assert.equal(M.darkInside(jpegish, w, h, rect), true);
+  jpegish[((p.y0 + 10) * w + p.x0 + 10) * 4] = 200;   // 中に明るい画素があれば塗れていない
+  assert.equal(M.darkInside(jpegish, w, h, rect), false);
+});
+
 test('大きい写真は長い辺を 1600 まで縮め、小さい写真は大きくしない', () => {
   assert.deepEqual(M.fitSize(3024, 4032), { width: 1200, height: 1600 });
   assert.deepEqual(M.fitSize(856, 540), { width: 856, height: 540 });

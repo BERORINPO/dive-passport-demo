@@ -65,8 +65,26 @@
     return true;
   }
 
-  /* 塗る四角として使えるか（小さすぎる四角は、押しまちがいとみなす） */
-  const usable = (rect) => isRect(rect) && rect.x1 - rect.x0 >= 0.05 && rect.y1 - rect.y0 >= 0.03;
+  /* 塗る四角として使えるか。写真の中（0〜1）に収めてから測る。写真の外の四角や小さすぎる四角（押しまちがい）は使わない */
+  function usable(rect) {
+    if (!isRect(rect)) return false;
+    const r = { x0: clamp01(rect.x0), y0: clamp01(rect.y0), x1: clamp01(rect.x1), y1: clamp01(rect.y1) };
+    return r.x1 - r.x0 >= 0.05 && r.y1 - r.y0 >= 0.03;
+  }
 
-  R.photoMask = { SAMPLE_FORM_HEALTH, MAX_SIDE, rectFrom, toPixels, fitSize, maskRGBA, covered, usable };
+  /* 写真にした後（JPEG）でも、四角の中が暗いか。縁は JPEG でにじむので inset 画素だけ内側を見る */
+  function darkInside(data, width, height, rect, { max = 48, inset = 2 } = {}) {
+    const p = toPixels(rect, width, height);
+    let seen = 0;
+    for (let y = p.y0 + inset; y < p.y1 - inset; y += 1) {
+      for (let x = p.x0 + inset; x < p.x1 - inset; x += 1) {
+        const i = (y * width + x) * 4;
+        if (data[i] > max || data[i + 1] > max || data[i + 2] > max) return false;
+        seen += 1;
+      }
+    }
+    return seen > 0;
+  }
+
+  R.photoMask = { SAMPLE_FORM_HEALTH, MAX_SIDE, rectFrom, toPixels, fitSize, maskRGBA, covered, usable, darkInside };
 })();

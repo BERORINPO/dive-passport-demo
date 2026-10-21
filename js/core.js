@@ -7,9 +7,14 @@
   const storeListeners = [];
   let state = null;
 
+  /* 真偽の属性は、値を真偽に直してから付ける（'' や 0 を渡して「付いている」にならないように） */
+  const BOOL_PROPS = { disabled: 'disabled', checked: 'checked', selected: 'selected', required: 'required', hidden: 'hidden',
+    readonly: 'readOnly', multiple: 'multiple', novalidate: 'noValidate' };
+
   function el(tag, props, ...children) {
     const node = document.createElement(tag);
     Object.entries(props || {}).forEach(([k, v]) => {
+      if (Object.prototype.hasOwnProperty.call(BOOL_PROPS, k)) { node[BOOL_PROPS[k]] = !!v; return; }
       if (v == null || v === false) return;
       if (k === 'class') node.className = v;
       else if (k === 'text') node.textContent = v;
