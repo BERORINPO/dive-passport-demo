@@ -257,7 +257,7 @@
   function bookingRows(state, tripId) {
     const trip = state.trips.find(t => t.id === tripId) || null;
     return bookingsOf(state, tripId).map(b => {
-      const people = state.people.filter(p => p.bookingId === b.id).map(p => ({ id: p.id, name: p.name, ...status(p, trip) }));
+      const people = state.people.filter(p => p.bookingId === b.id).map(p => ({ id: p.id, name: p.name, ...status(p, trip), ask: askGuest(p, trip) }));
       return { booking: b, people, done: people.filter(p => p.done).length };
     });
   }

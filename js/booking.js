@@ -28,9 +28,10 @@
     conflict: '別のタブで名簿が変わりました。この画面には、保存できていない予約があります。'
   };
 
-  let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）
+  let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
   let intakeTrip = '';
   let reviewPerson = '';
+  let askBooking = '';
   let day = '';
   let notice = null;        // { kind: 'ok' | 'warn', text }
   let armedReset = false;
@@ -71,8 +72,10 @@
     notice = ctx.saved === false ? { kind: 'warn', text: NOT_SAVED } : ctx.notice ? { kind: 'ok', text: ctx.notice } : null;
     if (ctx.tripId) intakeTrip = ctx.tripId;
     if (ctx.personId) reviewPerson = ctx.personId;
+    if (ctx.bookingId) askBooking = ctx.bookingId;
     if (next === 'mail') mail = blankMail();
     if (next === 'phone') phone = blankPhone();
+    if (next === 'ask') copied = false;
     render();
   }
 
@@ -93,11 +96,7 @@
   const back = () => el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '予約の一覧に戻る', onclick: () => go('list') }));
   const field = (label, control, hint) => el('label', { class: 'field' }, el('span', { class: 'label', text: label }), control, hint ? el('span', { class: 'note', text: hint }) : null);
   /* 画面の下に固定する操作の帯。左が主、右が副 */
-  /* 誤りの文も帯の中（ボタンの上）に出す。押した所から見える位置に出すため */
-  const dock = (...nodes) => {
-    const buttons = nodes.filter(n => n && n.tagName === 'BUTTON').length;
-    return el('div', { class: `dock${buttons === 1 ? ' dock--one' : ''}` }, nodes);
-  };
+  const dock = R.dock;
   const mailErr = () => el('p', { class: 'errors', role: 'alert', text: mail.error });
 
   /* ---------- 予約の一覧（時刻表） ---------- */
@@ -107,15 +106,17 @@
     const total = row.people.length;
     const unsure = row.people.some(p => p.unsure.length);
     const waiting = row.people.filter(p => !p.done).length;
+    const guests = row.people.filter(p => p.ask.length).length;   // お客さんの入力を待っている人。残りは便の項目（ポイント・ガイド）
     const st = unsure ? ['check', '! 確かめる'] : waiting ? ['wait', `・名簿 ${row.done}/${total}`] : ['ok', '✓ そろった'];
     const lead = b.leadName || (row.people[0] && row.people[0].name) || '名前の分からない予約';
     const others = Math.max(b.people, total) - 1;
     const where = b.site ? `${b.site}（${SOURCE_JA[b.source]}）` : SOURCE_JA[b.source];
-    const status = unsure ? 'AI が自信なしと言った所がある' : waiting ? `${waiting} 人分の入力を待っている` : '';
+    const status = unsure ? 'AI が自信なしと言った所がある' : guests ? `${guests} 人分の入力を待っている` : waiting ? '便のポイントかガイドがまだ' : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, lead, others > 0 ? el('span', { class: 'nw', text: ` ほか ${others} 人` }) : null),
       el('span', { class: `st st--${st[0]}`, text: st[1] }),
-      el('span', { class: 'bk__meta', text: `${where}　${status}`.trim() }));
+      el('span', { class: 'bk__meta', text: `${where}　${status}`.trim() }),
+      guests ? el('button', { class: 'linkbtn', type: 'button', text: 'お客さんに聞く', onclick: () => go('ask', { bookingId: b.id }) }) : null);
   }
 
   function tripCard(s, trip) {
@@ -380,6 +381,53 @@
     ];
   }
 
+  /* ---------- お客さんに聞く（送るリンク） ---------- */
+  /* 予約 1 件に 1 つのリンク。開いた人は、この予約の人の「まだ」の所だけを入れる（js/guest-ask.js）。
+     試作ではこの端末の中だけで動く。本物では Worker が予約ごとの鍵を出す（P6） */
+  const askUrl = (id) => `${location.origin}${location.pathname}#ask=${encodeURIComponent(id)}`;
+  let copied = false;
+
+  function personLine(p, trip) {
+    const items = R.roster.ITEMS[trip ? trip.kind : 'dive'];
+    const st = C().status(p, trip);
+    const labels = st.missing.map(k => items.find(i => i.key === k).ja);
+    const rest = labels.length > 4 ? ` ほか ${labels.length - 4}` : '';
+    return el('div', { class: 'rd' },
+      el('span', { class: 'rd__k', text: p.name || '名前の分からない人' }),
+      el('span', { class: 'rd__v' }, el('span', { class: 'fig', text: `${items.length - st.missing.length} / ${items.length}` }),
+        el('span', { class: 'rd__sub', text: st.done ? '✓ そろった' : labels.length ? `まだ: ${labels.slice(0, 4).join('・')}${rest}` : '! 確かめる所がある' })));
+  }
+
+  function renderAskLink() {
+    const s = R.rosterStore.get();
+    const b = s.bookings.find(x => x.id === askBooking);
+    if (!b) return [...head('お客さんに聞く'), el('p', { class: 'errors', text: 'この予約が見つかりません。' }), back()];
+    const trip = s.trips.find(t => t.id === b.tripId);
+    const people = s.people.filter(p => p.bookingId === b.id);
+    const lead = b.leadName || (people[0] && people[0].name) || '名前の分からない予約';
+    const items = R.roster.ITEMS[trip ? trip.kind : 'dive'];
+    const url = askUrl(b.id);
+    const copy = () => {
+      const ok = () => { copied = true; render(); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(ok, () => { copied = false; render(); });
+    };
+    return [
+      ...head(people.length > 1 ? `${lead} ほか ${people.length - 1} 人` : lead, trip ? `${md(trip.date)} ${tripLabel(trip)}` : ''),
+      el('div', { class: 'sheet' },
+        el('p', { class: 'sheet__title' }, '名簿のそろい具合', el('small', { text: `${items.length} 項目` })),
+        people.map(p => personLine(p, trip))),
+      el('div', { class: 'sheet' },
+        el('p', { class: 'sheet__title' }, 'お客さんに送るリンク', el('small', { text: '予約 1 件に 1 つ' })),
+        el('p', { class: 'url', text: url }),
+        el('p', { class: 'sheet__note', text: 'LINE やメールに貼って送ります。開いた人は、この予約の人の「まだ」の所だけを入れられます。試作では、この端末の中だけで開けます。' })),
+      copied ? el('p', { class: 'flag flag--ok', role: 'status', text: 'リンクを写しました' }) : null,
+      back(),
+      dock(
+        el('button', { class: 'btn', type: 'button', text: 'リンクを写す', onclick: copy }),
+        el('button', { class: 'btn btn--ghost', type: 'button', text: 'この端末で開く（デモ）', onclick: () => R.openAsk(b.id) }))
+    ];
+  }
+
   /* ---------- 描く ---------- */
   /* 名簿の取り込みと確かめる画面（intake-photo.js）に渡す道具 */
   const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back, dock };
@@ -390,7 +438,8 @@
     phonePick = null;
     const body = mode === 'mail' ? renderMail() : mode === 'phone' ? renderPhone()
       : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
-        : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui }) : renderList();
+        : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
+          : mode === 'ask' ? renderAskLink() : renderList();
     R.fill(root, body);
     if (mode === 'list') showPickedDay();
   }
@@ -405,5 +454,5 @@
   }
 
   R.renderBooking = render;
-  R.rosterStore.subscribe(() => { if (mode === 'list' && !document.getElementById('view-booking').hidden) render(); });
+  R.rosterStore.subscribe(() => { if ((mode === 'list' || mode === 'ask') && !document.getElementById('view-booking').hidden) render(); });
 })();
