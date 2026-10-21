@@ -10,6 +10,12 @@
   const pick = (list, id) => ja(list.find(o => o.id === id)) || '未回答';
   const langLabel = (id) => (R.LANGS.find(o => o.id === id) || { label: id }).label;
   const hours = (h) => `${Math.round(h * 10) / 10} 時間`;
+  const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+  const dayParts = (d) => {
+    const [y, m, dd] = String(d).split('-').map(Number);
+    if (!y || !m || !dd) return [d || '日付なし', ''];
+    return [`${m}/${dd}`, WEEK[new Date(y, m - 1, dd).getDay()]];
+  };
 
   function flagText(f) {
     switch (f.kind) {
@@ -34,26 +40,38 @@
     R.store.update(s => ({ ...s, intakes: s.intakes.map(x => (x.id === id ? { ...x, checked: !x.checked } : x)) }));
   }
 
-  function intakeCard(x, s) {
+  /* 受付の 1 行。状態は色の札にせず、文字の色と短い印で見せる */
+  function intakeLine(x, s) {
     const { tour, flags } = R.assess(x, s);
     const needs = flags.some(f => f.level === 'warn') && !x.checked;
-    return el('article', { class: `ticket${needs ? ' ticket--warn' : ''}` },
-      el('div', { class: 'ticket__head' },
-        el('h3', { class: 'ticket__name', text: `${x.name}（${x.people} 人）` }),
-        el('span', { class: 'ticket__badges' },
-          x.source === 'passport' ? el('span', { class: 'badge badge--pass', text: 'パスポートから' }) : null,
-          el('span', { class: `badge${x.checked ? ' badge--ok' : needs ? ' badge--warn' : ''}`, text: x.checked ? '確認済み' : needs ? '要確認' : '未確認' }))),
-      el('p', { class: 'ticket__meta', text: `${ja(tour.name)} ・ ${x.date} ・ 連絡: ${langLabel(x.lang)}` }),
-      flags.length ? el('ul', { class: 'flags' }, flags.map(f => el('li', { class: `flag flag--${f.level}`, text: flagText(f) }))) : null,
-      el('p', { class: 'ticket__note', text: `ガイドへのメモ ― ${guideNote(x)}` }),
-      el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: x.checked ? '未確認に戻す' : '確認済みにする', onclick: () => toggleChecked(x.id) }));
+    const st = x.checked ? ['ok', '✓ 確認済み'] : needs ? ['check', '! 確かめる'] : ['wait', '・未確認'];
+    const meta = [ja(tour.name), `連絡: ${langLabel(x.lang)}`, x.source === 'passport' ? 'パスポートから' : ''].filter(Boolean).join('　');
+    return el('li', { class: 'bk' },
+      el('span', { class: 'bk__name' }, x.name, el('span', { class: 'nw', text: `（${x.people} 人）` })),
+      el('span', { class: `st st--${st[0]}`, text: st[1] }),
+      el('span', { class: 'bk__meta', text: meta }),
+      flags.length ? el('ul', { class: 'fls' }, flags.map(f => el('li', { class: `fl fl--${f.level}`, text: flagText(f) }))) : null,
+      el('p', { class: 'bk__note', text: `ガイドへのメモ: ${guideNote(x)}` }),
+      el('button', { class: 'linkbtn', type: 'button', text: x.checked ? '未確認に戻す' : '確認済みにする', onclick: () => toggleChecked(x.id) }));
+  }
+
+  /* 日付ごとの時刻表。左に日付、右にその日の受付 */
+  function dayBlock(date, list, s) {
+    const [md, wd] = dayParts(date);
+    return el('section', { class: 'trip', 'aria-label': md },
+      el('div', { class: 'trip__time trip__time--date' }, md, wd ? el('small', { text: wd }) : null),
+      el('div', {},
+        el('div', { class: 'trip__head' },
+          el('h3', { class: 'trip__title', text: '受付' }),
+          el('span', { class: 'trip__count' }, el('b', { text: String(list.length) }), ' 件')),
+        el('ul', { class: 'bks' }, list.map(x => intakeLine(x, s)))));
   }
 
   function counters(s) {
     const warn = s.intakes.filter(x => !x.checked && R.assess(x, s).flags.some(f => f.level === 'warn')).length;
     const box = (n, label, cls) => el('div', { class: `count ${cls || ''}` }, el('span', { class: 'count__n', text: n }), el('span', { class: 'count__l', text: label }));
     return el('div', { class: 'counts' },
-      box(s.intakes.length, '受付'), box(warn, '要確認', warn ? 'count--warn' : ''), box(s.questions.length, 'お店への質問'));
+      box(s.intakes.length, '受付'), box(warn, '確かめる', warn ? 'count--warn' : ''), box(s.questions.length, 'お店への質問'));
   }
 
   function questions(s) {
@@ -91,17 +109,19 @@
 
   function render() {
     const s = R.store.get();
-    const list = [...s.intakes].sort((a, b) => (a.checked - b.checked) || b.at.localeCompare(a.at));
+    const order = (a, b) => (a.checked - b.checked) || b.at.localeCompare(a.at);
+    const dates = [...new Set(s.intakes.map(x => x.date))].sort();
     root.replaceChildren(
+      el('h2', { class: 'page__title', text: '受付' }),
+      el('p', { class: 'page__sub', text: 'お客さまが送った受付。参加できるかはお店が決めます。印は、見落としに気づくためのものです。' }),
       counters(s),
-      el('div', { class: 'card' },
-        el('h2', { class: 'h2', text: '受付の一覧' }),
-        el('p', { class: 'note', text: '参加できるかはお店が決めます。印は、見落としに気づくためのものです。' }),
-        el('div', { class: 'tickets' }, list.map(x => intakeCard(x, s)))),
+      dates.length
+        ? el('div', { class: 'timetable' }, dates.map(d => dayBlock(d, s.intakes.filter(x => x.date === d).sort(order), s)))
+        : el('p', { class: 'empty', text: 'まだ受付がありません。「お客さま」の画面から送れます。' }),
       el('div', { class: 'card' }, el('h2', { class: 'h2', text: 'お店への質問（リドが答えられなかったもの）' }), questions(s)),
       settings(s),
       faqTable(),
-      el('p', { class: 'reset' }, el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: 'デモの受付を最初の状態に戻す', onclick: () => R.store.reset() })));
+      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: 'デモの受付を最初の状態に戻す', onclick: () => R.store.reset() })));
   }
 
   R.renderShop = render;

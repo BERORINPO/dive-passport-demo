@@ -154,12 +154,12 @@
     const differs = !!(target && target.name && read.name && !C().sameName(target.name, read.name));
     const u = new Set(read.unsure);
     const row = (label, value, unsure) => el('div', { class: `rd${unsure ? ' rd--unsure' : ''}` },
-      el('span', { class: 'rd__k', text: label }), el('span', { class: 'rd__v', text: value || '（写真に無い）' }),
-      unsure ? el('span', { class: 'chip chip--warn', text: '自信なし' }) : null);
+      el('span', { class: 'rd__k', text: label }),
+      el('span', { class: 'rd__v' }, value || '（写真に無い）', unsure ? el('span', { class: 'rd__sub', text: '! 自信なし' }) : null));
     const e = read.emergency;
     return [
-      el('div', { class: 'card card--flat' },
-        el('h3', { class: 'h3', text: `AI が${DOC_JA[shot.doc]}から読んだ結果` }),
+      el('div', { class: 'sheet' },
+        el('p', { class: 'sheet__title' }, `AI が${DOC_JA[shot.doc]}から読んだ結果`, R.aiReader.mode() === 'sample' ? el('small', { text: '見本の読み取り' }) : null),
         row('氏名', read.name, u.has('name')),
         row('生年月日', read.birthDate, u.has('birthDate')),
         shot.doc === 'paper' ? row('住所', read.address, u.has('address')) : null,
@@ -174,9 +174,9 @@
       differs ? el('label', { class: 'check' },
         el('input', { type: 'checkbox', checked: shot.otherName, onchange: (ev) => { shot.otherName = ev.target.checked; ui.rerender(); } }),
         el('span', { text: '名前が違っても、この人に入れる' })) : null,
-      el('div', { class: 'actions actions--stack' },
-        el('button', { class: 'btn btn--big', type: 'button', disabled: !people.length || (differs && !shot.otherName), text: '名簿に入れて、確かめる', onclick: () => applyRead(ui) }),
-        el('button', { class: 'btn btn--ghost btn--big', type: 'button', text: '写真を選び直す', onclick: () => { reset(shot.tripId, shot.doc); ui.rerender(); } }))
+      ui.dock(
+        el('button', { class: 'btn', type: 'button', disabled: !people.length || (differs && !shot.otherName), text: '名簿に入れる', onclick: () => applyRead(ui) }),
+        el('button', { class: 'btn btn--ghost', type: 'button', text: '写真を選び直す', onclick: () => { reset(shot.tripId, shot.doc); ui.rerender(); } }))
     ];
   }
 
@@ -194,9 +194,9 @@
         sampleMode ? el('p', { class: 'note', text: cannotRead
           ? 'いまは見本の読み取りです。読めるのは見本の写真だけです。'
           : 'いまは見本の読み取りです（AI には送らず、試験で読んだ答えを使います）。' }) : null,
-        shot.reading ? readResult(ui) : el('div', { class: 'actions actions--stack' },
-          el('button', { class: 'btn btn--big', type: 'button', disabled: cannotRead || shot.busy, text: shot.busy ? '読んでいます…' : 'この写真を AI で読む', onclick: () => readPhoto(ui) }),
-          el('button', { class: 'btn btn--ghost btn--big', type: 'button', disabled: shot.busy, text: '塗り直す', onclick: () => { shot.prepared = null; shot.confirmed = false; ui.rerender(); } }))
+        shot.reading ? readResult(ui) : ui.dock(
+          el('button', { class: 'btn', type: 'button', disabled: cannotRead || shot.busy, text: shot.busy ? '読んでいます…' : 'この写真を AI で読む', onclick: () => readPhoto(ui) }),
+          el('button', { class: 'btn btn--ghost', type: 'button', disabled: shot.busy, text: '塗り直す', onclick: () => { shot.prepared = null; shot.confirmed = false; ui.rerender(); } }))
       ];
     }
     const paper = shot.doc === 'paper';
@@ -211,8 +211,8 @@
       el('label', { class: 'check' },
         el('input', { type: 'checkbox', checked: shot.confirmed, disabled: locked(), onchange: (e) => { shot.confirmed = e.target.checked; ui.rerender(); } }),
         el('span', { text: paper ? '健康の欄が黒く隠れているのを確かめた' : '写っているのは C カードだけ。申込書や健康の欄は写っていない' })),
-      el('div', { class: 'actions actions--stack' },
-        el('button', { class: 'btn btn--big', type: 'button', disabled: !shot.confirmed || (paper && !shot.rects.length) || locked(),
+      ui.dock(
+        el('button', { class: 'btn', type: 'button', disabled: !shot.confirmed || (paper && !shot.rects.length) || locked(),
           text: shot.making ? '作っています…' : 'AI に送る写真を作る', onclick: () => makePhoto(ui) }))
     ];
   }
@@ -238,19 +238,17 @@
     const checks = C().toCheck(s, tripId);
     const chooseDoc = (doc) => () => { reset(tripId, doc); ui.rerender(); };
     return [
-      ...ui.head('名簿の取り込み'),
-      el('p', { class: 'trip__title', text: `${ui.md(trip.date)} ${ui.tripLabel(trip)}` }),
+      ...ui.head('名簿の取り込み', `${ui.md(trip.date)} ${ui.tripLabel(trip)}`),
       el('div', { class: 'actions actions--two' },
         el('button', { class: `btn ${shot.doc === 'paper' ? '' : 'btn--ghost'}`, type: 'button', 'aria-pressed': String(shot.doc === 'paper'), text: '申込書を撮る', onclick: chooseDoc('paper') }),
         el('button', { class: `btn ${shot.doc === 'ccard' ? '' : 'btn--ghost'}`, type: 'button', 'aria-pressed': String(shot.doc === 'ccard'), text: 'C カードを撮る', onclick: chooseDoc('ccard') })),
       el('p', { class: 'note', text: '申込書の健康の欄は、この端末の中で塗りつぶしてから AI に送ります。健康の質問は、お客さん本人が答えます。' }),
       shot.doc ? el('div', { class: 'card' }, docStep(ui), photoStep(ui), el('p', { class: 'errors', role: 'alert', text: shot.error })) : null,
-      checks.length ? el('div', { class: 'card' },
-        el('h3', { class: 'h3', text: `読み取りを確かめる（${checks.length} 人）` }),
-        el('ul', { class: 'bks' }, checks.map(p => el('li', { class: 'bk' },
-          el('div', { class: 'bk__top' },
-            el('span', { class: 'bk__name', text: p.name || '名前の分からない人' }),
-            el('button', { class: 'btn btn--small', type: 'button', text: '確かめる', onclick: () => ui.go('review', { personId: p.id }) })))))) : null,
+      checks.length ? el('div', { class: 'sheet' },
+        el('p', { class: 'sheet__title' }, `読み取りを確かめる（${checks.length} 人）`),
+        el('ul', { class: 'checks' }, checks.map(p => el('li', {},
+          el('span', { class: 'bk__name', text: p.name || '名前の分からない人' }),
+          el('button', { class: 'btn btn--small btn--ghost', type: 'button', text: '確かめる', onclick: () => ui.go('review', { personId: p.id }) }))))) : null,
       ui.back()
     ];
   }
@@ -318,23 +316,21 @@
     const rows = C().reviewRows(p, trip);
     const from = [...new Set(rows.map(r => r.src).filter(src => ['mail', 'paper', 'ccard'].includes(src)))].map(src => SRC_JA[src]);
     const unsure = rows.filter(r => r.unsure);
+    const subOf = (r) => [r.unsure ? '! 自信なし' : '', r.src ? SRC_JA[r.src] : ''].filter(Boolean).join('　');
     return [
-      ...ui.head('読み取りを確かめる'),
-      el('h3', { class: 'h3 h3--big', text: `${p.name || '名前の分からない人'}さん` }),
-      from.length ? el('p', { class: 'note', text: `${from.join('と')}から読み取りました` }) : null,
-      el('div', { class: 'card card--flat' }, rows.map(r => el('div', { class: `rd rd--src${r.unsure ? ' rd--unsure' : ''}` },
+      ...ui.head(`${p.name || '名前の分からない人'}さん`, `${from.length ? `${from.join('と')}から読み取りました。` : ''}${ui.md(trip.date)} ${ui.tripLabel(trip)}`),
+      el('div', { class: 'sheet' }, rows.map(r => el('div', { class: `rd${r.unsure ? ' rd--unsure' : ''}` },
         el('span', { class: 'rd__k', text: r.label }),
-        el('span', { class: 'rd__v', text: r.text || '（まだ無い）' }),
-        el('span', { class: 'rd__src', text: r.src ? SRC_JA[r.src] : '' })))),
+        el('span', { class: 'rd__v' }, r.text || '（まだ無い）', subOf(r) ? el('span', { class: 'rd__sub', text: subOf(r) }) : null)))),
       unsure.map(r => el('div', { class: 'band band--warn' },
         el('p', { class: 'band__title', text: `${r.label}は、AI が自信なしと言いました` }),
         el('p', { class: 'band__text', text: '写真と見比べて、違っていたら直してください。' }),
         editor(r, p))),
       el('p', { class: 'note', text: '既往症と健康の質問は、お客さん本人が答えます。AI は読んでいません。' }),
       el('p', { class: 'errors', role: 'alert', text: review.error }),
-      el('div', { class: 'actions actions--stack' },
-        el('button', { class: 'btn btn--big', type: 'button', text: 'これで合っている', onclick: () => confirmPerson(personId, ui) }),
-        el('button', { class: 'btn btn--ghost btn--big', type: 'button', text: 'あとで確かめる', onclick: () => ui.go('intake', {}) }))
+      ui.dock(
+        el('button', { class: 'btn', type: 'button', text: 'これで合っている', onclick: () => confirmPerson(personId, ui) }),
+        el('button', { class: 'btn btn--ghost', type: 'button', text: 'あとで確かめる', onclick: () => ui.go('intake', {}) }))
     ];
   }
 

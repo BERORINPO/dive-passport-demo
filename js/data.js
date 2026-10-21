@@ -121,9 +121,9 @@
   /* 客の画面の文。お店の画面は日本語だけ */
   R.T = {
     brandSub: { ja: '受付（試作）', en: 'front desk (prototype)' },
-    tabGuest: { ja: 'お客さまの画面', en: 'Guest view' },
-    tabShop: { ja: 'お店の画面', en: 'Shop view' },
-    tabBooking: { ja: '予約と名簿（お店）', en: 'Bookings (shop)' },
+    tabGuest: { ja: 'お客さま', en: 'Guest' },
+    tabShop: { ja: '受付', en: 'Front desk' },
+    tabBooking: { ja: '予約と名簿', en: 'Bookings' },
     langBtn: { ja: 'English', en: '日本語' },
     demoNote: { ja: 'デモです。入力した内容はこのブラウザの中だけに残り、どこにも送りません。答えはお店が書いた文だけで、AI は文章を作りません。',
                 en: 'Demo. What you enter stays in this browser and is not sent anywhere. Answers are written by the shop; no AI-written text.' },
