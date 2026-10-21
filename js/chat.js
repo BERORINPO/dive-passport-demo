@@ -121,7 +121,7 @@
       el('button', { class: 'chip', type: 'button', text: L(item.q), onclick: () => ask(L(item.q), item) })));
 
     const head = el('div', { class: 'chat__head' }, el('span', { class: 'avatar' }), el('h2', { class: 'h2', text: L(R.T.chatTitle) }));
-    head.firstChild.innerHTML = R.TURTLE;
+    head.firstChild.innerHTML = R.TURTLE; // arch-allow: 固定の SVG
     const stage = el('div', { class: 'lido-stage', id: 'lido-stage', role: 'img', 'aria-label': L(R.T.chatTitle) });
     root.replaceChildren(head, stage, log, chips, form);
     if (R.mountLido) R.mountLido(stage);

@@ -52,7 +52,7 @@
         el('a', { class: 'btn btn--ghost btn--small', href: 'index.html', text: L(tp.viewerCtaLink) })));
   }
 
-  document.getElementById('logo').innerHTML = TURTLE_SVG;
+  document.getElementById('logo').innerHTML = TURTLE_SVG; // arch-allow: 固定の SVG
   document.getElementById('lang').addEventListener('click', () => R.setLang(R.lang === 'ja' ? 'en' : 'ja'));
   R.onLang(render);
   R.lang = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
