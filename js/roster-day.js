@@ -24,7 +24,9 @@
   /* ---------- 今日の名簿 ---------- */
   /* 人分け。見てほしい人（確かめる所か、お客さんの入力がまだの所がある人）を上、そろった人を下。
      便で決める項目（潜水日時・場所・ガイド）は、人ではなく便の欄で見せる（tripMissing） */
-  function dayGroups(state, tripId) {
+  /* today（YYYY-MM-DD）より後の便で、当日の健康状態だけがまだの人は morning（当日の朝に答える）に分ける。
+     その日の前は、お店が今できることが無いので、見てほしい人に混ぜない */
+  function dayGroups(state, tripId, today) {
     const trip = state.trips.find(t => t.id === tripId);
     if (!trip) return null;
     const items = S().ITEMS[trip.kind];
@@ -35,8 +37,11 @@
     });
     const blank = { ...S().blankPerson(), id: 'trip' };
     const tripMissing = items.filter(i => i.trip && !C().filled(blank, trip, i.key)).map(i => i.key);
-    const needs = (x) => x.unsure.length > 0 || x.guest.length > 0;
-    return { trip, items, tripMissing, check: people.filter(needs), ready: people.filter(x => !needs(x)), count: C().tripSummary(state, tripId).booked };
+    const before = typeof today === 'string' && today < trip.date;
+    const onlyMorning = (x) => before && x.unsure.length === 0 && x.guest.length === 1 && x.guest[0] === 'today';
+    const needs = (x) => !onlyMorning(x) && (x.unsure.length > 0 || x.guest.length > 0);
+    return { trip, items, tripMissing, check: people.filter(needs), morning: people.filter(onlyMorning),
+      ready: people.filter(x => !needs(x) && !onlyMorning(x)), count: C().tripSummary(state, tripId).booked };
   }
 
   /* ---------- カレンダー（.ics） ---------- */
@@ -45,7 +50,9 @@
      stamp は書き出した時刻（UTC の YYYYMMDDTHHMMSSZ）。行は CRLF、75 バイトで折り返す（RFC 5545） */
   const KIND_JA = { dive: 'ダイビング', snorkel: 'スノーケル' };
   const HOURS = 3;
-  const icsText = (v) => String(v).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  /* 文字の逃がし。改行は CR だけ・LF だけ・CRLF のどれも \n にし、タブ以外の見えない制御文字は消す（別の行を差し込ませない） */
+  const icsText = (v) => String(v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n|\r|\n/g, '\\n');
   const compact = (d) => d.replace(/-/g, '');
 
   function fold(line) {
@@ -84,7 +91,7 @@
       const title = `${t.tour || KIND_JA[t.kind]} ${count}人`;
       const time = t.start ? [`DTSTART;TZID=Asia/Tokyo:${compact(t.date)}T${t.start.replace(':', '')}00`, `DTEND;TZID=Asia/Tokyo:${compact(t.date)}T${endOf(t.start, HOURS)}`]
         : [`DTSTART;VALUE=DATE:${compact(t.date)}`, `DTEND;VALUE=DATE:${compact(S().nextDay(t.date))}`];
-      lines.push('BEGIN:VEVENT', `UID:trip-${t.id}@redux.invalid`, `DTSTAMP:${stamp}`, ...time, `SUMMARY:${icsText(title)}`,
+      lines.push('BEGIN:VEVENT', `UID:trip-${t.id}@redux.invalid`, `DTSTAMP:${stamp}`, `LAST-MODIFIED:${stamp}`, ...time, `SUMMARY:${icsText(title)}`,
         ...(t.site ? [`LOCATION:${icsText(t.site)}`] : []), 'END:VEVENT');
     });
     lines.push('END:VCALENDAR');

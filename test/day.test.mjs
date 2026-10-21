@@ -69,19 +69,29 @@ test('前の便と同じポイントを出す（同じ種類で、いちばん�
 });
 
 test('今日の名簿の人分け: 見てほしい人が上、そろった人が下。便の項目は便の欄に出す', () => {
-  let g = D.dayGroups(base, 't1');
+  let g = D.dayGroups(base, 't1', TODAY);
   assert.deepEqual(g.tripMissing, ['site', 'guide']);
   assert.equal(g.check.length, 2);
   assert.equal(g.ready.length, 0);
   assert.equal(g.count, 2);
   const st = fillAll(C.editTrip(base, { tripId: 't1', patch: { site: '北の根', guides: ['見本 ガイド'] }, at: AT }), hanako.id);
-  g = D.dayGroups(st, 't1');
+  g = D.dayGroups(st, 't1', TODAY);
   assert.deepEqual(g.tripMissing, []);
   assert.deepEqual(g.ready.map(x => x.person.id), [hanako.id]);
   assert.ok(g.ready[0].done, '13 項目そろった');
   assert.deepEqual(g.check.map(x => x.person.id), [taro.id]);
   assert.ok(g.check[0].guest.includes('address') && !g.check[0].guest.includes('site'));
-  assert.equal(D.dayGroups(base, 'nope'), null);
+  assert.equal(D.dayGroups(base, 'nope', TODAY), null);
+});
+
+test('当日の健康状態だけがまだの人は、便の日の前なら「当日の朝」に分ける（見てほしい人に混ぜない）', () => {
+  const a = G.applyGuest(base, { id: hanako.id, input: fullInput, today: TODAY, at: AT }).state;
+  const before = D.dayGroups(a, 't1', TODAY);
+  assert.deepEqual(before.morning.map(x => x.person.id), [hanako.id]);
+  assert.ok(!before.check.some(x => x.person.id === hanako.id));
+  const onTheDay = D.dayGroups(a, 't1', trip.date);
+  assert.ok(onTheDay.check.some(x => x.person.id === hanako.id), '当日になったら見てほしい人に出る');
+  assert.equal(onTheDay.morning.length, 0);
 });
 
 test('条例の名簿: 13 項目全部が列になり、健康の欄は短い言葉で入る', () => {
@@ -134,6 +144,22 @@ test('.ics: 時刻の無い便は終日。文字の , ; \\ は逃がす。長い
   assert.ok(ics.includes('SUMMARY:青の洞窟\\, 北\\;西\\\\ 0人'));
   assert.ok(ics.includes('\r\n '), '長い行は折り返す');
   assert.throws(() => D.toIcs(st, { trips: [t], stamp: '2026-10-21' }));
+});
+
+test('.ics: CR だけの改行や制御文字で、別の行を差し込めない', () => {
+  const t = { ...S.blankTrip(), id: 't8', date: '2026-11-01', start: '09:00', kind: 'dive', tour: 'ツアー\rURL:https://evil.example.com\rEND:VEVENT\u0007', site: '', createdAt: AT };
+  const ics = D.toIcs({ ...base, trips: [...base.trips, t] }, { trips: [t], stamp: STAMP });
+  const lines = ics.replace(/\r\n /g, '').split('\r\n');
+  assert.ok(!lines.some(l => l.startsWith('URL:')), 'URL の行が出来ない');
+  assert.equal(lines.filter(l => l === 'END:VEVENT').length, 1);
+  assert.ok(!ics.includes('\u0007'));
+  assert.ok(/\r(?!\n)/.test(ics) === false, 'CR は CRLF の中にだけある');
+});
+
+test('AI の答えの文字: 改行は空白に、制御文字は消す', () => {
+  const r = S.fromModel({ booking: { tour: '体験\r\nダイビング\u0000', site: 'サイト\r見本' }, people: [], health_info_visible: false });
+  assert.equal(r.booking.tour, '体験 ダイビング');
+  assert.equal(r.booking.site, 'サイト 見本');
 });
 
 test('記録: その便に関わる物（便・予約・人）を新しい順に。AI に送った記録は別に出す', () => {

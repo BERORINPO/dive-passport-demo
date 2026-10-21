@@ -251,7 +251,9 @@
   }
 
   /* ---------- モデルの JSON（snake_case）を答えの形に直す。知らない項目は捨てる ---------- */
-  const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  /* AI の答えの文字。1 行の項目なので、改行は空白にし、見えない制御文字は消す（.ics・CSV・印刷に別の行を差し込ませない） */
+  const str = (v, max) => (typeof v === 'string'
+    ? v.replace(/[\r\n\t]+/g, ' ').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, max) : '');
   const date = (v) => { const s = str(v, 10); return realDate(s) ? s : ''; };
   const day = (v) => { const s = str(v, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) && realDate(s) ? s : ''; };
   const time = (v) => { const s = str(v, 5); return realTime(s) ? s : ''; };

@@ -299,7 +299,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .trip__links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 0; }
 .pickrow { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
 .sheet__title + .pickrow { border-top: 0; }
-.pickrow .input { min-height: 40px; }
+.pickrow .input { min-height: 48px; }
 .bks--sheet { margin: 0; padding: 0 14px; }
 .bks--sheet .bk:first-child { border-top: 0; }
 .ics { margin: 0 14px 8px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; }
@@ -321,13 +321,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .paper__none { color: var(--paper-faint); }
 .paper__foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; margin: 10px 0 0; font-size: 11px; }
 @page { size: A4 landscape; margin: 10mm; }
+/* 印刷: 名簿の紙を出している間（body.print-roster）は、紙以外を消す。紙は普通の流れに置き、ページをまたげるようにする
+   （absolute や visibility で隠すと、2 枚目以降が欠けたり白紙が付いたりするブラウザがある） */
 @media print {
   html, body { background: var(--paper-bg); }
-  body * { visibility: hidden; }
-  .paper, .paper * { visibility: visible; }
-  .paper { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; border: 0; }
+  body.print-roster > :not(main), body.print-roster main > :not(#view-booking), body.print-roster #booking > :not(.paper) { display: none !important; }
+  body.print-roster .wrap { max-width: none; margin: 0; padding: 0; }
+  body.print-roster .view--desk { max-width: none; }
+  .paper { margin: 0; padding: 0; border: 0; border-radius: 0; }
   .paper__wrap { overflow: visible; }
-  .paper__table { min-width: 0; }
+  .paper__table { min-width: 0; font-size: 9.5px; line-height: 1.3; }
+  .paper__table th, .paper__table td { padding: 3px; }
+  .paper__table thead { display: table-header-group; }
+  .paper__table tr { break-inside: avoid; }
 }
 .big[aria-pressed="true"] { border-color: var(--accent); outline: 1px solid var(--accent); outline-offset: -2px; background: var(--accent-soft); }
 .timetable { margin-bottom: 24px; }

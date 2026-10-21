@@ -449,6 +449,7 @@
           : mode === 'ask' ? renderAskLink()
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui }) : renderList();
     R.fill(root, body);
+    document.body.classList.toggle('print-roster', mode === 'print');   // 印刷では名簿の紙だけを出す（css/app.css）
     if (mode === 'list') showPickedDay();
   }
 
