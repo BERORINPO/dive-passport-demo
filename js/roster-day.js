@@ -25,13 +25,14 @@
   /* 人分け。見てほしい人（確かめる所か、お客さんの入力がまだの所がある人）を上、そろった人を下。
      便で決める項目（潜水日時・場所・ガイド）は、人ではなく便の欄で見せる（tripMissing） */
   /* today（YYYY-MM-DD）より後の便で、当日の健康状態だけがまだの人は morning（当日の朝に答える）に分ける。
-     その日の前は、お店が今できることが無いので、見てほしい人に混ぜない */
+     その日の前は、お店が今できることが無いので、見てほしい人に混ぜない。
+     乗り合いの他のお店のお客さんは入れない（条例の名簿はお店ごと。合同名簿は roster-share.js） */
   function dayGroups(state, tripId, today) {
     const trip = state.trips.find(t => t.id === tripId);
     if (!trip) return null;
     const items = S().ITEMS[trip.kind];
     const isTrip = (k) => items.find(i => i.key === k).trip;
-    const people = C().peopleOf(state, tripId).map(person => {
+    const people = C().peopleOf(state, tripId, { own: true }).map(person => {
       const st = C().status(person, trip);
       return { person, unsure: st.unsure, guest: st.missing.filter(k => !isTrip(k)), done: st.done };
     });
@@ -40,8 +41,9 @@
     const before = typeof today === 'string' && today < trip.date;
     const onlyMorning = (x) => before && x.unsure.length === 0 && x.guest.length === 1 && x.guest[0] === 'today';
     const needs = (x) => !onlyMorning(x) && (x.unsure.length > 0 || x.guest.length > 0);
+    const count = C().bookingsOf(state, tripId).filter(b => b.source !== 'partner').reduce((n, b) => n + b.people, 0);
     return { trip, items, tripMissing, check: people.filter(needs), morning: people.filter(onlyMorning),
-      ready: people.filter(x => !needs(x) && !onlyMorning(x)), count: C().tripSummary(state, tripId).booked };
+      ready: people.filter(x => !needs(x) && !onlyMorning(x)), count };
   }
 
   /* ---------- カレンダー（.ics） ---------- */

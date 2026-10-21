@@ -20,7 +20,8 @@
   const DOC_JA = { mail: '予約メール', paper: '申込書', ccard: 'C カード' };
   const FIELD_JA = { name: '氏名', birthDate: '生年月日', phone: '電話', address: '住所', emergency: '緊急時の連絡先', cert: 'C カード',
     courses: '講習受講歴', dives: '経験', lastDive: '最後に潜った日', sizes: 'サイズ', health: '健康の答え', guide: 'ガイド',
-    site: '潜水場所', guides: 'ガイド', source: '予約の出どころ', people: '人数', leadName: '代表者', leadPhone: '代表者の電話', note: 'メモ' };
+    site: '潜水場所', guides: 'ガイド', source: '予約の出どころ', people: '人数', leadName: '代表者', leadPhone: '代表者の電話', note: 'メモ',
+    boat: '船', host: '船を出す店', partners: '乗り合いのお店' };
   let icsRange = 'ahead';   // ahead（今日から先の便）/ day（この日の便だけ）
   let csvHealth = false;    // CSV に健康の欄（既往症・当日の健康状態）を入れるか。初めは入れない。書き出した後と、便を替えたときに戻す
   let csvTrip = '';
@@ -76,7 +77,7 @@
   }
 
   function exportCsv(trip, ui) {
-    const table = C().rosterRows(R.rosterStore.get(), trip.id, healthShort());
+    const table = C().rosterRows(R.rosterStore.get(), trip.id, healthShort(), { own: true });
     const items = csvHealth ? table.items : table.items.filter(i => !i.health);
     R.saveFile(`meibo-${trip.date}${trip.start ? `-${trip.start.replace(':', '')}` : ''}.csv`, C().toCsv({ items, rows: table.rows }), 'text/csv;charset=utf-8');
     const withHealth = csvHealth;
@@ -94,6 +95,7 @@
     const { trip } = g;
     return [
       ...ui.head('今日の名簿', `${ui.md(trip.date)} ${ui.tripLabel(trip)}　${g.count} 人`),
+      trip.partners.length ? el('p', { class: 'note', text: '乗り合いの他のお店のお客さんは、この名簿に入れません（条例の名簿はお店ごと）。船の全員は「乗り合い・札」の合同名簿で見ます。' }) : null,
       tripFields(g, ui),
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, '見てほしい人', el('small', { text: `${g.check.length} 人` })),
@@ -144,7 +146,7 @@
     const s = R.rosterStore.get();
     const trip = s.trips.find(t => t.id === tripId);
     if (!trip) return [...ui.head('条例の名簿'), el('p', { class: 'errors', text: 'この便が見つかりません。' }), ui.back()];
-    const table = C().rosterRows(s, tripId, healthShort());
+    const table = C().rosterRows(s, tripId, healthShort(), { own: true });
     return [
       ...ui.head(LAW[trip.kind].title, `${ui.md(trip.date)} ${ui.tripLabel(trip)}。印刷の画面で「PDF に保存」も選べます`),
       paper(s, trip, table),
@@ -179,15 +181,20 @@
   }
 
   /* ---------- 記録 ---------- */
+  const PAPER_JA = { joint: '合同名簿', board: '札ボード' };
   function logLine(e, s, items) {
     const person = e.kind === 'person' ? s.people.find(p => p.id === e.id) : null;
+    const booking = e.kind === 'booking' ? s.bookings.find(b => b.id === e.id) : null;
     const who = e.kind === 'person' ? `${(person && person.name) || '名前の分からない人'}の` : e.kind === 'booking' ? '予約の' : '便の';
     const fields = e.fields.map(f => labelOf(items, f)).join('・');
     const text = {
       add: e.kind === 'trip' ? '便を作った' : e.kind === 'booking' ? '予約を入れた' : `${who.slice(0, -1)}を名簿に入れた`,
       edit: `${who}${fields}`, check: `${who.slice(0, -1)}を確かめた`,
-      print: `名簿の印刷の画面を開いた（${e.after.people} 人）`,
-      csv: `名簿を CSV に書き出した（${e.after.people} 人、健康の欄${e.after.health === false ? 'なし' : 'あり'}）`, remove: '保存期間を過ぎた便を消した'
+      print: e.after.paper === 'board' ? `札ボードの印刷の画面を開いた（札 ${e.after.people} 枚）` : `${PAPER_JA[e.after.paper] || '名簿'}の印刷の画面を開いた（${e.after.people} 人）`,
+      csv: `名簿を CSV に書き出した（${e.after.people} 人、健康の欄${e.after.health === false ? 'なし' : 'あり'}）`, remove: '保存期間を過ぎた便を消した',
+      handover: `${(booking && booking.shop) || '乗り合いのお店'}から ${e.after.people} 人を受け取った（健康の欄${e.after.health ? 'あり' : 'なし'}）`,
+      tags: `札の番号を付けた（${e.after.added} 枚。全部で ${e.after.tags} 枚）`,
+      aboard: `ポイントを離れる前: 全員戻った（札 ${e.after.tags} 枚）`
     }[e.act] || e.act;
     /* 便の項目（潜水場所・ガイド）だけは前と後を出す。人の中身（健康の答えなど）は出さない */
     const tripValues = e.kind === 'trip' && e.act === 'edit'
@@ -228,11 +235,12 @@
     const paper = document.querySelector('#view-booking:not([hidden]) .paper[data-trip]');
     if (!paper) return;
     try {
-      R.rosterStore.update(st => C().logOutput(st, { tripId: paper.dataset.trip, act: 'print', people: Number(paper.dataset.people), at: nowIso() }));
+      R.rosterStore.update(st => C().logOutput(st, { tripId: paper.dataset.trip, act: 'print', people: Number(paper.dataset.people),
+        health: paper.dataset.health !== 'false', paper: paper.dataset.paper, at: nowIso() }));
     } catch (e) {
       /* 記録できなくても印刷は止めない。記録の画面に出ないだけ */
     }
   });
 
-  R.dayRoster = { renderDay, renderPrint, renderIcs, renderLog };
+  R.dayRoster = { LAW, renderDay, renderPrint, renderIcs, renderLog };
 })();

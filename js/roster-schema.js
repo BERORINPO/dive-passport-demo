@@ -10,7 +10,7 @@
   const SOURCES = ['mail', 'form', 'phone', 'partner'];        // 予約の出どころ: 予約サイトのメール / 自社のフォーム / 電話など / 乗り合いの他店
   const FIELD_SRC = ['mail', 'paper', 'ccard', 'guest', 'staff', 'passport', 'partner'];   // その項目を入れたもの
   const LOG_WHO = ['staff', 'guest', 'ai', 'system'];          // 記録に残す「した人」
-  const LOG_ACT = ['add', 'edit', 'ai', 'check', 'print', 'csv', 'remove'];
+  const LOG_ACT = ['add', 'edit', 'ai', 'check', 'print', 'csv', 'remove', 'handover', 'tags', 'aboard'];   // handover: 乗り合いの他店から受け取った / tags: 札の番号 / aboard: 札で全員そろった
   const COURSES = ['', 'OW', 'AOW', 'RESCUE', 'JOW', 'DM', 'OTHER', 'NONE'];               // NONE = C カードなし（体験）
   const TODAY = ['', 'ok', 'unwell'];
   const DOCS = ['mail', 'paper', 'ccard'];
@@ -115,16 +115,23 @@
   const TRIP_SHAPE = Object.keys(blankTrip());
   const BOOKING_SHAPE = Object.keys(blankBooking());
 
+  /* 札（乗り合いの札ボード）。お客さんは personId、ガイドは名前とお店（shop が空ならこの店）。番号は便の中で重ならない */
+  const tagOk = (x) => isStr(x.no, 10) && x.no !== '' &&
+    ((onlyKeys(x, ['personId', 'no']) && isId(x.personId)) ||
+     (onlyKeys(x, ['guide', 'shop', 'no']) && isStr(x.guide, 40) && x.guide !== '' && isStr(x.shop, 60)));
+
   function validateTrip(t) {
     if (!isObj(t) || t.v !== VERSION) return result(['version']);
     return result([
       !onlyKeys(t, TRIP_SHAPE) && 'keys', !isId(t.id) && 'id', !isDay(t.date) && 'date', !isTime(t.start) && 'start',
       !KINDS.includes(t.kind) && 'kind', !isStr(t.tour, 40) && 'tour', !isStr(t.boat, 40) && 'boat',
       !isStr(t.site, 80) && 'site', !isList(t.guides, 10, g => isStr(g, 40)) && 'guides',
-      !isStr(t.host, 60) && 'host', !isList(t.partners, 10, s => isStr(s, 60)) && 'partners',
-      !isList(t.tags, MAX_PEOPLE * 4, x => onlyKeys(x, ['personId', 'no']) && isId(x.personId) && isStr(x.no, 10)) && 'tags',
-      !isList(t.checks, 50, x => onlyKeys(x, ['at', 'stage', 'missing']) && isStr(x.at, 40) &&
-        ['leave', 'return'].includes(x.stage) && isList(x.missing, MAX_PEOPLE * 4, isId)) && 'checks',
+      !isStr(t.host, 60) && 'host',
+      !(isList(t.partners, 10, s => isStr(s, 60) && s.trim() !== '') && new Set(t.partners).size === t.partners.length) && 'partners',
+      !(isList(t.tags, MAX_PEOPLE * 4, tagOk) && new Set(t.tags.map(x => x.no)).size === t.tags.length) && 'tags',
+      !isList(t.checks, 50, x => onlyKeys(x, ['at', 'stage', 'missing', 'tags']) && isStr(x.at, 40) &&
+        ['leave', 'return'].includes(x.stage) && isList(x.missing, MAX_PEOPLE * 4, isId) &&
+        (x.tags === undefined || (Number.isInteger(x.tags) && x.tags >= 0 && x.tags <= MAX_PEOPLE * 4))) && 'checks',
       !isStr(t.createdAt, 40) && 'createdAt'
     ]);
   }
@@ -140,12 +147,14 @@
     ]);
   }
 
-  /* consentAt・consentVer は、お客さんが健康の答えに同意した日と同意の文の版（P3 で足した。無くてもよい） */
+  /* consentAt・consentVer は、お客さんが健康の答えに同意した日と同意の文の版（P3 で足した。無くてもよい）。
+     heldBy は、乗り合いの他のお店が健康の答えを渡さずに「確かめた」とだけ言ったときの、そのお店の名前（P5。無くてもよい） */
   function healthOk(h) {
-    return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer']) && isDay(h.historyAt) &&
+    return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer', 'heldBy']) && isDay(h.historyAt) &&
       isList(h.answers, HEALTH_QUESTIONS, isAnswer) && h.answers.length === HEALTH_QUESTIONS &&
       isDay(h.todayAt) && TODAY.includes(h.today) &&
-      (h.consentAt === undefined || isDay(h.consentAt)) && (h.consentVer === undefined || isStr(h.consentVer, 20));
+      (h.consentAt === undefined || isDay(h.consentAt)) && (h.consentVer === undefined || isStr(h.consentVer, 20)) &&
+      (h.heldBy === undefined || isStr(h.heldBy, 60));
   }
 
   /* 人の項目（AI の答えと名簿の人で同じ検査）。入れ子の中も決まった名前だけ */

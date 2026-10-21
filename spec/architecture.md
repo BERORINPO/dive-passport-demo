@@ -6,9 +6,9 @@
 | 役割 | パス |
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js |
-| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/match.js js/health-redact.js js/photo-mask.js |
+| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js |
 | adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js |
-| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js |
+| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - 外へ通信してよいのは js/ai-reader.js だけ。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）
@@ -61,4 +61,7 @@
 | 2026-10-21 arch-grep | 依存の向きは grep で検査し、dependency-cruiser は使わない | script タグで読む素の JS で、npm を入れていない | test/arch.check.mjs |
 | 2026-10-21 core-clock | core は時計と乱数を使わない（at と newId を受け取る） | テストで毎回同じ結果にするため | test/arch.check.mjs |
 | 2026-10-21 fonts | 字体は Google Fonts と同じ束に分けた woff2 を repo の fonts/ に置き、自前で配る。数字用の BIZ UDGothic は英数字の束だけ | ザクのレビュー（外から読むと、取った束から画面に出た字・打った字が Google に推測される）。Yosuke が取得を了承（2026-10-21）。端末の字体だけにする案は、design.md の BIZ UD と見た目が変わるので次点 | test/arch.check.mjs（読み込み先） |
+| 2026-10-21 share-health | 乗り合いの他のお店のお客さんの健康の 2 欄は、そのお店が「渡す同意をもらった」に印を付けたときだけ受け取る。無ければ「そのお店が確かめた」とだけ持つ | 要配慮個人情報の第三者提供になるため。いつも受け取る案は同意の無い答えを持つので却下、いつも受け取らない案は船の上で既往症が分からないので次点 | test/share.test.mjs |
+| 2026-10-21 own-roster | 条例の名簿（P4）は自分の店のお客さんだけ。船の全員は合同名簿（P5）で別に出す | 条例の名簿はお店ごとに作る。合同名簿に事業者 1 店の名前で他店の客を載せない | test/share.test.mjs |
+| 2026-10-21 leave-one-tap | ポイントを離れる前は札ボードで数え、スマホは 1 回押すだけ | 店へのアンケート（2 人のスマホ記録は 8 店中 4 店が難しい、和船はしぶきで触れない）。札を選ぶボタンを並べる案は Yosuke の判断で外した | なし |
 | 2026-10-21 outside-reads | HTML と CSS から外を読むのは、3. の表「外から読む先」にファイルごとに書いた先だけ。外のスクリプトと読み込む link には integrity を付ける。js の通信の道具と外の URL の文字は禁止 | ザクのレビュー（CDN の中身が差し替えられると、画面と同じ権限で localStorage の健康の答えを読める。2024 年の polyfill.io の件）。cdnjs が spec から漏れていたのを検査で捕まえるため。許可は表「外から読む先」だけから読み、ファイルごとに分ける（散文のサイト名を拾うと、書いただけで許可になる） | test/arch.check.mjs（test/outside.mjs） |

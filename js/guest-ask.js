@@ -304,7 +304,8 @@
       R.fill(root, el('p', { class: 'empty', text: L(T.noBooking) }), el('p', { class: 'reset' }, el('button', { class: 'linkbtn', type: 'button', text: L(T.back), onclick: close })));
       return;
     }
-    v.shop = s.shop.name;
+    const booking = s.bookings.find(b => b.id === bookingId);
+    v.shop = booking && booking.source === 'partner' ? booking.shop : s.shop.name;   // 乗り合いの他のお店のお客さんには、そのお店の名前を出す
     const entry = v.people.find(x => x.person.id === personId) || v.people[0];
     R.fill(root, view === 'passport' ? renderPassport(v, entry) : renderForm(v));
   }

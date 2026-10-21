@@ -28,8 +28,9 @@
 
   /* ---------- 探す ---------- */
   const bookingsOf = (state, tripId) => state.bookings.filter(b => b.tripId === tripId);
-  function peopleOf(state, tripId) {
-    const ids = new Set(bookingsOf(state, tripId).map(b => b.id));
+  /* own: 乗り合いの他のお店の予約（出どころ partner）を除く。条例の名簿は、お店ごとに自分のお客さんの分を作る */
+  function peopleOf(state, tripId, { own } = {}) {
+    const ids = new Set(bookingsOf(state, tripId).filter(b => !own || b.source !== 'partner').map(b => b.id));
     return state.people.filter(p => ids.has(p.bookingId));
   }
   function tripOf(state, person) {
@@ -65,8 +66,8 @@
       case 'courses': return p.courses.trim() !== '' || p.cert.course !== '';
       case 'dives': return p.dives !== '';
       case 'lastDive': return MONTH.test(p.lastDive) || p.dives === 0;
-      case 'history': return p.health.historyAt !== '' && p.health.answers.every(a => a !== null);
-      case 'today': return p.health.today !== '' && !!trip && p.health.todayAt === trip.date;
+      case 'history': return (p.health.historyAt !== '' && p.health.answers.every(a => a !== null)) || !!p.health.heldBy;
+      case 'today': return (p.health.today !== '' && !!trip && p.health.todayAt === trip.date) || !!p.health.heldBy;
       case 'when': return !!trip && trip.date !== '' && trip.start !== '';
       case 'site': return !!trip && trip.site.trim() !== '';
       case 'guide': return p.guide.trim() !== '' || (!!trip && trip.guides.length > 0);
@@ -338,14 +339,16 @@
       entry(at, who, 'edit', 'person', id, { fields: keys, before: pick(before, keys), after: pick(after, keys), ...(demo === true ? { demo: true } : {}) }));
   }
 
-  /* ---------- 便で決めること（潜水場所・ガイド）と、名簿を書き出した記録 ---------- */
-  const TRIP_EDITABLE = ['site', 'guides'];
-  /* お店が便の潜水場所・ガイドを入れる。前と後を記録に残す */
+  /* ---------- 便で決めること（潜水場所・ガイド・船・乗り合いのお店）と、名簿を書き出した記録 ---------- */
+  const TRIP_TEXT = ['site', 'boat', 'host'];
+  const TRIP_LIST = ['guides', 'partners'];
+  const TRIP_EDITABLE = [...TRIP_TEXT, ...TRIP_LIST];
+  /* お店が便の潜水場所・ガイド・船・乗り合いのお店を入れる。前と後を記録に残す */
   function editTrip(state, { tripId, patch, at }) {
     const before = state.trips.find(t => t.id === tripId);
     if (!before) throw new Error(`editTrip: 便が見つからない (${tripId})`);
     const clean = Object.fromEntries(Object.keys(patch).filter(k => TRIP_EDITABLE.includes(k)).map(k => [k,
-      k === 'site' ? String(patch[k]).trim() : (Array.isArray(patch[k]) ? patch[k] : []).map(g => String(g).trim()).filter(Boolean)]));
+      TRIP_TEXT.includes(k) ? String(patch[k]).trim() : (Array.isArray(patch[k]) ? patch[k] : []).map(g => String(g).trim()).filter(Boolean)]));
     const after = { ...before, ...clean };
     const keys = Object.keys(clean).filter(k => !same(after[k], before[k]));
     if (!keys.length) return state;
@@ -355,11 +358,64 @@
       entry(at, 'staff', 'edit', 'trip', tripId, { fields: keys, before: pick(before, keys), after: pick(after, keys) }));
   }
 
-  /* 名簿を印刷した・CSV に書き出した。人数と、健康の欄を入れたかだけを残す（中身は残さない） */
-  function logOutput(state, { tripId, act, people, health, at }) {
+  /* 名簿を印刷した・CSV に書き出した。人数と、健康の欄を入れたかだけを残す（中身は残さない）。
+     paper: 乗り合いの合同名簿（joint）・札ボード（board）。条例の名簿なら渡さない */
+  function logOutput(state, { tripId, act, people, health, paper, at }) {
     if (!['print', 'csv'].includes(act)) throw new Error(`logOutput: act は print / csv (${act})`);
     if (!state.trips.some(t => t.id === tripId)) throw new Error(`logOutput: 便が見つからない (${tripId})`);
-    return withLog(state, entry(at, 'staff', act, 'trip', tripId, { after: { people: Number(people) || 0, health: health !== false } }));
+    const kind = ['joint', 'board'].includes(paper) ? { paper } : {};
+    return withLog(state, entry(at, 'staff', act, 'trip', tripId, { after: { people: Number(people) || 0, health: health !== false, ...kind } }));
+  }
+
+  /* ---------- 乗り合い（決まりは roster-share.js。ここは形を確かめて、記録を残すだけ） ---------- */
+  const replaceTrip = (state, trip) => ({ ...state, trips: state.trips.map(t => (t.id === trip.id ? trip : t)) });
+  function tripOrThrow(state, tripId, who) {
+    const t = state.trips.find(x => x.id === tripId);
+    if (!t) throw new Error(`${who}: 便が見つからない (${tripId})`);
+    return t;
+  }
+  function checkedTrip(after, who) {
+    const v = S().validateTrip(after);
+    if (!v.ok) throw new Error(`${who}: 便の形が合わない (${v.errors.join(',')})`);
+    return after;
+  }
+
+  /* 予約に 1 人足す（空の行）。人数が足りなくなれば、予約の人数も増やす */
+  function addPerson(state, { bookingId, at, newId }) {
+    const b = state.bookings.find(x => x.id === bookingId);
+    if (!b) throw new Error(`addPerson: 予約が見つからない (${bookingId})`);
+    const count = state.people.filter(p => p.bookingId === bookingId).length + 1;
+    if (count > S().MAX_PEOPLE) throw new Error(`addPerson: 1 つの予約は ${S().MAX_PEOPLE} 人まで`);
+    const person = { ...S().blankPerson(), id: newId(), bookingId };
+    const grown = count > b.people;
+    const booking = grown ? { ...b, people: count } : b;
+    return {
+      state: withLog({ ...state, bookings: state.bookings.map(x => (x.id === bookingId ? booking : x)), people: [...state.people, person] },
+        ...(grown ? [entry(at, 'staff', 'edit', 'booking', b.id, { fields: ['people'], before: { people: b.people }, after: { people: count } })] : []),
+        entry(at, 'staff', 'add', 'person', person.id)),
+      person
+    };
+  }
+
+  /* 札の番号を足す。一度付けた番号は変えない。記録には枚数だけを残す */
+  function addTags(state, { tripId, tags, at }) {
+    if (!tags.length) return state;
+    const before = tripOrThrow(state, tripId, 'addTags');
+    const after = checkedTrip({ ...before, tags: [...before.tags, ...tags] }, 'addTags');
+    return withLog(replaceTrip(state, after), entry(at, 'staff', 'tags', 'trip', tripId, { after: { added: tags.length, tags: after.tags.length } }));
+  }
+
+  /* 札ボードで全員そろったのを確かめた（leave: ポイントを離れる前 / return: 港に着いた）。時刻と札の枚数だけを残す */
+  function addCheck(state, { tripId, stage, tags, at }) {
+    const before = tripOrThrow(state, tripId, 'addCheck');
+    const after = checkedTrip({ ...before, checks: [...before.checks, { at, stage, missing: [], tags }] }, 'addCheck');
+    return withLog(replaceTrip(state, after), entry(at, 'staff', 'aboard', 'trip', tripId, { after: { stage, tags } }));
+  }
+
+  /* 乗り合いの他のお店から、お客さんを受け取った。人数と、健康の欄を受け取ったかだけを残す */
+  function logHandover(state, { bookingId, people, health, at }) {
+    if (!state.bookings.some(b => b.id === bookingId)) throw new Error(`logHandover: 予約が見つからない (${bookingId})`);
+    return withLog(state, entry(at, 'staff', 'handover', 'booking', bookingId, { after: { people: Number(people) || 0, health: health === true } }));
   }
 
   /* お店が全部を確かめた。自信なしの印を外す */
@@ -379,6 +435,8 @@
     const yes = h.answers.map((a, i) => (a === 'yes' ? healthShort[i] : null)).filter(Boolean);
     return yes.length ? `あり（${yes.join('・')}）` : 'なし';
   }
+  /* 乗り合いの他のお店が、健康の答えを渡さずに確かめた */
+  const heldText = (p) => (p.health.heldBy ? `${p.health.heldBy}が確かめた` : '');
   function emergencyText(e) {
     if (!e.name && !e.phone) return '';
     return `${e.name}${e.relation ? `（${e.relation}）` : ''} ${e.phone}`.trim();
@@ -394,8 +452,8 @@
       case 'courses': return p.courses || COURSE_JA[p.cert.course] || '';
       case 'dives': return p.dives === '' ? '' : p.dives === 0 ? 'なし（初めて）' : `${p.dives} ${unit}`;
       case 'lastDive': return p.lastDive ? slash(p.lastDive) : p.dives === 0 ? 'なし' : '';
-      case 'history': return historyText(p, healthShort);
-      case 'today': return p.health.todayAt === trip.date ? ({ ok: '良好', unwell: '不調あり' }[p.health.today] || '') : '';
+      case 'history': return historyText(p, healthShort) || heldText(p);
+      case 'today': return (p.health.todayAt === trip.date ? ({ ok: '良好', unwell: '不調あり' }[p.health.today] || '') : '') || heldText(p);
       case 'when': return trip.date ? `${slash(trip.date)} ${trip.start}` : '';
       case 'site': return trip.site;
       case 'guide': return p.guide || trip.guides.join('・');
@@ -403,11 +461,12 @@
     }
   }
 
-  function rosterRows(state, tripId, healthShort) {
+  /* own: 自分の店のお客さんだけ（条例の名簿）。乗り合いの合同名簿は roster-share.js の jointRows */
+  function rosterRows(state, tripId, healthShort, { own } = {}) {
     const trip = state.trips.find(t => t.id === tripId);
     if (!trip) return { items: [], rows: [] };
     const items = S().ITEMS[trip.kind];
-    const rows = peopleOf(state, tripId).map(p => ({
+    const rows = peopleOf(state, tripId, { own }).map(p => ({
       personId: p.id, done: status(p, trip).done,
       cells: Object.fromEntries(items.map(i => [i.key, cellText(p, trip, i.key, healthShort)]))
     }));
@@ -457,6 +516,7 @@
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, toCheck,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
+    addPerson, addTags, addCheck, logHandover,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
   };
 })();

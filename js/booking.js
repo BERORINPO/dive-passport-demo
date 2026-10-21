@@ -30,10 +30,12 @@
 
   let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
                             // day（今日の名簿）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
+                            // share（乗り合い）/ partner（他のお店役）/ joint（合同名簿）/ jointprint / board（札ボード）/ leave（離れる前）は share-roster.js
   let intakeTrip = '';
   let reviewPerson = '';
   let askBooking = '';
   let dayTrip = '';
+  let shareShop = '';       // 他のお店役で入れているお店
   let day = '';
   let notice = null;        // { kind: 'ok' | 'warn', text }
   let armedReset = false;
@@ -75,6 +77,7 @@
     if (ctx.tripId) { intakeTrip = ctx.tripId; dayTrip = ctx.tripId; }
     if (ctx.personId) reviewPerson = ctx.personId;
     if (ctx.bookingId) askBooking = ctx.bookingId;
+    if (ctx.shop !== undefined) shareShop = ctx.shop;
     if (next === 'mail') mail = blankMail();
     if (next === 'phone') phone = blankPhone();
     if (next === 'ask') copied = null;
@@ -112,7 +115,7 @@
     const st = unsure ? ['check', '! 確かめる'] : waiting ? ['wait', `・名簿 ${row.done}/${total}`] : ['ok', '✓ そろった'];
     const lead = b.leadName || (row.people[0] && row.people[0].name) || '名前の分からない予約';
     const others = Math.max(b.people, total) - 1;
-    const where = b.site ? `${b.site}（${SOURCE_JA[b.source]}）` : SOURCE_JA[b.source];
+    const where = b.source === 'partner' ? `${b.shop}（乗り合い）` : b.site ? `${b.site}（${SOURCE_JA[b.source]}）` : SOURCE_JA[b.source];
     const status = unsure ? '確かめてほしい所がある' : guests ? `${guests} 人分の入力を待っている` : waiting ? '便のポイントかガイドがまだ' : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, lead, others > 0 ? el('span', { class: 'nw', text: ` ほか ${others} 人` }) : null),
@@ -132,6 +135,7 @@
         rows.length ? el('ul', { class: 'bks' }, rows.map(bookingLine)) : el('p', { class: 'note', text: 'この便の予約はまだありません' }),
         rows.length ? el('p', { class: 'trip__links' },
           el('button', { class: 'linkbtn', type: 'button', text: '今日の名簿', onclick: () => go('day', { tripId: trip.id }) }),
+          el('button', { class: 'linkbtn', type: 'button', text: '乗り合い・札', onclick: () => go('share', { tripId: trip.id }) }),
           el('button', { class: 'linkbtn', type: 'button', text: '名簿の取り込み（申込書・C カード）', onclick: () => go('intake', { tripId: trip.id }) })) : null));
   }
 
@@ -438,6 +442,8 @@
   /* 名簿の取り込みと確かめる画面（intake-photo.js）に渡す道具 */
   const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back, dock };
   const DAY_MODES = { day: 'renderDay', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
+  const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', joint: 'renderJoint', jointprint: 'renderJointPrint', board: 'renderBoard', leave: 'renderLeave' };
+  const PRINT_MODES = ['print', 'jointprint', 'board'];
 
   function render() {
     mailOut = null;
@@ -447,9 +453,10 @@
       : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
-            : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui }) : renderList();
+            : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })
+              : SHARE_MODES[mode] ? R.shareRoster[SHARE_MODES[mode]]({ tripId: dayTrip, shop: shareShop, ui }) : renderList();
     R.fill(root, body);
-    document.body.classList.toggle('print-roster', mode === 'print');   // 印刷では名簿の紙だけを出す（css/app.css）
+    document.body.classList.toggle('print-roster', PRINT_MODES.includes(mode));   // 印刷では名簿の紙だけを出す（css/app.css）
     if (mode === 'list') showPickedDay();
   }
 
@@ -463,5 +470,5 @@
   }
 
   R.renderBooking = render;
-  R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
+  R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log', 'joint', 'leave'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
 })();
