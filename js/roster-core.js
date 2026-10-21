@@ -12,6 +12,18 @@
   const FIELD_OF = { certDate: 'cert', courses: 'cert' };      // 名簿の項目 → 人の項目（unsure と src の名前）
   const SIMPLE = ['name', 'birthDate', 'phone', 'address', 'dives', 'lastDive'];
   const AI_SRC = ['mail', 'paper', 'ccard'];
+  const EDIT_WHO = ['staff', 'guest', 'system'];                 // 人やお店が直すときの「した人」
+  const EDIT_SRC = ['guest', 'staff', 'passport', 'partner'];    // 人やお店が直すときの「出どころ」
+  const BOOKING_FIELDS = ['source', 'site', 'ref', 'leadName', 'leadPhone', 'people', 'shop', 'note'];
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+  /* 中身が同じか（key の順は問わない） */
+  function same(a, b) {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+    const ka = Object.keys(a);
+    return ka.length === Object.keys(b).length && ka.every(k => has(b, k) && same(a[k], b[k]));
+  }
   const MONTH = /^\d{4}-\d{2}/;                                 // 月まで分かっていれば、日は無くてよい項目
 
   /* ---------- 探す ---------- */
@@ -94,41 +106,56 @@
 
   /* AI に送った記録。量と、塗った印と、健康の情報が見えたかだけで、中身は残さない */
   function logAi(state, { at, sent }) {
+    if (!sent) return state;   // 送る前に断ったときは、送った記録も無い
     const { doc, size, masked, mode, healthSeen, redacted } = sent;
     return withLog(state, entry(at, 'ai', 'ai', 'state', '', { sent: { doc, size, masked, mode, healthSeen, redacted } }));
   }
 
-  /* ---------- AI の読み取りを人に入れる。空の所だけ埋め、人やお店が入れた所は上書きしない ---------- */
+  /* ---------- AI の読み取りを人に入れる ----------
+     空の所だけ埋め、人やお店が入れた所は上書きしない。人やお店がわざと空にした項目（出どころがあるのに空）は埋めない。
+     一部だけ入っていた項目の空の所を埋めたときは、出どころを変えず、自信なしの印も付けない（人が入れた所まで疑わしく見せない） */
   const blankValue = (v) => v === '' || v == null;
+  const isBlank = (p, field) => (S().SUB[field] ? S().SUB[field].every(k => blankValue(p[field][k])) : blankValue(p[field]));
+  const clearedByPerson = (p, field) => has(p.src, field) && !AI_SRC.includes(p.src[field]) && isBlank(p, field);
 
   function fillParts(p, read, key) {
     const keys = S().SUB[key].filter(k => blankValue(p[key][k]) && !blankValue(read[key][k]));
     return keys.length ? { ...p[key], ...pick(read[key], keys) } : null;
   }
 
-  /* C カードの取得日は、コースが空か同じときだけ入れる（違うコースの日を混ぜない） */
+  /* C カードのコースと取得日は組で扱う。違うコースの日を混ぜない */
   function fillCert(p, read) {
-    const course = p.cert.course || read.cert.course;
-    const sameCourse = !p.cert.course || p.cert.course === read.cert.course;
-    const date = p.cert.date || (sameCourse ? read.cert.date : '');
-    return course !== p.cert.course || date !== p.cert.date ? { course, date } : null;
+    const pc = p.cert;
+    const rc = read.cert;
+    if (pc.course && pc.date) return null;
+    if (!pc.course && !pc.date) return rc.course || rc.date ? { course: rc.course, date: rc.date } : null;
+    if (pc.course) return pc.course === rc.course && rc.date ? { course: pc.course, date: rc.date } : null;
+    return rc.course && rc.date === pc.date ? { course: rc.course, date: pc.date } : null;
   }
 
   function mergeReading(p, read, src) {
     const next = { ...p, src: { ...p.src } };
     const got = [];
-    const put = (field, value) => { next[field] = value; next.src[field] = src; got.push(field); };
+    const fresh = [];
+    const put = (field, value) => {
+      if (clearedByPerson(p, field)) return;
+      next[field] = value;
+      got.push(field);
+      if (isBlank(p, field)) { next.src[field] = src; fresh.push(field); }
+    };
     SIMPLE.forEach(f => { if (blankValue(p[f]) && !blankValue(read[f])) put(f, read[f]); });
     ['emergency', 'sizes'].forEach(k => { const v = fillParts(p, read, k); if (v) put(k, v); });
     const cert = fillCert(p, read);
     if (cert) put('cert', cert);
-    next.unsure = [...new Set([...p.unsure, ...read.unsure.filter(u => got.includes(u))])];
+    next.unsure = [...new Set([...p.unsure, ...read.unsure.filter(u => fresh.includes(u))])];
     return { person: next, fields: got };
   }
 
   /* ---------- 予約を足す（読み取りから・手入力から）。名前の分からない人は空の行で人数分そろえる ---------- */
   function addBooking(state, { trip, booking, reading, src, at, newId }) {
-    const b = { ...S().blankBooking(), ...booking, id: newId(), tripId: trip.id, createdAt: at };
+    const given = booking || {};
+    const fields = BOOKING_FIELDS.filter(k => has(given, k));   // 予約の形にある項目だけ拾う（読み取りの date や unsure を混ぜない）
+    const b = { ...S().blankBooking(), ...pick(given, fields), id: newId(), tripId: trip.id, createdAt: at };
     const want = Number.isInteger(b.people) && b.people >= 1 ? Math.min(b.people, S().MAX_PEOPLE) : 1;
     const people = (reading ? reading.people : []).slice(0, S().MAX_PEOPLE)
       .map(r => mergeReading({ ...S().blankPerson(), id: newId(), bookingId: b.id }, r, src).person);
@@ -137,7 +164,7 @@
     const who = AI_SRC.includes(src) ? 'ai' : 'staff';
     return withLog(
       { ...state, bookings: [...state.bookings, fixed], people: [...state.people, ...people] },
-      entry(at, who, 'add', 'booking', fixed.id, { fields: Object.keys(booking || {}) }),
+      entry(at, who, 'add', 'booking', fixed.id, { fields }),
       ...people.map(p => entry(at, who, 'add', 'person', p.id, { fields: Object.keys(p.src) }))
     );
   }
@@ -166,14 +193,17 @@
   const EDITABLE = [...SIMPLE, 'emergency', 'cert', 'courses', 'sizes', 'health', 'guide'];
 
   function editPerson(state, { id, patch, who, src, at }) {
+    if (!EDIT_WHO.includes(who)) throw new Error(`editPerson: who は ${EDIT_WHO.join(' / ')} のどれか (${who})`);
+    const from = src || (who === 'guest' ? 'guest' : 'staff');
+    if (!EDIT_SRC.includes(from)) throw new Error(`editPerson: src は ${EDIT_SRC.join(' / ')} のどれか (${from})`);
     const before = state.people.find(p => p.id === id);
     if (!before) return state;
-    const from = src || (who === 'guest' ? 'guest' : 'staff');
-    const keys = Object.keys(patch).filter(k => EDITABLE.includes(k) &&
-      JSON.stringify(patch[k]) !== JSON.stringify(before[k]));
+    const keys = Object.keys(patch).filter(k => EDITABLE.includes(k) && !same(patch[k], before[k]));
     if (!keys.length) return state;
     const after = { ...before, ...pick(patch, keys), src: { ...before.src, ...Object.fromEntries(keys.map(k => [k, from])) },
       unsure: before.unsure.filter(u => !keys.includes(u)) };
+    const v = S().validatePerson(after);
+    if (!v.ok) throw new Error(`editPerson: 直した後の形が合わない (${v.errors.join(',')})`);
     return withLog({ ...state, people: state.people.map(p => (p.id === id ? after : p)) },
       entry(at, who, 'edit', 'person', id, { fields: keys, before: pick(before, keys), after: pick(after, keys) }));
   }
@@ -250,13 +280,16 @@
   const expired = (trip, today) => trip.date !== '' && today > keepUntil(trip.date);
 
   /* 保存期間を過ぎた便を、予約・人・その記録ごと消す。消した件数だけを記録に残す。
-     どの便にも付かない記録（AI に送った量など）は、記録した日から 1 年で消す */
+     どの便にも付かない記録（AI に送った量など）は、記録した日から 1 年で消す。
+     記録の日時は UTC なので、1 日の余裕を見る（早く消しすぎない） */
   function purgeExpired(state, { today, at }) {
     const trips = new Set(state.trips.filter(t => expired(t, today)).map(t => t.id));
     const bookings = new Set(state.bookings.filter(b => trips.has(b.tripId)).map(b => b.id));
     const people = new Set(state.people.filter(p => bookings.has(p.bookingId)).map(p => p.id));
-    const ids = new Set([...trips, ...bookings, ...people]);
-    const log = state.log.filter(e => !ids.has(e.id) && !(e.id === '' && today > keepUntil(e.at.slice(0, 10))));
+    const gone = { trip: trips, booking: bookings, person: people };
+    const ofGone = (e) => has(gone, e.kind) && gone[e.kind].has(e.id);
+    const tooOld = (e) => e.id === '' && today > keepUntil(S().nextDay(e.at.slice(0, 10)));
+    const log = state.log.filter(e => !ofGone(e) && !tooOld(e));
     const removed = state.log.length - log.length;
     if (!trips.size && !removed) return state;
     return withLog(

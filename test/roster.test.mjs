@@ -7,8 +7,9 @@ import vm from 'node:vm';
 const load = (path) => vm.runInThisContext(readFileSync(new URL(path, import.meta.url), 'utf8'));
 load('../js/roster-schema.js');
 load('../js/roster-core.js');
+load('../js/health-redact.js');
 load('../js/data-samples.js');
-const { roster: S, rosterCore: C, SAMPLE_READINGS } = globalThis.REDUX;
+const { roster: S, rosterCore: C, healthRedact: H, SAMPLE_READINGS } = globalThis.REDUX;
 
 const AT = '2026-10-21T09:00:00.000Z';
 const HEALTH_SHORT = ['治療中の病気', '心臓・肺', '耳・鼻', '妊娠', '手術・けが'];
@@ -81,18 +82,18 @@ test('送る物は決まった項目だけ。健康の項目を紛れ込ませ�
 });
 
 test('予約メールの健康に触れていそうな行は外す。見本のメールは何も外れない', () => {
-  const r = S.redactHealthLines('人数: 2 名\n備考: 喘息があります\nAsthma: yes\n代表者: 見本 花子');
+  const r = H.redact('人数: 2 名\n備考: 喘息があります\nAsthma: yes\n代表者: 見本 花子');
   assert.equal(r.redacted, 2);
   assert.ok(!/喘息|Asthma/.test(r.text));
   assert.ok(r.text.includes('代表者: 見本 花子'));
   for (const id of ['e1', 'e2', 'e3', 'e4']) {
     const text = readFileSync(new URL(`../assets/samples/${id}.txt`, import.meta.url), 'utf8');
-    assert.equal(S.redactHealthLines(text).redacted, 0, id);
+    assert.equal(H.redact(text).redacted, 0, id);
   }
 });
 
 test('健康の質問の次の行の答えも外す。空行か次の項目で止まる', () => {
-  const r = S.redactHealthLines('人数: 1 名\n健康上の問題はありますか？\nはい、少しだけ\n腰のあたりです\n代表者: 見本 花子\nQ: 持病は?\nA: はい\n\n日時: 10/24');
+  const r = H.redact('人数: 1 名\n健康上の問題はありますか？\nはい、少しだけ\n腰のあたりです\n代表者: 見本 花子\nQ: 持病は?\nA: はい\n\n日時: 10/24');
   assert.deepEqual(r.text.split('\n'), ['人数: 1 名', '（健康についての行は送っていません）', '（健康についての行は送っていません）',
     '（健康についての行は送っていません）', '代表者: 見本 花子', '（健康についての行は送っていません）', '（健康についての行は送っていません）', '', '日時: 10/24']);
   assert.equal(r.redacted, 5);
@@ -101,7 +102,7 @@ test('健康の質問の次の行の答えも外す。空行か次の項目で�
 test('書き方を変えた健康の言葉も外す（全角・半角カナ・カタカナ・ゼロ幅文字・中国語・韓国語・英語）', () => {
   const words = ['ＡＳＴＨＭＡ', 'ｱﾚﾙｷﾞｰ', 'ゼンソク', 'ぜん息', '入院', '中耳炎', '耳が弱い', '風邪', '熱', '発作', 'うつ', 'パニック',
     'ペースメーカー', 'seizure', 'hospital', 'prescription', '哮喘', '高血压', '心脏', '氣喘', '懷孕', '천식', '임신', '喘​息'];
-  for (const w of words) assert.equal(S.redactHealthLines(`備考 ${w} です`).redacted, 1, w);
+  for (const w of words) assert.equal(H.redact(`備考 ${w} です`).redacted, 1, w);
 });
 
 test('メールのソース（quoted-printable・base64）は読まずに断る', () => {
@@ -188,7 +189,49 @@ test('AI の読み取りは空の所だけ埋め、人が入れた所は上書�
   assert.equal(next.birthDate, '1998-04-21');
   assert.deepEqual(next.emergency, { name: '見本 洋子', relation: '兄', phone: '090-0000-0001' });
   assert.deepEqual(fields, ['emergency', 'cert']);
-  assert.deepEqual(next.unsure, ['emergency']);
+  assert.deepEqual(next.unsure, [], '一部だけ埋めた項目は、人が入れた所まで疑わしく見せない');
+  assert.deepEqual([next.src.emergency, next.src.cert], ['guest', 'paper'], '一部だけ埋めたときは出どころを変えない');
+});
+
+test('人やお店がわざと空にした項目は、AI が埋め直さない', () => {
+  const p = person({ name: '見本 花子', address: '', src: { address: 'staff' } });
+  const { person: next, fields } = C.mergeReading(p, { ...emptyRead(), address: '見本市 1-1' }, 'paper');
+  assert.equal(next.address, '');
+  assert.ok(!fields.includes('address'));
+});
+
+test('人の側に日付だけあってコースが空なら、AI の日付が同じときだけコースを入れる', () => {
+  const p = person({ cert: { course: '', date: '2012-03-04' } });
+  assert.deepEqual(C.mergeReading(p, { ...emptyRead(), cert: { course: 'AOW', date: '2019-07-01' } }, 'ccard').fields, []);
+  assert.deepEqual(C.mergeReading(p, { ...emptyRead(), cert: { course: 'OW', date: '2012-03-04' } }, 'ccard').person.cert, { course: 'OW', date: '2012-03-04' });
+});
+
+test('人が直すときの引数が違えば例外にする（壊れた state を黙って返さない）', () => {
+  const s = withMail('e1');
+  const id = C.peopleOf(s, 't1')[0].id;
+  assert.throws(() => C.editPerson(s, { id, patch: { address: 'x' }, who: 'passport', at: AT }), /who/);
+  assert.throws(() => C.editPerson(s, { id, patch: { address: 'x' }, at: AT }), /who/);
+  assert.throws(() => C.editPerson(s, { id, patch: { address: 'x' }, who: 'staff', src: 'mail', at: AT }), /src/);
+  assert.throws(() => C.editPerson(s, { id, patch: { emergency: { phone: '090' } }, who: 'staff', at: AT }), /形が合わない/);
+  const p = C.peopleOf(s, 't1')[0];
+  const reordered = { relation: p.emergency.relation, phone: p.emergency.phone, name: p.emergency.name };
+  assert.equal(C.editPerson(s, { id, patch: { emergency: reordered }, who: 'staff', at: AT }), s, 'key の順が違うだけなら記録しない');
+});
+
+test('予約には予約の形の項目だけが入る（読み取りの日付や unsure を混ぜない）', () => {
+  const s = C.addBooking(base, { trip, booking: { source: 'mail', ...SAMPLES.e1.booking }, reading: SAMPLES.e1, src: 'mail', at: AT, newId });
+  const b = s.bookings[0];
+  assert.ok(!('date' in b) && !('unsure' in b) && !('tour' in b));
+  assert.ok(!s.log[0].fields.includes('unsure'));
+  assert.equal(S.validateBooking({ ...b, date: '2026-10-24' }).ok, false);
+  assert.equal(S.validateTrip({ ...trip, extra: 1 }).ok, false);
+});
+
+test('依頼の値が undefined や null の項目は、無いのと同じに扱う', () => {
+  assert.ok(S.validateRequest({ doc: 'mail', text: '予約です', sampleId: undefined }).ok);
+  assert.ok(S.validateRequest({ doc: 'mail', text: '予約です', sampleId: null }).ok);
+  assert.ok(S.validateRequest({ doc: 'ccard', image: 'QUJD', masked: undefined }).ok);
+  assert.equal(C.logAi(base, { at: AT, sent: null }), base, '送る前に断ったときは記録しない');
 });
 
 test('C カードの取得日は、コースが空か同じときだけ入れる', () => {
@@ -252,13 +295,45 @@ test('CSV は頭に空白や全角の記号がある式も止める', () => {
 });
 
 test('保存期間を過ぎた便は、予約・人・記録ごと消え、消した件数だけが残る', () => {
-  const s = freeze(C.logAi(withMail('e1'), { at: '2026-10-24T00:00:00.000Z', sent: { doc: 'mail', size: 10, masked: false, mode: 'sample', healthSeen: false, redacted: 0 } }));
+  const s = freeze(C.logAi(withMail('e1'), { at: '2026-10-23T00:00:00.000Z', sent: { doc: 'mail', size: 10, masked: false, mode: 'sample', healthSeen: false, redacted: 0 } }));
   assert.equal(C.purgeExpired(s, { today: '2027-10-24', at: AT }), s, 'まだ 1 年たっていない');
   const after = C.purgeExpired(s, { today: '2027-10-25', at: AT });
   assert.deepEqual([after.trips.length, after.bookings.length, after.people.length], [0, 0, 0]);
   assert.equal(after.log.length, 1);
   assert.deepEqual([after.log[0].act, after.log[0].after], ['remove', { trips: 1, people: 2, log: s.log.length }]);
   assert.ok(S.validateState(after).ok);
+});
+
+test('消すときは種類と id の組で照合する。どの便にも付かない記録は 1 日の余裕を見る', () => {
+  const kept = { ...S.blankTrip(), id: 't2', date: '2027-09-01', start: '08:30', createdAt: AT };
+  const s = { ...base, trips: [trip, kept], log: [
+    { at: AT, who: 'staff', act: 'add', kind: 'trip', id: 't1', fields: [], before: {}, after: {}, sent: null },
+    { at: AT, who: 'staff', act: 'edit', kind: 'person', id: 't1', fields: [], before: {}, after: {}, sent: null },
+    { at: '2026-10-24T20:00:00.000Z', who: 'ai', act: 'ai', kind: 'state', id: '', fields: [], before: {}, after: {}, sent: null }
+  ] };
+  const after = C.purgeExpired(s, { today: '2027-10-25', at: AT });
+  assert.deepEqual(after.log.map(e => e.kind), ['person', 'state', 'state'], '別の種類の同じ id は残り、UTC の 10/24 の記録は 1 日余分に 2027-10-25 まで残る');
+  assert.equal(C.purgeExpired(s, { today: '2027-10-26', at: AT }).log.filter(e => e.act === 'ai').length, 0);
+  assert.equal(S.nextDay('2028-02-28'), '2028-02-29');
+  assert.equal(S.nextDay('2026-12-31'), '2027-01-01');
+});
+
+test('健康の行を外しても、予約の項目の行は残す（名前・住所・ツアー名・連絡先）', () => {
+  const keep = ['住所：福岡市中央区薬院1-2-3', '代表者：薬師寺 涼子', 'フリガナ：ウツミ ハナコ', 'Name: Priya Pillai', 'ツアー名：熱帯魚と泳ぐ',
+    'プラン：ボート2本・傷害保険込み', 'ご予約日時：10月24日 8:30（ご都合に支障なければ）', 'メール：sweetheart88@mail.example',
+    'Hotel: Okinawa Hospitality Inn'];
+  for (const line of keep) assert.equal(H.redact(line).redacted, 0, line);
+});
+
+test('健康の質問の答えは外すが、結び・署名・電話は残す。1 段落のメールは文だけ外す', () => {
+  const mail = 'Hi, we would like to book 2 people on Oct 24 at 8:30.\nMy friend has a mild heart condition, is it ok?\nThanks,\nSeo-yeon Kim\n+82 10-1234-5678';
+  assert.deepEqual(H.redact(mail).text.split('\n'), ['Hi, we would like to book 2 people on Oct 24 at 8:30.', H.REDACTED_LINE, 'Thanks,', 'Seo-yeon Kim', '+82 10-1234-5678']);
+  const sign = H.redact('備考：喘息の持病があります\n--\n見本 花子\n090-1234-5678');
+  assert.deepEqual([sign.redacted, sign.text.split('\n').slice(1)], [1, ['--', '見本 花子', '090-1234-5678']]);
+  const one = H.redact('10月24日に2名でお願いします。持病で喘息があります。代表は見本 花子、電話は090-1234-5678です。');
+  assert.equal(one.text, `10月24日に2名でお願いします。${H.REDACTED_PART}代表は見本 花子、電話は090-1234-5678です。`);
+  const inline = H.redact('持病はありますか？はい、少し。電話は090-1234-5678です。');
+  assert.equal(inline.text, `${H.REDACTED_PART}${H.REDACTED_PART}電話は090-1234-5678です。`);
 });
 
 test('保存は作った日から 1 年', () => {

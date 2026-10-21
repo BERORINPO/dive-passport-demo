@@ -4,7 +4,8 @@
 // 3. 外へ通信する fetch は js/ai-reader.js だけ
 // 4. shared は core と adapter を使わず、core は adapter を使わない（adapter の名前は adapter のファイルから拾う）
 // 5. AI の読み取りには見本（Fake）がある
-// 6. この検査自身が、わざと違反を入れた見本で落ちる（何も検査していないのに通る、を防ぐ）
+// 6. entry と adapter は HTML の文字列を直接入れない（innerHTML など）
+// 7. この検査自身が、わざと違反を入れた見本で落ちる（何も検査していないのに通る、を防ぐ）
 // 決まりを外すときは、その行に「// arch-allow: 理由」を書く。外した数を毎回出す。
 // 実行: node test/arch.check.mjs
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -32,10 +33,10 @@ const jsFiles = readdirSync(new URL('js/', root)).filter(f => f.endsWith('.js'))
 const listed = new Set(Object.values(roles).flat());
 jsFiles.filter(f => !listed.has(f)).forEach(f => fail(`表 1 に無い js: ${f}`));
 
-/* adapter が R に足す名前: 「R.x =」と、core.js の「window.REDUX = { … }」の 1 段目の名前 */
-function adapterNames() {
+/* R に足す名前: 「R.x =」と、core.js の「window.REDUX = { … }」の 1 段目の名前 */
+function namesOf(role) {
   const names = new Set();
-  (roles.adapter || []).filter(p => existsSync(new URL(p, root))).forEach(p => {
+  (roles[role] || []).filter(p => p.endsWith('.js') && existsSync(new URL(p, root))).forEach(p => {
     const src = read(p);
     for (const m of src.matchAll(/\bR\.(\w+)\s*=/g)) names.add(m[1]);
     const block = src.match(/window\.REDUX\s*=\s*\{([\s\S]*?)\n {2}\};/);
@@ -43,37 +44,65 @@ function adapterNames() {
   });
   return [...names];
 }
-const ADAPTER = adapterNames();
+const ADAPTER = namesOf('adapter');
+const CORE = namesOf('core');
 if (ADAPTER.length < 5) fail(`adapter の名前を拾えていない (${ADAPTER.length} 個)`);
-const CORE = ['rosterCore', 'match'];
+if (CORE.length < 2) fail(`core の名前を拾えていない (${CORE.length} 個)`);
 
 const PURE_BAN = [
   [/\bdocument\b/, '画面 (document)'], [/\bwindow\b/, 'window'], [/localStorage|sessionStorage|indexedDB/, '保存'],
   [/\bfetch\b|XMLHttpRequest|WebSocket|EventSource/, '通信'], [/\bnavigator\b/, 'navigator'],
-  [/\bDate\b|performance\.now/, '時計'], [/Math\.random|\bcrypto\b/, '乱数'], [/\bprocess\b/, '環境変数']
+  [/\bDate\b|performance\.now|Intl\.DateTimeFormat/, '時計'], [/Math\.random|\bcrypto\b/, '乱数'], [/\bprocess\b/, '環境変数']
 ];
-const usesNames = (names) => [
-  new RegExp(`\\bR\\.(${names.join('|')})\\b`),
-  new RegExp(`\\{[^}]*\\b(${names.join('|')})\\b[^}]*\\}\\s*=\\s*(R|globalThis\\.REDUX|window\\.REDUX)\\b`)
+const HUB = '(?:R|globalThis\\.REDUX|window\\.REDUX)';
+const usesNames = (names, what) => [
+  [new RegExp(`\\b${HUB}\\.(${names.join('|')})\\b`), what],
+  [new RegExp(`\\b${HUB}\\s*\\[\\s*['"\`](${names.join('|')})['"\`]\\s*\\]`), what]
 ];
+/* 分割代入（const { aiReader } = R）は複数行にまたがりうるので、ファイル全体で見る */
+const destructures = (names, what) => [new RegExp(`\\{[^{}]*\\b(${names.join('|')})\\b[^{}]*\\}\\s*=\\s*${HUB}\\b`), what];
 const rulesFor = {
-  shared: [...PURE_BAN, ...usesNames(ADAPTER).map(re => [re, 'adapter']), ...usesNames(CORE).map(re => [re, 'core'])],
-  core: [...PURE_BAN, ...usesNames(ADAPTER).map(re => [re, 'adapter'])]
+  shared: { line: [...PURE_BAN, ...usesNames(ADAPTER, 'adapter'), ...usesNames(CORE, 'core')],
+    file: [destructures(ADAPTER, 'adapter'), destructures(CORE, 'core')] },
+  core: { line: [...PURE_BAN, ...usesNames(ADAPTER, 'adapter')], file: [destructures(ADAPTER, 'adapter')] }
 };
+const HTML_BAN = { line: [[/\.(innerHTML|outerHTML)\s*\+?=|insertAdjacentHTML|document\.write/, 'HTML の文字列を直接入れている']], file: [] };
+const FETCH_BAN = { line: [[/\bfetch\s*\(/, '外への通信 (ai-reader.js 以外)']], file: [] };
 
-/* コメントを外してから見る。「'https://…'」の // はコメントではない */
-const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' '))
-  .split('\n').map(l => l.replace(/(^|[^:'"`\\])\/\/.*$/, '$1'));
+/* コメントを消す（文字列の中の // は残す）。正規表現の \/ は 1 組として読み飛ばす */
+function stripComments(src) {
+  let inBlock = false;
+  return src.split('\n').map(line => {
+    let out = '';
+    let quote = null;
+    for (let i = 0; i < line.length; i += 1) {
+      const c = line[i];
+      const n = line[i + 1];
+      if (inBlock) { if (c === '*' && n === '/') { inBlock = false; i += 1; out += '  '; } else out += ' '; continue; }
+      if (c === '\\') { out += c + (n || ''); i += 1; continue; }
+      if (quote) { out += c; if (c === quote) quote = null; continue; }
+      if (c === '/' && n === '/') break;
+      if (c === '/' && n === '*') { inBlock = true; i += 1; out += '  '; continue; }
+      if (c === "'" || c === '"' || c === '`') quote = c;
+      out += c;
+    }
+    return out;
+  });
+}
 
 function violations(src, rules) {
   const raw = src.split('\n');
+  const code = stripComments(src);
   const out = [];
-  stripComments(src).forEach((code, i) => {
-    rules.forEach(([re, what]) => {
-      if (!re.test(code)) return;
-      if (/\/\/ arch-allow: \S/.test(raw[i])) { allowed += 1; return; }
-      out.push({ line: i + 1, what });
-    });
+  const hit = (line, what) => {
+    if (/\/\/ arch-allow: \S/.test(raw[line] || '')) { allowed += 1; return; }
+    out.push({ line: line + 1, what });
+  };
+  code.forEach((c, i) => rules.line.forEach(([re, what]) => { if (re.test(c)) hit(i, what); }));
+  const joined = code.join('\n');
+  rules.file.forEach(([re, what]) => {
+    const m = re.exec(joined);
+    if (m) hit(joined.slice(0, m.index).split('\n').length - 1, what);
   });
   return out;
 }
@@ -82,31 +111,32 @@ function violations(src, rules) {
   violations(read(p), rulesFor[role]).forEach(v => fail(`${p}:${v.line} ${v.what} を使っている`));
 }));
 jsFiles.filter(f => f !== 'js/ai-reader.js').forEach(p => {
-  violations(read(p), [[/\bfetch\s*\(/, '外への通信 (ai-reader.js 以外)']]).forEach(v => fail(`${p}:${v.line} ${v.what}`));
+  violations(read(p), FETCH_BAN).forEach(v => fail(`${p}:${v.line} ${v.what}`));
 });
-if (!/function readSample\(/.test(read('js/ai-reader.js'))) fail('js/ai-reader.js に見本 (readSample) が無い');
-
-/* AI やお客さんの文字を HTML として入れると XSS になる。文字は textContent（el()）だけで出す。固定の SVG だけ arch-allow */
-const HTML_BAN = [[/\.(innerHTML|outerHTML)\s*\+?=|insertAdjacentHTML|document\.write/, 'HTML の文字列を直接入れている']];
 [...(roles.entry || []), ...(roles.adapter || [])].filter(p => p.endsWith('.js')).forEach(p => {
   violations(read(p), HTML_BAN).forEach(v => fail(`${p}:${v.line} ${v.what}`));
 });
+if (!/function readSample\(/.test(read('js/ai-reader.js'))) fail('js/ai-reader.js に見本 (readSample) が無い');
 
-/* 6. わざと違反を入れた見本。どれか 1 つでも見逃したら、この検査が甘い */
+/* 7. わざと違反を入れた見本。どれか 1 つでも見逃したら、この検査が甘い */
 const PROBES = [
-  'const x = Date.now();', 'const d = new Date;', 'const d = Date();', 'const t = performance.now();',
-  'const id = crypto.randomUUID();', 'const r = Math.random();', 'const id = R.newId();', 'const d = R.today();',
-  'const { aiReader } = R;', "const u = 'https://x'; fetch(u);", 'document.title = 1;', 'const k = process.env.KEY;'
+  [rulesFor.core, 'const x = Date.now();'], [rulesFor.core, 'const d = new Date;'], [rulesFor.core, 'const d = Date();'],
+  [rulesFor.core, 'const t = performance.now();'], [rulesFor.core, 'const f = new Intl.DateTimeFormat().format();'],
+  [rulesFor.core, 'const id = crypto.randomUUID();'], [rulesFor.core, 'const r = Math.random();'],
+  [rulesFor.core, 'const id = R.newId();'], [rulesFor.core, 'const d = R.today();'],
+  [rulesFor.core, 'const { aiReader } = R;'], [rulesFor.core, 'const {\n  aiReader\n} = R;'],
+  [rulesFor.core, 'const r = globalThis.REDUX.aiReader;'], [rulesFor.core, "const r = R['aiReader'];"],
+  [rulesFor.core, "const u = 'https://x'; fetch(u);"], [rulesFor.core, "const s = 'x //'; const t = Date.now();"],
+  [rulesFor.core, 'document.title = 1;'], [rulesFor.core, 'const k = process.env.KEY;'],
+  [rulesFor.shared, 'const h = R.rosterCore.status(p);'], [rulesFor.shared, 'const r = R.healthRedact.redact(t);'],
+  [HTML_BAN, 'box.innerHTML = name;'], [HTML_BAN, 'el.insertAdjacentHTML("beforeend", x);'], [HTML_BAN, 'document.write(x);']
 ];
 const before = allowed;
-PROBES.forEach(code => { if (!violations(code, rulesFor.core).length) fail(`検査が甘い: core の「${code}」を見逃した`); });
-['box.innerHTML = name;', 'el.insertAdjacentHTML("beforeend", x);', 'document.write(x);'].forEach(code => {
-  if (!violations(code, HTML_BAN).length) fail(`検査が甘い: 「${code}」を見逃した`);
-});
+PROBES.forEach(([rules, code]) => { if (!violations(code, rules).length) fail(`検査が甘い: 「${code.replace(/\n/g, ' ')}」を見逃した`); });
 allowed = before;
 
 console.log(`files: shared ${roles.shared?.length || 0} / core ${roles.core?.length || 0} / adapter ${roles.adapter?.length || 0} / entry ${roles.entry?.length || 0}`);
-console.log(`adapter names: ${ADAPTER.length} / probes: ${PROBES.length} / arch-allow: ${allowed}`);
+console.log(`names: adapter ${ADAPTER.length} / core ${CORE.length} / probes: ${PROBES.length} / arch-allow: ${allowed}`);
 if (problems.length) {
   problems.forEach(p => console.log(`FAIL ${p}`));
   process.exit(1);

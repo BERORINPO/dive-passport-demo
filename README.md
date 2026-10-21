@@ -23,12 +23,13 @@ A prototype of a front desk for dive and snorkel shops, plus a "diver passport" 
 A booking list and the dive roster required by Okinawa's water-safety ordinance (13 items for divers, 11 for snorkellers, kept for one year). An AI reads booking emails, paper forms and C-card photos to fill the roster; health answers are never sent to it, and paper forms have their health box blacked out before upload. The AI is called through a Cloudflare Worker on the same origin, behind Cloudflare Access and a pass phrase. The public demo uses sample readings instead (`js/data-samples.js`, from the 2026-10-21 reading test).
 
 - What and why: `spec/meibo.md`; the plan: `plan/meibo.md`; roles, boundaries and decisions: `spec/architecture.md`
-- Shapes and checks: `js/roster-schema.js`; roster logic (pure): `js/roster-core.js`; the AI reader and its sample stand-in: `js/ai-reader.js`
+- Shapes and checks: `js/roster-schema.js`; roster logic (pure): `js/roster-core.js`; health-line redaction for booking emails (pure): `js/health-redact.js`; the AI reader and its sample stand-in: `js/ai-reader.js`
 
 ## Test
 
 ```
 node test/roster.test.mjs
+node test/ai-reader.test.mjs
 node test/pass.roundtrip.test.mjs
 node test/match.eval.mjs --check
 node test/arch.check.mjs

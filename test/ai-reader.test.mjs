@@ -24,6 +24,7 @@ const json = (status, data) => ({ type: 'basic', status, ok: status >= 200 && st
 const load = (path) => vm.runInThisContext(readFileSync(new URL(path, import.meta.url), 'utf8'));
 load('../js/roster-schema.js');
 load('../js/data-samples.js');
+load('../js/health-redact.js');
 load('../js/ai-reader.js');
 const { aiReader: A, SAMPLE_READINGS } = globalThis.REDUX;
 
@@ -92,6 +93,21 @@ test('本物: 失敗の種類を分け、送ったあとの失敗には送った
   await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'bad');
   reply = () => { throw new TypeError('Failed to fetch'); };
   await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'offline');
+  reply = () => json(400, {});
+  await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'input');
+});
+
+test('C カードを塗って送れば、記録にも塗った印が残る', async () => {
+  reply = () => json(200, SAMPLE_READINGS.c1);
+  const { sent } = await A.read({ doc: 'ccard', image: 'QUJD', masked: true });
+  assert.equal(sent.masked, true);
+});
+
+test('健康の行を外した印で上限を超える本文は、送らずに断る', async () => {
+  calls = [];
+  const text = Array(3000).fill('喘息').join('\n');
+  await rejectsKind(A.read({ doc: 'mail', text }), 'input');
+  assert.equal(calls.length, 0);
 });
 
 let failed = 0;

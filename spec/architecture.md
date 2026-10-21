@@ -6,7 +6,7 @@
 | 役割 | パス |
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js |
-| core | js/roster-core.js js/match.js |
+| core | js/roster-core.js js/match.js js/health-redact.js |
 | adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js |
 | entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js |
 
@@ -34,5 +34,6 @@
 | 2026-10-21 who-src | 記録の「した人」と項目の「出どころ」を分けて持つ | ジンのレビュー（パスポートや他店から入った項目を正しく残す） | test/roster.test.mjs |
 | 2026-10-21 no-innerhtml | entry と adapter で innerHTML などを禁止。固定の SVG だけ arch-allow | ザクのレビュー（AI の答えにメール経由で仕込まれた文字が入りうる） | test/arch.check.mjs |
 | 2026-10-21 purge | 記録は足すだけ。ただし保存期間を過ぎた便は記録ごと消し、件数だけ残す | ザクのレビュー（1 年保存と「足すだけ」がぶつかる） | test/roster.test.mjs |
+| 2026-10-21 redact-core | 健康の行の外し方を js/health-redact.js（core）に分け、画面と Worker の両方が使う。1 字の言葉は予約の項目の行では見ない。文ごとに外し、質問の答えは結び・署名・電話の手前まで | ジンの再レビュー（予約に要る行まで消える）とザク（取りこぼし）の両方を満たすため。行ごとに全部外す案は、1 段落のメールが丸ごと消えるので却下 | test/roster.test.mjs |
 | 2026-10-21 arch-grep | 依存の向きは grep で検査し、dependency-cruiser は使わない | script タグで読む素の JS で、npm を入れていない | test/arch.check.mjs |
 | 2026-10-21 core-clock | core は時計と乱数を使わない（at と newId を受け取る） | テストで毎回同じ結果にするため | test/arch.check.mjs |

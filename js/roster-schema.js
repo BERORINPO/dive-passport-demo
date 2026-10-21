@@ -103,11 +103,22 @@
     return { v: VERSION, shop: { name: shop || '' }, trips: [], bookings: [], people: [], log: [] };
   }
 
+  /* 1 日あとの日付（YYYY-MM-DD）。時計を使わずに数える */
+  function nextDay(d) {
+    const [y, m, dd] = d.split('-').map(Number);
+    const last = m === 2 && leap(y) ? 29 : MONTH_DAYS[m - 1];
+    const [ny, nm, nd] = dd < last ? [y, m, dd + 1] : m < 12 ? [y, m + 1, 1] : [y + 1, 1, 1];
+    return `${ny}-${String(nm).padStart(2, '0')}-${String(nd).padStart(2, '0')}`;
+  }
+
   /* ---------- 検査 ---------- */
+  const TRIP_SHAPE = Object.keys(blankTrip());
+  const BOOKING_SHAPE = Object.keys(blankBooking());
+
   function validateTrip(t) {
     if (!isObj(t) || t.v !== VERSION) return result(['version']);
     return result([
-      !isId(t.id) && 'id', !isDay(t.date) && 'date', !isTime(t.start) && 'start',
+      !onlyKeys(t, TRIP_SHAPE) && 'keys', !isId(t.id) && 'id', !isDay(t.date) && 'date', !isTime(t.start) && 'start',
       !KINDS.includes(t.kind) && 'kind', !isStr(t.tour, 40) && 'tour', !isStr(t.boat, 40) && 'boat',
       !isStr(t.site, 80) && 'site', !isList(t.guides, 10, g => isStr(g, 40)) && 'guides',
       !isStr(t.host, 60) && 'host', !isList(t.partners, 10, s => isStr(s, 60)) && 'partners',
@@ -121,7 +132,7 @@
   function validateBooking(b) {
     if (!isObj(b) || b.v !== VERSION) return result(['version']);
     return result([
-      !isId(b.id) && 'id', !isId(b.tripId) && 'tripId', !SOURCES.includes(b.source) && 'source',
+      !onlyKeys(b, BOOKING_SHAPE) && 'keys', !isId(b.id) && 'id', !isId(b.tripId) && 'tripId', !SOURCES.includes(b.source) && 'source',
       !isStr(b.site, 40) && 'site', !isStr(b.ref, 60) && 'ref', !isStr(b.leadName, 60) && 'leadName',
       !isStr(b.leadPhone, 30) && 'leadPhone',
       !(Number.isInteger(b.people) && b.people >= 1 && b.people <= MAX_PEOPLE) && 'people',
@@ -193,7 +204,8 @@
 
   function validateRequest(q) {
     if (!isObj(q) || !DOCS.includes(q.doc)) return result(['doc']);
-    const base = [!onlyKeys(q, REQ_KEYS[q.doc]) && 'keys', has(q, 'sampleId') && !isStr(q.sampleId, 10) && 'sampleId'];
+    /* 値が undefined や null の項目は、無いのと同じに扱う（画面で sampleId: picked?.id と書けるように） */
+    const base = [!onlyKeys(q, REQ_KEYS[q.doc]) && 'keys', q.sampleId != null && !isStr(q.sampleId, 10) && 'sampleId'];
     if (q.doc === 'mail') {
       const textOk = isStr(q.text, MAX_TEXT) && q.text.trim() !== '';
       return result([...base, !textOk && 'text', textOk && looksEncoded(q.text) && 'encoded']);
@@ -201,7 +213,7 @@
     return result([
       ...base,
       !(isStr(q.image, MAX_IMAGE) && /^[A-Za-z0-9+/=]+$/.test(q.image)) && 'image',
-      has(q, 'masked') && typeof q.masked !== 'boolean' && 'masked',
+      q.masked != null && typeof q.masked !== 'boolean' && 'masked',
       q.doc === 'paper' && q.masked !== true && 'masked'
     ]);
   }
@@ -209,42 +221,7 @@
   /* Worker に送る中身。決まった項目だけで組み直す */
   const requestBody = (q) => (q.doc === 'mail' ? { doc: 'mail', text: q.text } : { doc: q.doc, image: q.image, masked: q.masked === true });
 
-  /* 予約メールの本文から、健康や病気に触れていそうな所を外す（念のための 2 重目。AI にも書き写さないよう頼んでいる）。
-     外しすぎるのは構わない。予約に要るのは日時・人数・名前・連絡先で、健康の行には無い。
-     比べる前に文字をそろえる（全角半角・ゼロ幅文字を消す・カタカナはひらがなへ・小文字へ）。
-     健康の言葉がある行から、空行か次の「項目名:」の行までをまとめて外す（質問の行の次の行に答えが来る形のため） */
-  const ZERO_WIDTH = /[­​-‏⁠-⁤﻿]/g;
-  const fold = (s) => String(s).normalize('NFKC').replace(ZERO_WIDTH, '')
-    .replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60)).toLowerCase();
-  const HEALTH_WORDS = new RegExp([
-    // 日本語。1〜2 字の広い言葉も入れる
-    '既往', '持病', '病', '症', '患', '薬', '藥', '药', '痛', '炎', '妊', '孕', '術', '障', '疾', '傷', '血', '耳', '肺', '喘', '医', '醫',
-    '入院', '通院', '治療', '発作', '心臓', '糖尿', '体調', '健康', '怪我', 'けが', 'ぜんそく', 'ぜん息', 'てんかん', 'あれるぎ',
-    'へるにあ', 'かぜ', '風邪', '熱', 'うつ', '鬱', 'ぱにっく', 'ぺーすめーかー', 'めまい', '骨折', '捻挫', 'ねんざ',
-    // 中国語・韓国語
-    '心脏', '心臟', '过敏', '過敏', '천식', '임신', '임산', '질병', '병원', '병력', '수술', '심장', '알레르기', '당뇨', '혈압', '건강', '약물', '복용',
-    // 英語
-    'medical', 'medicine', 'medication', 'asthma', 'pregnan', 'surgery', 'surgical', 'injur', 'health', 'allerg', 'diabet',
-    'epilep', 'heart', 'blood', 'seizure', 'hospital', 'prescription', 'disease', 'illness', 'sick', 'fever', 'pacemaker',
-    'panic', 'depress', 'lung', 'sinus', 'cancer', 'disab', 'drug', 'pill', 'doctor'
-  ].join('|'));
-  const LABEL = /^\s*[-・*•>]*\s*[^\s:][^:]{0,40}:/;                            // 「項目名:」で始まる行（fold の後なので : は半角）
-  const ANSWER = /^\s*[-・*•>]*\s*(a|ans|answer|答え?|回答|返答)\s*[:.]/;       // 答えの行は、前の質問の続き
-  const REDACTED_LINE = '（健康についての行は送っていません）';
-
-  function redactHealthLines(text) {
-    let redacted = 0;
-    let inBlock = false;
-    const out = String(text).split('\n').map(line => {
-      const f = fold(line);
-      if (inBlock && (f.trim() === '' || (LABEL.test(f) && !ANSWER.test(f)))) inBlock = false;
-      if (!inBlock && !HEALTH_WORDS.test(f)) return line;
-      inBlock = true;
-      redacted += 1;
-      return REDACTED_LINE;
-    }).join('\n');
-    return { text: out, redacted };
-  }
+  /* 予約メールの健康の行を外す処理は js/health-redact.js（core）。ここは送る物の形だけを決める */
 
   /* 「メールのソース」を貼ると、本文が quoted-printable や base64 になっていて、健康の言葉が見えない。読まずに断る */
   const ENCODED = /content-transfer-encoding|(=[0-9A-F]{2}){3,}|(^[A-Za-z0-9+/]{60,}={0,2}\r?\n){3,}/m;
@@ -320,8 +297,8 @@
 
   R.roster = {
     VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, HEALTH_QUESTIONS, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
-    ITEMS, AI_FIELDS, SUB, realDate, blankTrip, blankBooking, blankPerson, blankState,
-    validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody, redactHealthLines,
+    ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
+    validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody,
     validateReading, fromModel
   };
 })();

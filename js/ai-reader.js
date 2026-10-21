@@ -63,6 +63,7 @@
       // Access の期限切れは、別の場所のログイン画面への移動として返る
       if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) throw new ReadError('auth', String(res.status));
       if (res.status === 429) throw new ReadError('limit');
+      if (res.status === 400 || res.status === 413) throw new ReadError('input', String(res.status));
       if (!res.ok) throw new ReadError('offline', String(res.status));
       let json;
       try { json = await res.json(); } catch (e) { throw new ReadError(e.name === 'AbortError' ? 'offline' : 'bad', 'json'); }
@@ -85,7 +86,8 @@
     if (!v.ok) throw new ReadError('input', v.errors.join(','));
     const body = R.roster.requestBody(req);
     if (body.doc !== 'mail') return { body, redacted: 0 };
-    const { text, redacted } = R.roster.redactHealthLines(body.text);
+    const { text, redacted } = R.healthRedact.redact(body.text);
+    if (text.length > R.roster.MAX_TEXT) throw new ReadError('input', 'text');   // 外した印で長くなることがある
     return { body: { ...body, text }, redacted };
   }
 
@@ -93,7 +95,7 @@
     const { body, redacted } = prepare(req);
     const used = mode;
     const sent = { doc: body.doc, size: body.doc === 'mail' ? body.text.length : body.image.length,
-      masked: body.doc === 'paper' && body.masked === true, mode: used, healthSeen: false, redacted };
+      masked: body.doc !== 'mail' && body.masked === true, mode: used, healthSeen: false, redacted };
     try {
       const reading = used === 'real' ? await readReal(body) : await readSample(req);
       return { reading, sent: { ...sent, healthSeen: reading.healthSeen } };
