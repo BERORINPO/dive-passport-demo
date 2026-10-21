@@ -8,7 +8,10 @@ import vm from 'node:vm';
 const SCRIPTS = ['core.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'data-samples.js', 'ai-reader.js'];
 const memory = (init) => {
   const m = new Map(Object.entries(init || {}));
-  return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), keys: () => [...m.keys()], raw: m };
+  return {
+    getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k),
+    get length() { return m.size; }, key: i => [...m.keys()][i] ?? null, keys: () => [...m.keys()], raw: m
+  };
 };
 
 /* index.html と同じ順で読む。同じ保存場所でもう一度読めば、開き直したのと同じ */
@@ -78,13 +81,13 @@ test('壊れた名簿の退避は 1 回だけ。開き直しても増えない',
   const local = memory({ 'redux-roster-v1': 'not json' });
   const first = boot(local).rosterStore;
   first.get();
-  assert.equal(first.recovered(), true, '1 回目は退避したと知らせる');
+  assert.equal(first.note(), 'recovered', '1 回目は退避したと知らせる');
   boot(local).rosterStore.get();
   boot(local).rosterStore.get();
   assert.equal(local.keys().filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1);
   const again = boot(local).rosterStore;
   again.get();
-  assert.equal(again.recovered(), false, '2 回目からは、読めた名簿として開く');
+  assert.equal(again.note(), null, '2 回目からは、読めた名簿として開く');
 });
 
 test('保存期間を過ぎた便は、開いたときに保存場所からも消える', async () => {
@@ -102,6 +105,25 @@ test('端末に保存できないときは、保存できなかったと返す',
   local.setItem = () => { throw new Error('QuotaExceededError'); };
   assert.equal(R.rosterStore.update(s => R.rosterCore.addTrip(s, { trip: { date: '2026-10-24', kind: 'dive' }, at: AT, newId: R.newId }).state), false);
   assert.equal(R.rosterStore.get().trips.length, 1, '開いている間は画面の中で動く');
+});
+
+test('読めない名簿を退避できないときは、元の名簿を消さず、この画面では保存しない', () => {
+  const local = memory({ 'redux-roster-v1': 'not json' });
+  const set = local.setItem;
+  local.setItem = (k, v) => { if (k.startsWith('redux-roster-v1-broken-')) throw new Error('QuotaExceededError'); set(k, v); };
+  const R = boot(local);
+  R.rosterStore.get();
+  assert.equal(R.rosterStore.note(), 'unreadable');
+  assert.equal(R.rosterStore.update(s => R.rosterCore.addTrip(s, { trip: { date: '2026-10-24', kind: 'dive' }, at: AT, newId: R.newId }).state), false);
+  assert.equal(local.getItem('redux-roster-v1'), 'not json', '元の名簿は残っている');
+});
+
+test('退避した名簿は、退避した日から 1 年で消える', () => {
+  const old = Date.now() - 400 * 24 * 60 * 60 * 1000;
+  const recent = Date.now() - 10 * 24 * 60 * 60 * 1000;
+  const local = memory({ [`redux-roster-v1-broken-${old}`]: 'x', [`redux-roster-v1-broken-${recent}`]: 'y' });
+  boot(local).rosterStore.get();
+  assert.deepEqual(local.keys().filter(k => k.startsWith('redux-roster-v1-broken-')), [`redux-roster-v1-broken-${recent}`]);
 });
 
 test('形の合わない state は保存しない', () => {

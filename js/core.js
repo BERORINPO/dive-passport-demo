@@ -87,21 +87,42 @@
      形は roster-schema.js、組み立ては roster-core.js（この 2 つは core.js の後に読む） */
   const ROSTER_KEY = 'redux-roster-v1';
   const ROSTER_SHOP = 'B マリン（見本）';
+  const ROSTER_BACKUP = `${ROSTER_KEY}-broken-`;
+  const BACKUP_KEEP_MS = 366 * 24 * 60 * 60 * 1000;   // 退避した名簿も 1 年で消す
   const rosterListeners = [];
   let roster = null;
-  let rosterRecovered = false;   // 保存されていた名簿が読めず、退避して空から始めた
+  let rosterNote = null;        // recovered（退避して空から始めた）/ unreadable（退避できず元のまま）/ conflict（別のタブと食い違い）
+  let rosterLocked = false;     // 読めない名簿を退避できなかった。元の名簿を上書きしないよう、この端末には書かない
+  let rosterUnsaved = false;    // 最後の保存が端末に書けなかった
 
   function writeRoster(next) {
+    if (rosterLocked) return false;
     try {
       localStorage.setItem(ROSTER_KEY, JSON.stringify(next));
+      rosterUnsaved = false;
       return true;
     } catch (e) {
+      rosterUnsaved = true;
       return false;   // 容量切れや、保存を止めているブラウザ。呼ぶ側が知らせる
+    }
+  }
+
+  function dropOldBackups() {
+    try {
+      const old = [];
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(ROSTER_BACKUP) && Date.now() - Number(k.slice(ROSTER_BACKUP.length)) > BACKUP_KEEP_MS) old.push(k);
+      }
+      old.forEach(k => localStorage.removeItem(k));
+    } catch (e) {
+      // 保存場所が使えないときは何もしない
     }
   }
 
   function loadRoster() {
     if (roster) return roster;
+    dropOldBackups();
     let raw = null;
     try { raw = localStorage.getItem(ROSTER_KEY); } catch (e) { /* 保存場所が使えないときは、空の名簿から始める */ }
     let parsed = null;
@@ -112,9 +133,20 @@
     } else {
       roster = R.roster.blankState(ROSTER_SHOP);
       if (raw) {
-        try { localStorage.setItem(`${ROSTER_KEY}-broken-${Date.now()}`, raw); } catch (e) { /* 退避できなくても、開いている間は動く */ }
-        writeRoster(roster);   // 開くたびに同じ物を退避し直さないように、空の名簿で置き換える
-        rosterRecovered = true;
+        let kept = false;
+        try {
+          localStorage.setItem(`${ROSTER_BACKUP}${Date.now()}`, raw);
+          kept = true;
+        } catch (e) {
+          kept = false;
+        }
+        if (kept) {
+          writeRoster(roster);   // 開くたびに同じ物を退避し直さないように、空の名簿で置き換える
+          rosterNote = 'recovered';
+        } else {
+          rosterLocked = true;   // 退避できなかったので、元の名簿を消さないように書かない
+          rosterNote = 'unreadable';
+        }
       }
     }
     return roster;
@@ -133,7 +165,12 @@
   /* 別のタブで名簿が変わったら読み直す（後から保存した方で上書きしない）。テスト（Node）には無いので、あるときだけ */
   if (typeof window.addEventListener === 'function') {
     window.addEventListener('storage', (e) => {
-      if (e.key !== ROSTER_KEY) return;
+      if (e.key !== ROSTER_KEY || rosterLocked) return;
+      if (rosterUnsaved) {   // この画面に保存できていない予約がある。読み直すと消えるので、知らせるだけにする
+        rosterNote = 'conflict';
+        rosterListeners.forEach(fn => fn(roster));
+        return;
+      }
       roster = null;
       const next = loadRoster();
       rosterListeners.forEach(fn => fn(next));
@@ -171,7 +208,7 @@
       get: loadRoster,
       update: (fn) => saveRoster(fn(loadRoster())),
       reset: () => saveRoster(R.roster.blankState(ROSTER_SHOP)),
-      recovered: () => rosterRecovered,
+      note: () => rosterNote,
       subscribe: (fn) => { rosterListeners.push(fn); }
     },
     today: () => ymd(new Date())

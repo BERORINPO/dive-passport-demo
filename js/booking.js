@@ -22,6 +22,11 @@
   };
   const PROBLEM_JA = { date: '日付', people: '人数（1〜30）', leadName: '代表者の名前（60 字まで）', leadPhone: '電話（30 字まで）', note: 'メモ（400 字まで）' };
   const NOT_SAVED = 'この端末に保存できませんでした。画面を閉じると消えます。';
+  const STORE_NOTE_JA = {
+    recovered: '保存されていた名簿が読めなかったので、この端末の別の場所に残して、空の名簿から始めました。',
+    unreadable: '保存されていた名簿が読めませんでした。消さずに元のまま残しています。この画面で入れた予約は保存されず、閉じると消えます。',
+    conflict: '別のタブで名簿が変わりました。この画面には、保存できていない予約があります。'
+  };
 
   let mode = 'list';        // list / mail / phone
   let day = '';
@@ -132,7 +137,7 @@
     day = pickDay(dates);
     return [
       ...head('予約'),
-      R.rosterStore.recovered() ? el('p', { class: 'flag flag--warn', text: '保存されていた名簿が読めなかったので、この端末の別の場所に残して、空の名簿から始めました。' }) : null,
+      R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
       notice ? el('p', { class: `flag flag--${notice.kind}`, role: 'status', text: notice.text }) : null,
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
         class: 'day', type: 'button', 'aria-pressed': String(d === day), text: md(d),

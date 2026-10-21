@@ -72,7 +72,8 @@ const rulesFor = {
     file: [destructures(ADAPTER, 'adapter'), destructures(CORE, 'core')] },
   core: { line: [...PURE_BAN, ...usesNames(ADAPTER, 'adapter')], file: [destructures(ADAPTER, 'adapter')] }
 };
-const HTML_BAN = { line: [[/\.(innerHTML|outerHTML)\s*\+?=|insertAdjacentHTML|document\.write/, 'HTML の文字列を直接入れている']], file: [] };
+const HTML_BAN = { line: [[/\.(innerHTML|outerHTML)\s*\+?=|insertAdjacentHTML|document\.write/, 'HTML の文字列を直接入れている'],
+  [/\[\s*['"`](?:innerHTML|outerHTML|insertAdjacentHTML)['"`]\s*\]/, 'HTML の文字列を直接入れている', true]], file: [] };
 const FETCH_BAN = { line: [[/\bfetch\s*\(/, '外への通信 (ai-reader.js 以外)']], file: [] };
 
 /* コメントを消す。文字列・テンプレート文字列（複数行も）・正規表現の中の // と /* は残す。\ の次の 1 字は読み飛ばす。
@@ -168,7 +169,7 @@ const PROBES = [
   [rulesFor.core, 'const n = Temporal.Now.instant();'], [rulesFor.core, 'const re = /[/*]/; const t = Date.now();'],
   [rulesFor.core, 'const s = `x\nhttp://y`; const t = Date.now();'], [rulesFor.core, 'const q = a.replace(/\\//g, "_"); const t = Date.now();'],
   [rulesFor.shared, 'const h = R.rosterCore.status(p);'], [rulesFor.shared, 'const r = R.healthRedact.redact(t);'],
-  [HTML_BAN, 'box.innerHTML = name;'], [HTML_BAN, 'el.insertAdjacentHTML("beforeend", x);'], [HTML_BAN, 'document.write(x);']
+  [HTML_BAN, 'box.innerHTML = name;'], [HTML_BAN, 'el.insertAdjacentHTML("beforeend", x);'], [HTML_BAN, 'document.write(x);'], [HTML_BAN, "box['innerHTML'] = x;"]
 ];
 PROBES.push([rulesFor.core, 'const s = `${Date.now()}`;'], [rulesFor.core, "const f = globalThis['fetch'];"],
   [rulesFor.core, "const f = self['fetch'];"], [rulesFor.core, "const t = Function('return 1')();"], [rulesFor.core, "eval('x');"],
