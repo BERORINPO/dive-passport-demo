@@ -106,9 +106,16 @@
     }
   }
 
+  /* 送る前にお店に見せる文面。read が送るのと同じ組み立てを通す（見せた文面と送る文面を同じにする） */
+  function preview(req) {
+    const { body, redacted } = prepare(req);
+    return { text: body.doc === 'mail' ? body.text : '', redacted };
+  }
+
   R.aiReader = {
     ReadError,
     read,
+    preview,
     mode: () => mode,
     setMode: (next) => { mode = next === 'real' ? 'real' : 'sample'; setItem(local, MODE_KEY, mode); },
     setCode: (code) => setItem(session, CODE_KEY, String(code || '').trim()),

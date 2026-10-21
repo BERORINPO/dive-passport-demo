@@ -1,5 +1,6 @@
 /* 見本の読み取り（tools/make-samples.mjs が作る。手で直さない）。
-   AI の読み取り試験 (2026-10-21) の Haiku の答え。予約の項目はメールの本文から手で書いた。中身はすべて架空 */
+   AI の読み取り試験 (2026-10-21) の Haiku の答え。予約の項目はメールの本文から手で書いた。中身はすべて架空。
+   SAMPLE_MAILS は見本の予約メールの文面（assets/samples/e*.txt と同じ） */
 (() => {
   'use strict';
   const R = (globalThis.REDUX = globalThis.REDUX || {});
@@ -620,6 +621,24 @@
    }
   ],
   "healthSeen": false
+ }
+};
+  R.SAMPLE_MAILS = {
+ "e1": {
+  "note": "予約サイトの通知 (2 人、同行者は名前だけ)",
+  "text": "件名: 【予約確定】体験ダイビング（ボート2本） 10/24（土）\n送信者: 予約サイト（見本） <no-reply@yoyaku.example>\n\nB マリン（見本） ご担当者様\n\n以下の予約が確定しました。\n予約番号: YS-20261020-0042\nプラン: 体験ダイビング（ボート2本）\n日時: 2026年10月24日（土） 8:30 集合\n人数: 大人 2 名\n代表者: 見本 花子（ミホン ハナコ）様\n電話番号: 090-1234-5678\nメール: hanako@mail.example\n備考: 同行者は 見本 太郎 です。2人とも潜るのは初めてです。"
+ },
+ "e2": {
+  "note": "海外の予約サイト (英語、2 人)",
+  "text": "Subject: New booking: Kerama Fun Dive (2 tanks) - Oct 24, 2026\nFrom: Booking Platform (sample) <noreply@tours.example>\n\nBooking ref: TB-88231\nActivity: Fun Dive, 2 tanks\nDate: Saturday, October 24, 2026\nLead traveler: Seo-yeon Kim\nPhone: +82 10-1234-5678\nParticipants: 2\n\nAnswers to your questions:\n- Date of birth of each participant: Seo-yeon 1990-06-15 / Min-jun 1988-02-03\n- Certification level and year: Seo-yeon Open Water (2018). Min-jun has no certification, wants a Discover Scuba.\n- Hotel for pickup: Sample Hotel Naha"
+ },
+ "e3": {
+  "note": "お店のサイトの問い合わせフォーム (1 人、文が混ざる)",
+  "text": "件名: [お問い合わせ] ファンダイビングの予約希望\n送信者: B マリン（見本） お問い合わせフォーム\n\nお名前: 見本 健太\n生年月日: 1995/12/24\nご住所: 北海道札幌市見本区3-3-3\nお電話: 090-4545-6767\nご希望日: 10月24日\nメッセージ:\nアドバンスを2019年に取りました。本数は40本くらいです。最後に潜ったのは今年の6月です。\n緊急連絡先は母の 見本 洋子（090-8989-0101）でお願いします。"
+ },
+ "e4": {
+  "note": "転送されたメール (3 人、引っかけあり)",
+  "text": "件名: Fwd: Re: 24日の体験ダイビング\n送信者: 見本 大輔 <daisuke@mail.example>\n\n来週24日に3人でお願いします。メンバーは 見本 大輔、見本 さやか、見本 蓮（息子、12歳）です。\n私（大輔）はCカード持ってます（オープンウォーター）。さやかと蓮は初めてです。\n連絡は 090-0101-2323 までお願いします。\nPS 蓮は24日が誕生日なんです！\n\n> 2026/10/18 B マリン（見本） 山田 <info@bmarine.example> のメッセージ:\n> お問い合わせありがとうございます。担当の山田です。\n> 24日は空きがございます。参加される方のお名前をお知らせください。"
  }
 };
 })();

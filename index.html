@@ -19,6 +19,7 @@
     <button class="tab" role="tab" id="tab-guest" aria-controls="view-guest" aria-selected="true" type="button"></button>
     <button class="tab" role="tab" id="tab-pass" aria-controls="view-pass" aria-selected="false" type="button" tabindex="-1"></button>
     <button class="tab" role="tab" id="tab-shop" aria-controls="view-shop" aria-selected="false" type="button" tabindex="-1"></button>
+    <button class="tab" role="tab" id="tab-booking" aria-controls="view-booking" aria-selected="false" type="button" tabindex="-1"></button>
   </nav>
   <button class="lang" id="lang" type="button"></button>
 </header>
@@ -36,6 +37,9 @@
   <section class="view" id="view-shop" role="tabpanel" aria-labelledby="tab-shop" hidden>
     <div id="shop"></div>
   </section>
+  <section class="view" id="view-booking" role="tabpanel" aria-labelledby="tab-booking" hidden>
+    <div id="booking"></div>
+  </section>
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" crossorigin="anonymous"></script>
@@ -46,6 +50,11 @@
 <script src="js/pass-codec.js"></script>
 <script src="js/pass-view.js"></script>
 <script src="js/qr.js"></script>
+<script src="js/roster-schema.js"></script>
+<script src="js/health-redact.js"></script>
+<script src="js/roster-core.js"></script>
+<script src="js/data-samples.js"></script>
+<script src="js/ai-reader.js"></script>
 <script src="js/rules.js"></script>
 <script src="js/data-match.js"></script>
 <script src="js/match.js"></script>
@@ -53,6 +62,7 @@
 <script src="js/intake.js"></script>
 <script src="js/passport.js"></script>
 <script src="js/shop.js"></script>
+<script src="js/booking.js"></script>
 <script src="js/app.js"></script>
 <script type="importmap">
 { "imports": {

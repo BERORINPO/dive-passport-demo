@@ -161,6 +161,42 @@
     return { person: next, fields: got };
   }
 
+  /* ---------- 便 ----------
+     便は「日付・開始時刻・ツアー」で 1 つ。予約をどの便に入れるかはお店が画面で決める（ここは候補を出すだけ）。
+     候補: 同じ日・同じ種類で開始時刻まで同じ便があればそれ。時刻の分からない予約は、その日・その種類の便が 1 つだけならそれ */
+  const TRIP_FIELDS = ['date', 'start', 'kind', 'tour', 'boat', 'site', 'guides', 'host', 'partners'];
+  const SNORKEL = /snorkel|スノーケル|シュノーケル|すのーける|しゅのーける/i;
+  const kindOf = (tour) => (SNORKEL.test(String(tour || '')) ? 'snorkel' : 'dive');
+  const byStart = (a, b) => (a.start || '99:99').localeCompare(b.start || '99:99');
+
+  /* 便の一覧（日付、開始時刻の順。時刻の決まっていない便はその日の最後） */
+  const tripList = (state) => [...state.trips].sort((a, b) => a.date.localeCompare(b.date) || byStart(a, b));
+
+  function suggestTrip(state, { date, start, tour }) {
+    const kind = kindOf(tour);
+    const candidates = state.trips.filter(t => t.date === date && t.kind === kind).sort(byStart);
+    const exact = start ? candidates.find(t => t.start === start) : null;
+    const tripId = exact ? exact.id : !start && candidates.length === 1 ? candidates[0].id : null;
+    return { kind, candidates, tripId };
+  }
+
+  function addTrip(state, { trip, at, newId }) {
+    const fields = TRIP_FIELDS.filter(k => has(trip, k) && trip[k] !== undefined);
+    const t = { ...S().blankTrip(), ...pick(trip, fields), id: newId(), createdAt: at };
+    const v = S().validateTrip(t);
+    if (!v.ok) throw new Error(`addTrip: 便の形が合わない (${v.errors.join(',')})`);
+    return { state: withLog({ ...state, trips: [...state.trips, t] }, entry(at, 'staff', 'add', 'trip', t.id, { fields })), trip: t };
+  }
+
+  /* 予約の一覧の 1 便分。予約ごとに、人のそろい具合を付ける */
+  function bookingRows(state, tripId) {
+    const trip = state.trips.find(t => t.id === tripId) || null;
+    return bookingsOf(state, tripId).map(b => {
+      const people = state.people.filter(p => p.bookingId === b.id).map(p => ({ id: p.id, name: p.name, ...status(p, trip) }));
+      return { booking: b, people, done: people.filter(p => p.done).length };
+    });
+  }
+
   /* ---------- 予約を足す（読み取りから・手入力から）。名前の分からない人は空の行で人数分そろえる ---------- */
   function addBooking(state, { trip, booking, reading, src, at, newId }) {
     const given = booking || {};
@@ -325,6 +361,7 @@
 
   R.rosterCore = {
     COURSE_JA, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
+    kindOf, tripList, suggestTrip, addTrip, bookingRows,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
   };

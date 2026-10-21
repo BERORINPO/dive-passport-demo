@@ -30,6 +30,7 @@ A booking list and the dive roster required by Okinawa's water-safety ordinance 
 ```
 node test/roster.test.mjs
 node test/ai-reader.test.mjs
+node test/booking-flow.test.mjs
 node test/pass.roundtrip.test.mjs
 node test/match.eval.mjs --check
 node test/arch.check.mjs

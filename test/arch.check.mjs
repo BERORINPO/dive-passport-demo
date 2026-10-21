@@ -52,13 +52,14 @@ if (CORE.length < 2) fail(`core の名前を拾えていない (${CORE.length} �
 const PURE_BAN = [
   [/\bdocument\b/, '画面 (document)'], [/\bwindow\b/, 'window'], [/localStorage|sessionStorage|indexedDB/, '保存'],
   [/\bfetch\b|XMLHttpRequest|WebSocket|EventSource/, '通信'], [/\bnavigator\b/, 'navigator'],
-  [/\bDate\b|performance\.now|Intl\.DateTimeFormat|\bTemporal\b/, '時計'], [/Math\.random|\bcrypto\b/, '乱数'], [/\bprocess\b/, '環境変数']
+  [/\bDate\b|performance\.now|Intl\.DateTimeFormat|\bTemporal\b/, '時計'], [/Math\.random|\bcrypto\b/, '乱数'], [/\bprocess\b/, '環境変数'],
+  [/\bglobalThis\s*\??\.?\s*\[/, 'globalThis[…] (文字の名前で外のものを引く)']
 ];
 const DOT = '\\s*\\??\\.\\s*';                                         // R.x / R?.x / R .x
 const HUB = `(?:R|globalThis${DOT}REDUX|window${DOT}REDUX)`;
 const usesNames = (names, what) => [
   [new RegExp(`\\b${HUB}${DOT}(${names.join('|')})\\b`), what],
-  [new RegExp(`\\b${HUB}\\s*(?:\\?\\.)?\\s*\\[\\s*['"\`](${names.join('|')})['"\`]\\s*\\]`), what]
+  [new RegExp(`\\b${HUB}\\s*(?:\\?\\.)?\\s*\\[\\s*['"\`](${names.join('|')})['"\`]\\s*\\]`), what, true]
 ];
 /* 分割代入（const { aiReader } = R）は複数行にまたがり、入れ子（{ aiReader: { read } }）もありうるので、ファイル全体で全件見る */
 const BRACE = '(?:[^{}]|\\{[^{}]*\\})*';
@@ -72,22 +73,34 @@ const HTML_BAN = { line: [[/\.(innerHTML|outerHTML)\s*\+?=|insertAdjacentHTML|do
 const FETCH_BAN = { line: [[/\bfetch\s*\(/, '外への通信 (ai-reader.js 以外)']], file: [] };
 
 /* コメントを消す。文字列・テンプレート文字列（複数行も）・正規表現の中の // と /* は残す。\ の次の 1 字は読み飛ばす。
+   blankStrings のときは文字列の中身も空白にする（見本メールの「Date of birth」を時計と見なさないため）。
+   テンプレート文字列の ${ … } の中はコードとして読む。
    / が正規表現の始まりかは、直前の文字で決める（( , = : [ ! & | ? { } ; + - * % < > ~ ^ の後か、行の頭か、return などの後） */
 const REGEX_AFTER = /(^|[(,=:[!&|?{};+\-*%<>~^]|\b(return|typeof|case|in|of))\s*$/;
-function stripComments(src) {
+function stripComments(src, blankStrings) {
   let inBlock = false;
-  let inTemplate = false;
+  let quote = null;
+  const depth = [];   // ${ … } の中の { の深さ。0 の } でテンプレート文字列に戻る
   return src.split('\n').map(line => {
     let out = '';
-    let quote = inTemplate ? '`' : null;
+    if (quote === "'" || quote === '"') quote = null;   // 普通の文字列は行をまたがない
     let regex = false;
     let klass = false;
     for (let i = 0; i < line.length; i += 1) {
       const c = line[i];
       const n = line[i + 1];
       if (inBlock) { if (c === '*' && n === '/') { inBlock = false; i += 1; out += '  '; } else out += ' '; continue; }
-      if (c === '\\') { out += c + (n || ''); i += 1; continue; }
-      if (quote) { out += c; if (c === quote) quote = null; continue; }
+      if (c === '\\') { out += quote && blankStrings ? '  ' : c + (n || ''); i += 1; continue; }
+      if (quote) {
+        if (quote === '`' && c === '$' && n === '{') { depth.push(0); quote = null; out += '${'; i += 1; continue; }
+        if (c === quote) { quote = null; out += c; } else out += blankStrings ? ' ' : c;
+        continue;
+      }
+      if (depth.length && c === '{') depth[depth.length - 1] += 1;
+      if (depth.length && c === '}') {
+        if (depth[depth.length - 1] === 0) { depth.pop(); quote = '`'; out += c; continue; }
+        depth[depth.length - 1] -= 1;
+      }
       if (regex) {
         out += c;
         if (c === '[') klass = true;
@@ -101,20 +114,23 @@ function stripComments(src) {
       if (c === "'" || c === '"' || c === '`') quote = c;
       out += c;
     }
-    inTemplate = quote === '`';
     return out;
   });
 }
 
+/* 規則の 3 つ目が true なら、文字列の中身を残した方で見る（R['aiReader'] のため）。ほかは中身を空白にした方で見る */
 function violations(src, rules) {
   const raw = src.split('\n');
-  const code = stripComments(src);
+  const code = stripComments(src, true);
+  const keep = stripComments(src, false);
   const out = [];
   const hit = (line, what) => {
     if (/\/\/ arch-allow: \S/.test(raw[line] || '')) { allowed += 1; return; }
     out.push({ line: line + 1, what });
   };
-  code.forEach((c, i) => rules.line.forEach(([re, what]) => { if (re.test(c)) hit(i, what); }));
+  rules.line.forEach(([re, what, keepStrings]) => {
+    (keepStrings ? keep : code).forEach((c, i) => { if (re.test(c)) hit(i, what); });
+  });
   const joined = code.join('\n');
   rules.file.forEach(([re, what]) => {
     for (const m of joined.matchAll(re)) hit(joined.slice(0, m.index).split('\n').length - 1, what);
@@ -151,8 +167,13 @@ const PROBES = [
   [rulesFor.shared, 'const h = R.rosterCore.status(p);'], [rulesFor.shared, 'const r = R.healthRedact.redact(t);'],
   [HTML_BAN, 'box.innerHTML = name;'], [HTML_BAN, 'el.insertAdjacentHTML("beforeend", x);'], [HTML_BAN, 'document.write(x);']
 ];
+PROBES.push([rulesFor.core, 'const s = `${Date.now()}`;'], [rulesFor.core, "const f = globalThis['fetch'];"],
+  [rulesFor.core, 'const s = `a\n${R.today()}\nb`;']);
+/* 文字列の中に言葉があるだけなら通る（見本のメールの文面など） */
+const CLEAN = ['const s = "Date of birth";', "const u = 'window.document and fetch(x)';", 'const t = `Date: ${n}`;'];
 const before = allowed;
 PROBES.forEach(([rules, code]) => { if (!violations(code, rules).length) fail(`検査が甘い: 「${code.replace(/\n/g, ' ')}」を見逃した`); });
+CLEAN.forEach(code => { if (violations(code, rulesFor.core).length) fail(`検査が厳しすぎる: 「${code}」を違反と見た`); });
 allowed = before;
 
 console.log(`files: shared ${roles.shared?.length || 0} / core ${roles.core?.length || 0} / adapter ${roles.adapter?.length || 0} / entry ${roles.entry?.length || 0}`);

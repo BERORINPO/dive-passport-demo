@@ -1,12 +1,12 @@
-/* 画面の切り替え（お客さま / パスポート / お店）と言語の切り替え */
+/* 画面の切り替え（お客さま / パスポート / お店 / 予約）と言語の切り替え */
 (() => {
   'use strict';
 
   const R = window.REDUX;
-  const ORDER = ['guest', 'pass', 'shop'];
+  const ORDER = ['guest', 'pass', 'shop', 'booking'];
   const tabs = Object.fromEntries(ORDER.map(k => [k, document.getElementById(`tab-${k}`)]));
   const views = Object.fromEntries(ORDER.map(k => [k, document.getElementById(`view-${k}`)]));
-  const renderers = { pass: () => R.renderPassport(), shop: () => R.renderShop() };
+  const renderers = { pass: () => R.renderPassport(), shop: () => R.renderShop(), booking: () => R.renderBooking() };
 
   R.showTab = (name) => {
     ORDER.forEach(k => {
@@ -38,6 +38,7 @@
     tabs.guest.textContent = L(T.tabGuest);
     tabs.pass.textContent = L(TP.tab);
     tabs.shop.textContent = L(T.tabShop);
+    tabs.booking.textContent = L(T.tabBooking);
     R.renderChat();
     R.renderIntake();
     if (!views.pass.hidden) R.renderPassport();

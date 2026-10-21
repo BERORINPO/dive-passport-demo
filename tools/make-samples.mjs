@@ -37,12 +37,20 @@ for (const doc of truth) {
   out[doc.id] = reading;
 }
 
+/* 画面の「見本のメールを入れる」ボタン用に、見本メールの文面も載せる（画面は fetch で読めないため） */
+const mails = Object.fromEntries(truth.filter(d => d.id.startsWith('e')).map(d => [d.id, {
+  note: d.note,
+  text: readFileSync(new URL(`../assets/samples/${d.id}.txt`, import.meta.url), 'utf8').replace(/\r\n/g, '\n').trimEnd()
+}]));
+
 const body = `/* 見本の読み取り（tools/make-samples.mjs が作る。手で直さない）。
-   AI の読み取り試験 (2026-10-21) の Haiku の答え。予約の項目はメールの本文から手で書いた。中身はすべて架空 */
+   AI の読み取り試験 (2026-10-21) の Haiku の答え。予約の項目はメールの本文から手で書いた。中身はすべて架空。
+   SAMPLE_MAILS は見本の予約メールの文面（assets/samples/e*.txt と同じ） */
 (() => {
   'use strict';
   const R = (globalThis.REDUX = globalThis.REDUX || {});
   R.SAMPLE_READINGS = ${JSON.stringify(out, null, 1)};
+  R.SAMPLE_MAILS = ${JSON.stringify(mails, null, 1)};
 })();
 `;
 writeFileSync(new URL('../js/data-samples.js', import.meta.url), body);

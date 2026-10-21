@@ -442,6 +442,28 @@ test('予約は形の項目の値が undefined なら拾わず、形が合わな
   assert.ok(S.validateRequest({ doc: 'mail', text: '予約です', masked: undefined }).ok, 'mail でも undefined の項目は無いのと同じ');
 });
 
+test('便: ツアーの名前から種類を決め、同じ日・同じ種類の便を候補に出す', () => {
+  assert.deepEqual(['体験ダイビング（ボート2本）', 'Fun Dive, 2 tanks', '午後のスノーケル', 'Snorkeling tour'].map(C.kindOf), ['dive', 'dive', 'snorkel', 'snorkel']);
+  const { state: s1, trip: am } = C.addTrip(S.blankState('見本'), { trip: { date: '2026-10-24', start: '08:30', kind: 'dive', tour: '体験ダイビング' }, at: AT, newId });
+  assert.ok(S.validateState(s1).ok);
+  assert.deepEqual(C.suggestTrip(s1, { date: '2026-10-24', start: '08:30', tour: '体験ダイビング' }).tripId, am.id);
+  assert.equal(C.suggestTrip(s1, { date: '2026-10-24', start: '', tour: 'Fun Dive' }).tripId, am.id, '時刻が分からなくても、その日の便が 1 つならそれ');
+  assert.equal(C.suggestTrip(s1, { date: '2026-10-24', start: '13:30', tour: '体験ダイビング' }).tripId, null, '時刻が違えば新しい便');
+  assert.equal(C.suggestTrip(s1, { date: '2026-10-24', start: '', tour: 'スノーケル' }).tripId, null, '種類が違えば新しい便');
+  const { state: s2, trip: pm } = C.addTrip(s1, { trip: { date: '2026-10-24', start: '', kind: 'dive' }, at: AT, newId });
+  assert.equal(C.suggestTrip(s2, { date: '2026-10-24', start: '', tour: 'Fun Dive' }).tripId, null, 'その日の便が 2 つなら、お店が選ぶ');
+  assert.deepEqual(C.tripList(s2).map(t => t.id), [am.id, pm.id], '時刻の決まっていない便は最後');
+  assert.throws(() => C.addTrip(s2, { trip: { date: '2026-02-31', kind: 'dive' }, at: AT, newId }), /便の形/);
+});
+
+test('予約の一覧の 1 便分: 予約ごとに人のそろい具合を付ける', () => {
+  const s = withMail('e1');
+  const rows = C.bookingRows(s, 't1');
+  assert.equal(rows.length, 1);
+  assert.deepEqual([rows[0].people.length, rows[0].done, rows[0].people[0].name], [2, 0, '見本 花子']);
+  assert.ok(rows[0].people[0].missing.includes('birthDate'));
+});
+
 test('保存は作った日から 1 年', () => {
   assert.equal(C.keepUntil('2026-10-24'), '2027-10-24');
   assert.equal(C.keepUntil('2028-02-29'), '2029-03-01');

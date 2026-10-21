@@ -82,6 +82,43 @@
     passListeners.forEach(fn => fn(next));
   }
 
+  /* 予約と名簿も、受付ともパスポートとも別の保存場所に置く。読み込むときに形を確かめ、保存期間（1 年）を過ぎた便を消す。
+     形が合わないときは黙って消さず、元の文字を別のキーに退避してから空で始める（1 年保存の名簿のため）。
+     形は roster-schema.js、組み立ては roster-core.js（この 2 つは core.js の後に読む） */
+  const ROSTER_KEY = 'redux-roster-v1';
+  const ROSTER_SHOP = 'B マリン（見本）';
+  const rosterListeners = [];
+  let roster = null;
+
+  function loadRoster() {
+    if (roster) return roster;
+    let raw = null;
+    try { raw = localStorage.getItem(ROSTER_KEY); } catch (e) { /* 保存場所が使えないときは、空の名簿から始める */ }
+    let parsed = null;
+    try { parsed = raw ? JSON.parse(raw) : null; } catch (e) { parsed = null; }
+    if (parsed && R.roster.validateState(parsed).ok) {
+      roster = R.rosterCore.purgeExpired(parsed, { today: ymd(new Date()), at: new Date().toISOString() });
+    } else {
+      if (raw) {
+        try { localStorage.setItem(`${ROSTER_KEY}-broken-${Date.now()}`, raw); } catch (e) { /* 退避できなくても、開いている間は動く */ }
+      }
+      roster = R.roster.blankState(ROSTER_SHOP);
+    }
+    return roster;
+  }
+
+  function saveRoster(next) {
+    const v = R.roster.validateState(next);
+    if (!v.ok) throw new Error(`rosterStore: 形が合わない (${v.errors.join(',')})`);
+    roster = next;
+    try {
+      localStorage.setItem(ROSTER_KEY, JSON.stringify(next));
+    } catch (e) {
+      // 保存できなくても、開いている間は画面の中で動く
+    }
+    rosterListeners.forEach(fn => fn(next));
+  }
+
   const R = window.REDUX = {
     lang: 'ja',
     L: (o) => (o == null ? '' : typeof o === 'string' ? o : (o[R.lang] != null ? o[R.lang] : o.ja)),
@@ -108,6 +145,12 @@
       set: savePass,
       clear: () => savePass(null),
       subscribe: (fn) => { passListeners.push(fn); }
+    },
+    rosterStore: {
+      get: loadRoster,
+      update: (fn) => saveRoster(fn(loadRoster())),
+      reset: () => saveRoster(R.roster.blankState(ROSTER_SHOP)),
+      subscribe: (fn) => { rosterListeners.push(fn); }
     },
     today: () => ymd(new Date())
   };

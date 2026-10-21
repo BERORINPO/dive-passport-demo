@@ -8,7 +8,7 @@
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js |
 | core | js/roster-core.js js/match.js js/health-redact.js |
 | adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js |
-| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js |
+| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - 外へ通信してよいのは js/ai-reader.js だけ（three.js の読み込みは index.html の importmap）
