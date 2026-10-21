@@ -84,6 +84,8 @@
   function prepare(req) {
     const v = R.roster.validateRequest(req);
     if (!v.ok) throw new ReadError('input', v.errors.join(','));
+    /* 写真は photo-prep.js が描き直して（申込書は塗って）作った物だけ送る。masked: true と書いただけの物は送らない */
+    if (req.doc !== 'mail' && !(R.photoPrep && R.photoPrep.isPrepared(req))) throw new ReadError('input', 'photo');
     const body = R.roster.requestBody(req);
     if (body.doc !== 'mail') return { body, redacted: 0 };
     const { text, redacted } = R.healthRedact.redact(body.text);

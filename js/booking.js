@@ -28,7 +28,9 @@
     conflict: '別のタブで名簿が変わりました。この画面には、保存できていない予約があります。'
   };
 
-  let mode = 'list';        // list / mail / phone
+  let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）
+  let intakeTrip = '';
+  let reviewPerson = '';
   let day = '';
   let notice = null;        // { kind: 'ok' | 'warn', text }
   let armedReset = false;
@@ -59,10 +61,13 @@
     }
   }
 
-  function go(next) {
+  /* ctx: tripId（名簿の取り込みの便）/ personId（確かめる人）/ notice（知らせる文）/ saved（false なら保存できなかったと知らせる） */
+  function go(next, ctx = {}) {
     mode = next;
-    notice = null;
     armedReset = false;
+    notice = ctx.saved === false ? { kind: 'warn', text: NOT_SAVED } : ctx.notice ? { kind: 'ok', text: ctx.notice } : null;
+    if (ctx.tripId) intakeTrip = ctx.tripId;
+    if (ctx.personId) reviewPerson = ctx.personId;
     if (next === 'mail') mail = blankMail();
     if (next === 'phone') phone = blankPhone();
     render();
@@ -78,7 +83,8 @@
 
   const head = (title) => [
     el('p', { class: 'note', text: `${R.rosterStore.get().shop.name} お店の画面` }),
-    el('h2', { class: 'h2 h2--big', text: title })
+    el('h2', { class: 'h2 h2--big', text: title }),
+    notice ? el('p', { class: `flag flag--${notice.kind}`, role: 'status', text: notice.text }) : null
   ];
   const back = () => el('p', { class: 'reset' }, el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: '予約の一覧に戻る', onclick: () => go('list') }));
   const field = (label, control, hint) => el('label', { class: 'field' }, el('span', { class: 'label', text: label }), control, hint ? el('span', { class: 'note', text: hint }) : null);
@@ -107,7 +113,9 @@
       el('div', { class: 'trip__head' },
         el('h3', { class: 'trip__title', text: tripLabel(trip) }),
         el('span', { class: 'trip__count', text: `${C().tripSummary(s, trip.id).booked} 人` })),
-      rows.length ? el('ul', { class: 'bks' }, rows.map(bookingLine)) : el('p', { class: 'note', text: 'この便の予約はまだありません' }));
+      rows.length ? el('ul', { class: 'bks' }, rows.map(bookingLine)) : el('p', { class: 'note', text: 'この便の予約はまだありません' }),
+      rows.length ? el('div', { class: 'actions' },
+        el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: '名簿の取り込み（申込書・C カード）', onclick: () => go('intake', { tripId: trip.id }) })) : null);
   }
 
   function resetButton() {
@@ -138,7 +146,6 @@
     return [
       ...head('予約'),
       R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
-      notice ? el('p', { class: `flag flag--${notice.kind}`, role: 'status', text: notice.text }) : null,
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
         class: 'day', type: 'button', 'aria-pressed': String(d === day), text: md(d),
         onclick: () => { day = d; notice = null; armedReset = false; render(); }
@@ -359,11 +366,16 @@
   }
 
   /* ---------- 描く ---------- */
+  /* 名簿の取り込みと確かめる画面（intake-photo.js）に渡す道具 */
+  const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back };
+
   function render() {
     mailOut = null;
     mailInputs = [];
     phonePick = null;
-    const body = mode === 'mail' ? renderMail() : mode === 'phone' ? renderPhone() : renderList();
+    const body = mode === 'mail' ? renderMail() : mode === 'phone' ? renderPhone()
+      : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
+        : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui }) : renderList();
     R.fill(root, body);
   }
 

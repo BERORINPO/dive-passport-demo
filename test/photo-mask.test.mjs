@@ -1,0 +1,83 @@
+// 写真の塗りつぶし（js/photo-mask.js）を確かめる。送る写真に健康の欄が 1 画素も残らないこと。
+// canvas は Node に無いので、画面が canvas から受け取るのと同じ画素の並び（RGBA）で確かめる。
+// 実行: node test/photo-mask.test.mjs （Node 18 以上。依存なし）
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+
+vm.runInThisContext(readFileSync(new URL('../js/photo-mask.js', import.meta.url), 'utf8'));
+const M = globalThis.REDUX.photoMask;
+
+/* 白い紙に、健康の欄の場所だけ「字」（灰色）を書いた見本の画素 */
+function page(width, height) {
+  const data = new Uint8ClampedArray(width * height * 4).fill(255);
+  const box = { x0: Math.round(60 / 1240 * width), y0: Math.round(1150 / 1754 * height), x1: Math.round(1180 / 1240 * width), y1: Math.round(1560 / 1754 * height) };
+  for (let y = box.y0; y < box.y1; y += 1) {
+    for (let x = box.x0; x < box.x1; x += 1) {
+      const i = (y * width + x) * 4;
+      data[i] = 90; data[i + 1] = 90; data[i + 2] = 90;
+    }
+  }
+  return { data, box };
+}
+
+const tests = [];
+const test = (name, fn) => tests.push({ name, fn });
+
+test('見本の申込書の大きさがどれでも、健康の欄の字は 1 画素も残らない', () => {
+  for (const [w, h] of [[1240, 1754], [1131, 1600], [620, 877], [999, 1413], [300, 424]]) {
+    const { data, box } = page(w, h);
+    const out = M.maskRGBA(data, w, h, [M.SAMPLE_FORM_HEALTH]);
+    for (let y = box.y0; y < box.y1; y += 1) {
+      for (let x = box.x0; x < box.x1; x += 1) {
+        const i = (y * w + x) * 4;
+        assert.deepEqual([out[i], out[i + 1], out[i + 2]], [0, 0, 0], `${w}x${h} の (${x},${y})`);
+      }
+    }
+    assert.ok(M.covered(out, w, h, M.SAMPLE_FORM_HEALTH));
+  }
+});
+
+test('塗るのは四角の中だけ。受け取った画素は変えない', () => {
+  const w = 200; const h = 100;
+  const data = new Uint8ClampedArray(w * h * 4).fill(255);
+  const rect = { x0: 0.25, y0: 0.5, x1: 0.5, y1: 1 };
+  const out = M.maskRGBA(data, w, h, [rect]);
+  let black = 0;
+  for (let i = 0; i < out.length; i += 4) if (out[i] === 0) black += 1;
+  assert.equal(black, 50 * 50);
+  assert.ok(data.every(v => v === 255), '元の画素はそのまま');
+  assert.equal(M.covered(data, w, h, rect), false);
+});
+
+test('割合を画素に直すときは外側へ丸める（元の範囲を必ず含む）', () => {
+  const p = M.toPixels({ x0: 0.101, y0: 0.2, x1: 0.399, y1: 0.7001 }, 1000, 1000);
+  assert.deepEqual(p, { x0: 101, y0: 200, x1: 399, y1: 701 });
+  assert.deepEqual(M.toPixels({ x0: -1, y0: 0, x1: 2, y1: 1 }, 10, 10), { x0: 0, y0: 0, x1: 10, y1: 10 });
+  assert.throws(() => M.toPixels({ x0: 'a' }, 10, 10), /形が合わない/);
+});
+
+test('なぞった 2 点から四角を作る。小さすぎる四角は使わない', () => {
+  assert.deepEqual(M.rectFrom({ x: 0.8, y: 0.9 }, { x: 0.1, y: -0.2 }), { x0: 0.1, y0: 0, x1: 0.8, y1: 0.9 });
+  assert.equal(M.usable({ x0: 0.1, y0: 0.1, x1: 0.12, y1: 0.5 }), false);
+  assert.equal(M.usable(M.SAMPLE_FORM_HEALTH), true);
+});
+
+test('大きい写真は長い辺を 1600 まで縮め、小さい写真は大きくしない', () => {
+  assert.deepEqual(M.fitSize(3024, 4032), { width: 1200, height: 1600 });
+  assert.deepEqual(M.fitSize(856, 540), { width: 856, height: 540 });
+  assert.throws(() => M.maskRGBA(new Uint8ClampedArray(4), 2, 2, []), /画素の数/);
+});
+
+let failed = 0;
+for (const t of tests) {
+  try {
+    await t.fn();
+    console.log(`ok   ${t.name}`);
+  } catch (e) {
+    failed += 1;
+    console.log(`FAIL ${t.name}\n     ${e.message}`);
+  }
+}
+console.log(`${tests.length - failed}/${tests.length} passed`);
+process.exit(failed ? 1 : 0);

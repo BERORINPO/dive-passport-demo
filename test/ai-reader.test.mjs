@@ -27,6 +27,10 @@ load('../js/data-samples.js');
 load('../js/health-redact.js');
 load('../js/ai-reader.js');
 const { aiReader: A, SAMPLE_READINGS } = globalThis.REDUX;
+/* 写真は photo-prep.js が作った物だけ送れる。ここでは作った印だけを差し替える（canvas は Node に無い） */
+const preparedSet = new WeakSet();
+globalThis.REDUX.photoPrep = { isPrepared: (r) => preparedSet.has(r) };
+const P = (r) => { preparedSet.add(r); return r; };
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -44,7 +48,7 @@ test('見本: 答えと送った量が返る。sampleId は記録に入らない
 
 test('見本: 知らない id や prototype の名前でも止まらず、空の答えになる', async () => {
   for (const id of ['zz', 'toString', '__proto__']) {
-    const { reading } = await A.read({ doc: 'ccard', image: 'QUJD', sampleId: id });
+    const { reading } = await A.read(P({ doc: 'ccard', image: 'QUJD', sampleId: id }));
     assert.deepEqual(reading, { booking: null, people: [], healthSeen: false });
   }
 });
@@ -74,32 +78,40 @@ test('本物: 送る中身は決まった項目だけ。メールの健康の行
 test('本物: 申込書は塗った印付きで送り、健康が見えたら sent に残る', async () => {
   calls = [];
   reply = () => json(200, { ...SAMPLE_READINGS.f1, healthSeen: true });
-  const { sent } = await A.read({ doc: 'paper', image: 'QUJD', masked: true });
+  const { sent } = await A.read(P({ doc: 'paper', image: 'QUJD', masked: true }));
   assert.deepEqual(calls[0].body, { doc: 'paper', image: 'QUJD', masked: true });
   assert.deepEqual([sent.masked, sent.healthSeen, sent.size], [true, true, 4]);
-  await rejectsKind(A.read({ doc: 'paper', image: 'QUJD' }), 'input');
+  await rejectsKind(A.read(P({ doc: 'paper', image: 'QUJD' })), 'input');
 });
 
 test('本物: 失敗の種類を分け、送ったあとの失敗には送った量が付く', async () => {
   reply = () => json(429, {});
-  assert.equal((await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'limit')).sent.size, 4);
+  assert.equal((await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'limit')).sent.size, 4);
   reply = () => json(403, {});
-  await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'auth');
+  await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'auth');
   reply = () => ({ type: 'opaqueredirect', status: 0, ok: false, json: async () => ({}) });
-  await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'auth');
+  await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'auth');
   reply = () => json(500, {});
-  await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'offline');
+  await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'offline');
   reply = () => json(200, { booking: null, people: [{ name: 'x', health: '喘息' }], healthSeen: false });
-  await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'bad');
+  await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'bad');
   reply = () => { throw new TypeError('Failed to fetch'); };
-  await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'offline');
+  await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'offline');
   reply = () => json(400, {});
+  await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'input');
+});
+
+test('写真は photo-prep.js が作った物だけ送る（masked: true と書いただけの物は送らない）', async () => {
+  calls = [];
+  await rejectsKind(A.read({ doc: 'paper', image: 'QUJD', masked: true }), 'input');
   await rejectsKind(A.read({ doc: 'ccard', image: 'QUJD' }), 'input');
+  assert.equal(calls.length, 0);
+  assert.throws(() => A.preview({ doc: 'ccard', image: 'QUJD' }), /input/);
 });
 
 test('C カードを塗って送れば、記録にも塗った印が残る', async () => {
   reply = () => json(200, SAMPLE_READINGS.c1);
-  const { sent } = await A.read({ doc: 'ccard', image: 'QUJD', masked: true });
+  const { sent } = await A.read(P({ doc: 'ccard', image: 'QUJD', masked: true }));
   assert.equal(sent.masked, true);
 });
 

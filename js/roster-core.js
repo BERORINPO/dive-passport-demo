@@ -228,6 +228,19 @@
     return [...(dateOk ? [] : ['date']), ...bad];
   }
 
+  /* 確かめる画面の行。名簿の項目のうち読み取りで入る項目を、名簿と同じ書き方で、出どころと自信なしの印を付けて返す */
+  const REVIEW_KEYS = ['name', 'birthDate', 'address', 'emergency', 'certDate', 'courses', 'dives', 'lastDive'];
+  function reviewRows(p, trip) {
+    return S().ITEMS[trip.kind].filter(i => REVIEW_KEYS.includes(i.key)).map(i => {
+      const field = FIELD_OF[i.key] || i.key;
+      return { key: i.key, field, label: i.ja, text: cellText(p, trip, i.key, []), src: p.src[field] || '',
+        unsure: p.unsure.includes(field), filled: filled(p, trip, i.key) };
+    });
+  }
+
+  /* 確かめる必要がある人（AI が自信なしと言った所が残っている人）。便ごと */
+  const toCheck = (state, tripId) => peopleOf(state, tripId).filter(p => p.unsure.length > 0);
+
   /* 予約の一覧の 1 便分。予約ごとに、人のそろい具合を付ける */
   function bookingRows(state, tripId) {
     const trip = state.trips.find(t => t.id === tripId) || null;
@@ -402,6 +415,7 @@
   R.rosterCore = {
     COURSE_JA, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromReading, missingForReading, bookingProblems, bookingRows,
+    reviewRows, toCheck,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
   };

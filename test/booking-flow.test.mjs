@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const SCRIPTS = ['core.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'data-samples.js', 'ai-reader.js'];
+const SCRIPTS = ['core.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'data-samples.js', 'photo-mask.js', 'photo-prep.js', 'ai-reader.js'];
 const memory = (init) => {
   const m = new Map(Object.entries(init || {}));
   return {
@@ -124,6 +124,39 @@ test('退避した名簿は、退避した日から 1 年で消える', () => {
   const local = memory({ [`redux-roster-v1-broken-${old}`]: 'x', [`redux-roster-v1-broken-${recent}`]: 'y' });
   boot(local).rosterStore.get();
   assert.deepEqual(local.keys().filter(k => k.startsWith('redux-roster-v1-broken-')), [`redux-roster-v1-broken-${recent}`]);
+});
+
+test('写真の読み取りを名簿に入れ、確かめると自信なしが外れる（intake-photo.js と同じ順）', async () => {
+  const R = boot(memory());
+  await importMail(R, 'e1');
+  /* canvas は Node に無いので、photo-prep.js が作った印だけを差し替える */
+  const marks = new WeakSet();
+  R.photoPrep = { isPrepared: (r) => marks.has(r) };
+  const photo = (doc, sampleId) => { const r = { doc, image: 'QUJD', masked: doc === 'paper', sampleId }; marks.add(r); return r; };
+  const C = R.rosterCore;
+  const tripId = R.rosterStore.get().trips[0].id;
+
+  const card = (await R.aiReader.read(photo('ccard', 'c1'))).reading.people[0];
+  const hanako = C.findByName(C.peopleOf(R.rosterStore.get(), tripId), card.name);
+  assert.ok(hanako, 'C カードの見本 花子は、予約の見本 花子に当たる');
+  R.rosterStore.update(s => C.applyReadingTo(s, { personId: hanako.id, read: card, src: 'ccard', at: AT }).state);
+  assert.equal(R.rosterStore.get().people.find(p => p.id === hanako.id).birthDate, '1998-04-12');
+
+  const trip = R.rosterStore.get().trips[0];
+  R.rosterStore.update(s => C.addBookingToTrip(s, { tripId, want: { date: trip.date, start: trip.start, tour: trip.tour, kind: trip.kind },
+    booking: { source: 'phone', people: 1 }, reading: null, src: 'staff', at: AT, newId: R.newId }).state);
+  const blank = C.peopleOf(R.rosterStore.get(), tripId).find(p => !p.name);
+  const form = (await R.aiReader.read(photo('paper', 'f6'))).reading.people[0];
+  assert.equal(C.findByName(C.peopleOf(R.rosterStore.get(), tripId), form.name), null, '見本 和子は予約にいないので、お店が選ぶ');
+  R.rosterStore.update(s => C.applyReadingTo(s, { personId: blank.id, read: form, src: 'paper', at: AT }).state);
+  const kazuko = R.rosterStore.get().people.find(p => p.id === blank.id);
+  assert.deepEqual([kazuko.name, kazuko.src.name, [...kazuko.unsure]], ['見本 和子', 'paper', ['lastDive']]);
+  assert.deepEqual([...C.toCheck(R.rosterStore.get(), tripId).map(p => p.id)], [blank.id]);
+  const row = C.reviewRows(kazuko, trip).find(r => r.unsure);
+  assert.deepEqual([row.key, row.text, row.src], ['lastDive', '2025', 'paper']);
+
+  R.rosterStore.update(s => C.checkPerson(C.editPerson(s, { id: blank.id, patch: { lastDive: '2025-08' }, who: 'staff', at: AT }), { id: blank.id, at: AT }));
+  assert.equal(C.toCheck(R.rosterStore.get(), tripId).length, 0);
 });
 
 test('形の合わない state は保存しない', () => {

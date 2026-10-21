@@ -263,3 +263,18 @@ button, input, select { font: inherit; color: inherit; }
 .band__title { margin: 0 0 4px; font-weight: 700; color: var(--info); }
 .band__text { margin: 0; font-size: 14px; }
 .phone__pick { margin: 12px 0; }
+
+/* 名簿の取り込み（写真） */
+.actions--two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.photo__canvas { display: block; width: 100%; max-width: 420px; height: auto; margin: 8px auto; border-radius: 8px; border: 1px solid var(--line); touch-action: none; cursor: crosshair; }
+.photo__sent { display: block; width: 100%; max-width: 320px; height: auto; margin: 8px auto 0; border-radius: 8px; border: 1px solid var(--line); }
+.check { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-weight: 600; }
+.check input { width: 22px; height: 22px; }
+.h3--big { font-size: 18px; }
+.rd--src { grid-template-columns: 92px 1fr auto; }
+.rd__src { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.band--warn { background: var(--warn-bg); }
+.band--warn .band__title { color: var(--warn); }
+.row--3 { display: grid; gap: 8px; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .row--3 { grid-template-columns: 2fr 1fr 2fr; } }
+.label--small { font-size: 13px; font-weight: 600; }
