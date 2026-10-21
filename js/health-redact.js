@@ -37,10 +37,10 @@
   const DECOR = '[-・*•>■□◆●※]*';
   /* 「項目名:」（fold の後なので : は半角）。8:30 のように数字で挟まれた : は項目名にしない */
   const LABEL = new RegExp(`^\\s*${DECOR}\\s*([^\\s:][^:]{0,40}?)(?:(?<!\\d):|:(?!\\d))`);
-  /* 固有名詞の項目。人の名前の項目は値の最初の 1 語だけを名前とみなす（後ろに一人ずつの注記が付きやすい）。
-     住所・宿・連絡先は値の最初のかたまり（、 , ( などの手前）まで */
-  const PERSON_LABEL = /(名前|氏名|ふりがな|代表者?|参加者|同行者|participant|member|name|traveler|guest)$/;
-  const PLACE_LABEL = /(住所|address|あどれす|ほてる|hotel|宿|宿泊先|めーる|mail|電話|番号|phone|tel|number)$/;
+  /* 固有名詞の項目。人の名前と連絡先の項目は値の最初の 1 語だけを名前や連絡先とみなす（後ろに注記が付きやすい）。
+     住所・宿は値の最初のかたまり（、 , ( などの手前）まで（空白の入った住所を残すため） */
+  const WORD_LABEL = /(名前|氏名|ふりがな|代表者?|参加者|同行者|participant|member|name|traveler|guest|めーる|mail|電話|番号|phone|tel|number)$/;
+  const PLACE_LABEL = /(住所|address|あどれす|ほてる|hotel|宿|宿泊先)$/;
   /* 答えの行は、前の質問の続き（■ご回答: / Your answer: / Yes: / 内容: / A1: / 回答1： など） */
   const ANSWER = new RegExp(`^\\s*${DECOR}\\s*(?:ご|お|your\\s+)?(?:a|ans|answer|答え?|回答|返答|response|reply|yes|no|はい|いいえ|あり|なし|details?|詳細|内容|病名)\\s*\\d*\\s*[:.]`);
   const PHONE = /\+?\d[\d\s()-]{8,}\d/g;
@@ -51,7 +51,7 @@
   const BOOKING_START = new RegExp(`^\\s*${DECOR}\\s*(?:\\d{1,2}\\s*(?:月|\\/)\\s*\\d{1,2}|ご?予約|book|reserv|代表|お?名前|氏名|ほてる|hotel|宿|ぴっくあっぷ|pickup|we(?:['’]re| are)? stay|staying at)`);
   const CHUNK = /[、,(\[【/;]/;                                          // 値のかたまりの区切り（fold の後）
   const KANA_ONLY = /^[぀-ゟー・a-z]+$/;                        // 仮名とローマ字だけの語（ふりがな）
-  const KANA_HEALTH = /^(うつ|けが|かぜ)(ぎみ|気味|あり|です|してます|しています)?$/;  // 仮名だけでも健康の話
+  const KANA_HEALTH = /^(けが|かぜ)|^うつ(?![みのぎ])/;   // 仮名だけでも健康の話（うつみ・うつのみや・うつぎ のふりがなは除く）
   const SENTENCE = /(?<=[。．！？!?])|(?<=\.)(?=\s)/;
   const LINES = /\r\n?|[\n\u2028\u2029\u0085]/;
   const REDACTED_LINE = '［この行は送っていません］';
@@ -70,7 +70,7 @@
   function properKind(label) {
     if (isHealth(label)) return null;
     const core = label.trim().replace(/\s*[(\[【][^)\]】]*[)\]】]\s*$/, '').replace(/\d+$/, '').trim();
-    return PERSON_LABEL.test(core) ? 'person' : PLACE_LABEL.test(core) ? 'place' : null;
+    return WORD_LABEL.test(core) ? 'word' : PLACE_LABEL.test(core) ? 'place' : null;
   }
 
   /* 仮名だけの語は、ふりがなとして除く。ただし「うつ」「けが」「かぜ」だけの語は残す */
@@ -83,7 +83,7 @@
     if (!kind) return pf;
     const value = pf.slice(m[0].length);
     const chunk = value.split(CHUNK)[0];
-    const head = kind === 'person' ? chunk.match(/^\s*\S*/)[0] : chunk;
+    const head = kind === 'word' ? chunk.match(/^\s*\S*/)[0] : chunk;
     return dropFurigana(value.slice(head.length));
   }
 
