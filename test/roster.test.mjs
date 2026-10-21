@@ -412,6 +412,24 @@ test('固有名詞の項目でも、項目名に健康の字があるか、名�
   }
 });
 
+test('番号付きの答え、名前の後ろの注記、仮名だけの健康の言葉、服用も外す', () => {
+  for (const [input, n] of [
+    ['Q1: 持病はありますか？\nA1: ワーファリンを飲んでいます', 2], ['質問1：持病はありますか？\n回答1：毎日飲んでいます', 2],
+    ['Question 1: Any medical conditions?\nAnswer 1: on warfarin', 2], ['参加者2：見本 太郎 32歳 腰痛', 1],
+    ['同行者：見本太郎　貧血ぎみ', 1], ['Participant 2: Kim 30 耳が痛くなりやすい', 1], ['代表者：見本 花子（うつ）', 1],
+    ['参加者2：見本 太郎（けが）', 1], ['代表者：見本 花子（かぜぎみ）', 1], ['備考：持病があります\n代表者本人が毎日服用しています', 2],
+    ['備考：ワーファリンを服用しています', 1]
+  ]) assert.equal(H.redact(input).redacted, n, input);
+});
+
+test('名前の項目名に括弧があっても、読点の後ろのふりがなでも、名前の行は残す。住所は空白があっても残す', () => {
+  for (const line of ['お名前（フリガナ）: 池上 花子（イケガミ ハナコ）', 'お名前: 池上 花子、イケガミ ハナコ', '氏名（漢字）：池上 花子',
+    '住所：福岡市 中央区 薬院 1-2-3', 'ご宿泊先: ホテル熱帯うつぼ館', '代表者：見本 花子（ミホン ハナコ）様']) {
+    assert.equal(H.redact(line).redacted, 0, line);
+  }
+  assert.equal(H.redact('My friend has asthma. We’re staying at Hotel Mihon.').text, `${H.REDACTED_PART} We’re staying at Hotel Mihon.`);
+});
+
 test('外した後の文面にもう一度かけても同じ（Worker で 2 回かけるため）', () => {
   const inputs = ['10月24日に2名でお願いします。持病で喘息があります。代表は見本 花子、電話は090-1234-5678です。',
     'Hi, we would like to book 2 people.\nMy friend has a mild heart condition, is it ok?\nThanks,\nSeo-yeon Kim',

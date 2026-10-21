@@ -20,7 +20,7 @@
   const words = (list) => new RegExp(list.join('|'));
 
   const STRONG = words([
-    '既往', '持病', '病気', '病院', '入院', '通院', '治療', '服薬', '発作', '発熱', '外傷', '医師', '医者', '主治医', 'かかりつけ', '障害',
+    '既往', '持病', '病気', '病院', '入院', '通院', '治療', '服薬', '服用', '発作', '発熱', '外傷', '医師', '医者', '主治医', 'かかりつけ', '障害',
     '心臓', '糖尿', '血圧', '体調', '健康', '怪我', '手術', '妊娠', '妊婦', '生理', '月経', '喘息', 'ぜんそく', 'ぜん息', 'てんかん',
     'あれるぎ', 'へるにあ', 'いんすりん', 'すてろいど', '透析', '吸入', '降圧', '風邪', '鬱', 'ぱにっく', 'ぺーすめーかー', 'めまい',
     '骨折', '捻挫', 'ねんざ', '耳抜き', '中耳', '耳鳴', '減圧',
@@ -37,17 +37,21 @@
   const DECOR = '[-・*•>■□◆●※]*';
   /* 「項目名:」（fold の後なので : は半角）。8:30 のように数字で挟まれた : は項目名にしない */
   const LABEL = new RegExp(`^\\s*${DECOR}\\s*([^\\s:][^:]{0,40}?)(?:(?<!\\d):|:(?!\\d))`);
-  const PROPER_LABEL = /(名前|氏名|ふりがな|代表者?|参加者|同行者|participant|member|name|traveler|guest|住所|address|あどれす|ほてる|hotel|宿|宿泊先|めーる|mail|電話|番号|phone|tel|number)\s*$/;
-  /* 答えの行は、前の質問の続き（■ご回答: / Your answer: / Yes: / 内容: など） */
-  const ANSWER = new RegExp(`^\\s*${DECOR}\\s*(?:ご|お|your\\s+)?(?:a|ans|answer|答え?|回答|返答|response|reply|yes|no|はい|いいえ|あり|なし|details?|詳細|内容|病名)\\s*[:.]`);
+  /* 固有名詞の項目。人の名前の項目は値の最初の 1 語だけを名前とみなす（後ろに一人ずつの注記が付きやすい）。
+     住所・宿・連絡先は値の最初のかたまり（、 , ( などの手前）まで */
+  const PERSON_LABEL = /(名前|氏名|ふりがな|代表者?|参加者|同行者|participant|member|name|traveler|guest)$/;
+  const PLACE_LABEL = /(住所|address|あどれす|ほてる|hotel|宿|宿泊先|めーる|mail|電話|番号|phone|tel|number)$/;
+  /* 答えの行は、前の質問の続き（■ご回答: / Your answer: / Yes: / 内容: / A1: / 回答1： など） */
+  const ANSWER = new RegExp(`^\\s*${DECOR}\\s*(?:ご|お|your\\s+)?(?:a|ans|answer|答え?|回答|返答|response|reply|yes|no|はい|いいえ|あり|なし|details?|詳細|内容|病名)\\s*\\d*\\s*[:.]`);
   const PHONE = /\+?\d[\d\s()-]{8,}\d/g;
   const hasPhone = (f) => (f.match(PHONE) || []).some(m => m.replace(/\D/g, '').length >= 9);
   const EMAIL = /\S+@\S+\.\S+/;
   const SIGNATURE = /^\s*(--|__)/;
   const CLOSING = /^\s*(thanks|thank you|best|regards|cheers|よろしく|宜しく|以上)/;
-  const BOOKING_START = new RegExp(`^\\s*${DECOR}\\s*(?:\\d{1,2}\\s*(?:月|\\/)\\s*\\d{1,2}|ご?予約|book|reserv|代表|お?名前|氏名|ほてる|hotel|宿|ぴっくあっぷ|pickup|we(?:'re| are)? stay|staying at)`);
+  const BOOKING_START = new RegExp(`^\\s*${DECOR}\\s*(?:\\d{1,2}\\s*(?:月|\\/)\\s*\\d{1,2}|ご?予約|book|reserv|代表|お?名前|氏名|ほてる|hotel|宿|ぴっくあっぷ|pickup|we(?:['’]re| are)? stay|staying at)`);
   const CHUNK = /[、,(\[【/;]/;                                          // 値のかたまりの区切り（fold の後）
-  const KANA_PAREN = /[(\[【][぀-ゟー\s・a-z]+[)\]】]/g;      // 仮名とローマ字だけの括弧（ふりがな）
+  const KANA_ONLY = /^[぀-ゟー・a-z]+$/;                        // 仮名とローマ字だけの語（ふりがな）
+  const KANA_HEALTH = /^(うつ|けが|かぜ)(ぎみ|気味|あり|です|してます|しています)?$/;  // 仮名だけでも健康の話
   const SENTENCE = /(?<=[。．！？!?])|(?<=\.)(?=\s)/;
   const LINES = /\r\n?|[\n\u2028\u2029\u0085]/;
   const REDACTED_LINE = '［この行は送っていません］';
@@ -62,14 +66,25 @@
     if (STRONG.test(f)) return true;
     return WEAK.test((weakText === undefined ? f : weakText).replace(NOT_HEALTH, ''));
   }
-  const properLabel = (label) => !isHealth(label) && PROPER_LABEL.test(label.trim().replace(/\d+$/, '').trim());
+  /* 項目名の末尾の番号と括弧（「参加者2」「お名前(ふりがな)」）を除いてから見る。項目名に健康の字があれば固有名詞の項目にしない */
+  function properKind(label) {
+    if (isHealth(label)) return null;
+    const core = label.trim().replace(/\s*[(\[【][^)\]】]*[)\]】]\s*$/, '').replace(/\d+$/, '').trim();
+    return PERSON_LABEL.test(core) ? 'person' : PLACE_LABEL.test(core) ? 'place' : null;
+  }
 
-  /* 1 字の言葉を見る所。固有名詞の項目なら、項目名と、値の最初のかたまりと、ふりがなの括弧を除く */
+  /* 仮名だけの語は、ふりがなとして除く。ただし「うつ」「けが」「かぜ」だけの語は残す */
+  const dropFurigana = (text) => text.split(/([\s、,()[\]【】]+)/).map(t => (KANA_ONLY.test(t) && !KANA_HEALTH.test(t) ? ' ' : t)).join('');
+
+  /* 1 字の言葉を見る所。固有名詞の項目なら、項目名と、名前や住所そのもの（人は最初の 1 語、場所は最初のかたまり）と、ふりがなを除く */
   function weakTextOf(pf) {
     const m = LABEL.exec(pf);
-    if (!m || !properLabel(m[1])) return pf;
+    const kind = m ? properKind(m[1]) : null;
+    if (!kind) return pf;
     const value = pf.slice(m[0].length);
-    return value.slice(value.split(CHUNK)[0].length).replace(KANA_PAREN, ' ');
+    const chunk = value.split(CHUNK)[0];
+    const head = kind === 'person' ? chunk.match(/^\s*\S*/)[0] : chunk;
+    return dropFurigana(value.slice(head.length));
   }
 
   /* state: 0 = 外していない / 1 = 健康の文の続き / 2 = 健康の質問で、答えがまだ来ていない */
