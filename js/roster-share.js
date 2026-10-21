@@ -14,10 +14,11 @@
   const MAX_PARTNERS = 10;
   const SHOP_MAX = 60;
   const GUIDE_MAX = 40;
+  const LEAVE_GUARD_MS = 10000;   // 「全員戻った」を続けて押したのを、2 回目と数えない間
   /* 他のお店が入れてよい人の項目（健康は別に扱う） */
   const PERSON_FIELDS = ['name', 'birthDate', 'phone', 'address', 'emergency', 'cert', 'courses', 'dives', 'lastDive'];
 
-  const isPartner = (b) => b.source === 'partner';
+  const isPartner = (b) => C().isPartnerBooking(b);
   const tripById = (state, id) => state.trips.find(t => t.id === id) || null;
   const unique = (list) => [...new Set(list.map(s => String(s || '').trim()).filter(Boolean))];
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -86,11 +87,13 @@
 
   const heldHealth = (shop) => ({ historyAt: '', answers: Array(S().HEALTH_QUESTIONS).fill(null), todayAt: '', today: '',
     consentAt: '', consentVer: '', heldBy: shop });
-  const sharedHealth = (h, today) => ({ ...h, heldBy: '', consentAt: today, consentVer: PARTNER_CONSENT_VER });
+  /* 渡すにした。他のお店が確かめた日（todayAt）は、答えた日ではないので消す */
+  const sharedHealth = (h, today) => ({ ...h, ...(h.heldBy ? { todayAt: '' } : {}), heldBy: '', consentAt: today, consentVer: PARTNER_CONSENT_VER });
 
   /* 他のお店が自分のお客さんを入れる。people は人の項目（name・birthDate・… と health: { answers, today }）。
      share（同じ船のお店に健康の答えを渡す同意をお客さんからもらった）が無いときは、健康の答えを入れず、そのお店が確かめた印だけ付ける。
-     health.today は「その便の日の体調」として入れる（見本で使うときは demo を付け、記録に残す）。ガイドは要る */
+     もう人のいるお店は、今のお店の share に合わせる（渡す人と渡さない人を混ぜない）。
+     health.today は答えた日（today）の体調として入れ、便の日に答えた物だけが当日の分になる。見本（demo）は便の日として入れ、記録に印を付ける。ガイドは要る */
   function addPartnerPeople(state, { tripId, shop, people, guide, share, today, demo, at, newId }) {
     const trip = tripById(state, tripId);
     if (!trip) throw new Error(`addPartnerPeople: 便が見つからない (${tripId})`);
@@ -98,6 +101,7 @@
     const g = String(guide || '').trim();
     if (!g || g.length > GUIDE_MAX) return { state, problem: 'guide', ids: [] };
     if (!people.length) return { state, problem: null, ids: [] };
+    const sharing = shopPeople(state, tripId, shop).length ? partnerShares(state, tripId, shop) : share === true;
     let st = state;
     const ids = [];
     people.forEach(data => {
@@ -113,36 +117,43 @@
       const id = ids[ids.length - 1];
       const patch = { ...Object.fromEntries(PERSON_FIELDS.filter(k => has(data, k)).map(k => [k, data[k]])), guide: g };
       st = C().editPerson(st, { id, patch, who: 'staff', src: 'partner', at });
-      const answers = data.health && Array.isArray(data.health.answers) ? data.health.answers : null;
-      const health = !share ? heldHealth(shop)
-        : answers ? sharedHealth({ historyAt: today, answers, todayAt: data.health.today ? trip.date : '', today: data.health.today || '' }, today)
+      const h = data.health || {};
+      const answers = Array.isArray(h.answers) ? h.answers : null;
+      const todayAt = h.today ? (demo === true ? trip.date : today) : '';
+      const health = !sharing ? heldHealth(shop)
+        : answers ? sharedHealth({ historyAt: today, answers, todayAt, today: h.today || '' }, today)
           : { consentAt: today, consentVer: PARTNER_CONSENT_VER, heldBy: '' };
-      st = C().editPerson(st, { id, patch: { health }, who: 'staff', src: 'partner', demo: demo === true && !!answers && share, at });
+      st = C().editPerson(st, { id, patch: { health }, who: 'staff', src: 'partner', demo: demo === true && sharing && !!answers && !!h.today, at });
     });
     return { state: st, problem: null, ids };
   }
 
-  /* ガイドを替える（そのお店の全員）。空にはできない */
+  /* ガイドを替える（そのお店の全員）。空にはできない。もう付けた札は新しい名前に付け替える（番号は変えない） */
   function setPartnerGuide(state, { tripId, shop, guide, at }) {
     const g = String(guide || '').trim();
     if (!g || g.length > GUIDE_MAX) return { state, problem: 'guide' };
-    const st = shopPeople(state, tripId, shop).reduce((s, p) => C().editPerson(s, { id: p.id, patch: { guide: g }, who: 'staff', src: 'partner', at }), state);
-    return { state: st, problem: null };
+    const people = shopPeople(state, tripId, shop);
+    const st = people.reduce((s, p) => C().editPerson(s, { id: p.id, patch: { guide: g }, who: 'staff', src: 'partner', at }), state);
+    return { state: unique(people.map(p => p.guide)).reduce((s, from) => C().renameGuideTag(s, { tripId, shop, from, to: g, at }), st), problem: null };
   }
 
-  /* 健康の 2 欄を渡すか。渡さないにしたら、入っていた健康の答えも消す（同意が無いなら持たない） */
+  /* 健康の 2 欄を渡すか。渡さないにしたら、入っていた健康の答えも消す（同意が無いなら持たない）。もうその形の人はそのまま */
   function setPartnerShare(state, { tripId, shop, share, today, at }) {
-    return shopPeople(state, tripId, shop).reduce((st, p) => C().editPerson(st, {
+    return shopPeople(state, tripId, shop).filter(p => !!p.health.heldBy === share).reduce((st, p) => C().editPerson(st, {
       id: p.id, who: 'staff', src: 'partner', at,
       patch: { health: share ? sharedHealth(p.health, today) : heldHealth(shop) }
     }), state);
   }
 
-  /* 他のお店から受け取った（「渡す」を押した）。人数と、健康の欄を受け取ったかを記録に残す */
-  function handOver(state, { tripId, shop, at }) {
+  /* 他のお店から受け取った（「渡す」を押した）。人数と、健康の欄を受け取ったかを記録に残す。
+     便の日（today がその日）に押したら、健康の答えを渡さない人の当日の体調は、そのお店がその日に確かめたことにする */
+  function handOver(state, { tripId, shop, today, at }) {
     const b = shopBookings(state, tripId, shop)[0];
     if (!b) return state;
-    return C().logHandover(state, { bookingId: b.id, people: shopPeople(state, tripId, shop).length, health: partnerShares(state, tripId, shop), at });
+    const onTheDay = today === tripById(state, tripId).date;
+    const st = shopPeople(state, tripId, shop).filter(p => onTheDay && p.health.heldBy && p.health.todayAt !== today)
+      .reduce((s, p) => C().editPerson(s, { id: p.id, patch: { health: { todayAt: today } }, who: 'staff', src: 'partner', at }), state);
+    return C().logHandover(st, { bookingId: b.id, people: shopPeople(st, tripId, shop).length, health: partnerShares(st, tripId, shop), at });
   }
 
   /* ---------- 船に乗る人と札 ---------- */
@@ -182,12 +193,12 @@
     return { trip, owner, groups, aboard: all.length, tagged: all.filter(m => m.tag).length, untagged: all.filter(m => !m.tag).length };
   }
 
-  /* お店の札の頭文字。もう付けた札があればそれ、無ければ名前の字で、ほかのお店と重ならない物 */
+  /* お店の札の頭文字。もう付けた札があればそれ、無ければ名前の字で、ほかのお店と重ならない物。まだ人のいないお店は取らない */
   function prefixes(groups) {
     const fixed = groups.map(g => { const t = g.members.find(m => m.tag); return t ? prefixOf(t.tag) : ''; });
     const used = new Set(fixed.filter(Boolean));
     return groups.map((g, i) => {
-      if (fixed[i]) return fixed[i];
+      if (fixed[i] || !g.members.length) return fixed[i];
       const chars = [...String(g.name).normalize('NFKC').toUpperCase()].filter(c => /[\p{L}\p{N}]/u.test(c));
       const p = chars.find(c => !used.has(c)) || [...Array(groups.length + 1).keys()].map(n => String(n + 1)).find(c => !used.has(c));
       used.add(p);
@@ -228,17 +239,22 @@
   }
 
   /* ---------- ポイントを離れる前 ---------- */
-  /* 札ボードで「海の中」が 0 枚になったときに 1 回押す。札の枚数と時刻を残す */
+  /* 札ボードで「海の中」が 0 枚になったときに 1 回押す。札の枚数と時刻を残す。
+     札の番号が無い人がいる（ボードで数えられない）・誰もいないときは残さない（problem: untagged / empty） */
   function recordLeave(state, { tripId, at }) {
     const g = boatGroups(state, tripId);
     if (!g) throw new Error(`recordLeave: 便が見つからない (${tripId})`);
-    return C().addCheck(state, { tripId, stage: 'leave', tags: g.tagged, at });
+    if (!g.aboard) return { state, problem: 'empty' };
+    if (g.untagged) return { state, problem: 'untagged' };
+    return { state: C().addCheck(state, { tripId, stage: 'leave', tags: g.tagged, at }), problem: null };
   }
   const leaveChecks = (trip) => trip.checks.filter(c => c.stage === 'leave');
+  /* 続けて押したか。lastMs は前の記録の時刻（ミリ秒。無ければ null）、nowMs は今。時計は画面の側で読む */
+  const leaveRepeat = (lastMs, nowMs) => Number.isFinite(lastMs) && nowMs >= lastMs && nowMs - lastMs < LEAVE_GUARD_MS;
 
   R.rosterShare = {
     PARTNER_CONSENT_VER, MAX_PARTNERS, boatOwner, shopsOf, shopPeople, shopProblem, addPartner, removePartner, setHost,
     partnerGuide, partnerShares, addPartnerPeople, setPartnerGuide, setPartnerShare, handOver,
-    kindLabel, boatGroups, assignTags, jointRows, recordLeave, leaveChecks
+    kindLabel, boatGroups, assignTags, jointRows, recordLeave, leaveChecks, leaveRepeat
   };
 })();

@@ -119,7 +119,7 @@
       }
       job.reading = reading;
       const read = reading.people[0];
-      const hit = read ? C().findByName(C().peopleOf(R.rosterStore.get(), job.tripId), read.name) : null;
+      const hit = read ? C().findByName(C().peopleOf(R.rosterStore.get(), job.tripId, { own: true }), read.name) : null;
       job.personId = hit ? hit.id : '';
     } catch (e) {
       if (e.sent) ui.save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
@@ -151,7 +151,7 @@
     const s = R.rosterStore.get();
     const read = shot.reading.people[0];
     if (!read) return el('p', { class: 'errors', role: 'alert', text: '写真から人を読み取れませんでした。写真を選び直してください。' });
-    const people = C().peopleOf(s, shot.tripId);
+    const people = C().peopleOf(s, shot.tripId, { own: true });   // 自分の店の申込書なので、乗り合いの他のお店のお客さんは選ばせない
     if (!shot.personId && people.length) shot.personId = (people.find(p => !p.name) || people[0]).id;
     const target = people.find(p => p.id === shot.personId);
     const differs = !!(target && target.name && read.name && !C().sameName(target.name, read.name));

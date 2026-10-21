@@ -26,13 +26,13 @@
     { name: '見本 陸', birthDate: '1998-11-11', address: '大阪府大阪市見本区 4-5', emergency: { name: '見本 さくら', relation: '妹', phone: '090-7777-9999' },
       cert: { course: 'NONE', date: '' }, dives: 0, lastDive: '', health: { answers: NO5, today: 'ok' } }
   ];
-  const LEAVE_GUARD_MS = 10000;   // 続けて押したのを 2 回目と数えない間
+  const PRINT_ARM_MS = 700;
+  const LEAVE_PROBLEM_JA = { untagged: '札の番号がまだの人がいます。番号を付けて札ボードを作り直してから押してください', empty: 'まだ誰も乗っていません' };       // 印刷のボタンが出てすぐの押し（前の画面のボタンを続けて押した物）は受け付けない間
 
   /* 入れかけの文字（画面を描き直しても消さない）。便とお店が替わったら空に戻す */
   let draft = blankDraft('');
   function blankDraft(key) { return { key, shop: '', name: '', guide: '', share: true }; }
   const draftFor = (key) => { if (draft.key !== key) draft = blankDraft(key); return draft; };
-  let lastLeave = 0;
 
   const nowIso = () => new Date().toISOString();
   const slash = (d) => d.replace(/-/g, '/');
@@ -43,8 +43,9 @@
   const when = (ui, trip) => `${ui.md(trip.date)} ${trip.start ? clock(trip.start) : '時刻未定'}`;
   const notFound = (ui, title) => [...ui.head(title), el('p', { class: 'errors', text: 'この便が見つかりません。' }), ui.back()];
 
-  /* 保存して描き直す。fn は state か { state, problem } を返す。problem があれば保存せずに知らせる */
-  function apply(ui, fn, next, problemText) {
+  /* 保存して描き直す。fn は state か { state, problem } を返す。problem があれば、state は変えずに知らせる。
+     onOk は保存できたときだけ呼ぶ（入れかけの文字を空にするなど。失敗したら打った字を残す） */
+  function apply(ui, fn, next, problemText, onOk) {
     let problem = null;
     const r = ui.save(st => {
       const out = fn(st);
@@ -53,6 +54,7 @@
     });
     if (r.error) return ui.go(next.mode, { ...next.ctx, warn: '入れられませんでした。長すぎないか確かめてください' });
     if (problem) return ui.go(next.mode, { ...next.ctx, warn: problemText(problem) });
+    if (onOk) onOk();
     return ui.go(next.mode, { ...next.ctx, saved: r.saved });
   }
 
@@ -89,13 +91,13 @@
 
   function addShopRow(trip, ui) {
     const d = draftFor(`share:${trip.id}`);
-    const add = (name) => apply(ui, st => X().addPartner(st, { tripId: trip.id, name, at: nowIso() }),
-      { mode: 'share', ctx: { tripId: trip.id } }, (p) => SHOP_PROBLEM_JA[p] || p);
+    const add = (name, onOk) => apply(ui, st => X().addPartner(st, { tripId: trip.id, name, at: nowIso() }),
+      { mode: 'share', ctx: { tripId: trip.id } }, (p) => SHOP_PROBLEM_JA[p] || p, onOk);
     return [
       el('div', { class: 'addrow' },
         el('input', { class: 'input', type: 'text', maxlength: 60, 'aria-label': '足すお店の名前', placeholder: 'お店の名前', value: d.shop,
           oninput: (e) => { d.shop = e.target.value; } }),
-        el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: 'お店を足す', onclick: () => { const name = d.shop; d.shop = ''; add(name); } })),
+        el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: 'お店を足す', onclick: () => add(d.shop, () => { d.shop = ''; }) })),
       trip.partners.includes(SAMPLE_SHOP) ? null
         : el('p', { class: 'sheet__note' }, button(`見本のお店（${SAMPLE_SHOP}）を足す`, () => add(SAMPLE_SHOP)))
     ];
@@ -147,66 +149,79 @@
       ask.length ? button('お客さんに聞く', () => ui.go('ask', { bookingId: m.person.bookingId })) : null);
   }
 
+  /* 他のお店役: 乗せる人（ガイドと人）の面 */
+  function partnerPeopleSheet(v, ui) {
+    const { tripId, shop, people, d, guide } = v;
+    const add = (list, demo, onOk) => apply(ui, st => X().addPartnerPeople(st, { tripId, shop, people: list,
+      guide: list === PARTNER_SAMPLE ? guide || SAMPLE_GUIDE : guide, share: v.shares, today: R.today(), demo, at: nowIso(), newId: R.newId }),
+    v.back, (p) => (p === 'shop' ? 'このお店は乗り合いから外れています。乗り合いの画面で足してください' : GUIDE_FIRST), onOk);
+    const setGuide = (value) => {
+      if (!people.length) { d.guide = value.trim(); ui.rerender(); return; }
+      apply(ui, st => X().setPartnerGuide(st, { tripId, shop, guide: value, at: nowIso() }), v.back, () => GUIDE_FIRST);
+    };
+    const addOne = () => {
+      const name = d.name.trim();
+      if (!name) return;
+      if (!guide) { ui.go('partner', { tripId, shop, warn: GUIDE_FIRST }); return; }
+      add([{ name }], false, () => { d.name = ''; });
+    };
+    return el('div', { class: 'sheet' },
+      el('p', { class: 'sheet__title' }, '乗せる人', el('small', { text: `${people.length} 人` })),
+      el('label', { class: 'pickrow' }, el('span', { class: 'rd__k', text: 'ガイド' }),
+        el('input', { class: 'input', type: 'text', maxlength: 40, value: guide, placeholder: `例: ${SAMPLE_GUIDE}`, onchange: (e) => setGuide(e.target.value) })),
+      people.length ? el('ul', { class: 'bks bks--sheet' }, people.map(m => partnerPersonLine(m, v.trip, ui))) : null,
+      el('div', { class: 'addrow' },
+        el('input', { class: 'input', type: 'text', maxlength: 60, 'aria-label': '足す人の名前', placeholder: '名前（イニシャルでもよい）', value: d.name,
+          oninput: (e) => { d.name = e.target.value; } }),
+        el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: '1 人足す', onclick: addOne })),
+      people.length ? null : el('p', { class: 'sheet__note' }, button('見本の 4 人で試す', () => add(PARTNER_SAMPLE, true))));
+  }
+
+  /* 他のお店役: 健康の 2 欄を渡すかの面 */
+  function partnerHealthSheet(v, others, ui) {
+    const { tripId, shop, people, d, shares } = v;
+    const setShare = (on) => {
+      if (!people.length) { d.share = on; ui.rerender(); return; }
+      apply(ui, st => X().setPartnerShare(st, { tripId, shop, share: on, today: R.today(), at: nowIso() }), v.back, String);
+    };
+    return el('div', { class: 'sheet' },
+      el('p', { class: 'sheet__title', text: '健康の 2 欄（既往症・当日の健康状態）' }),
+      el('label', { class: 'agree' },
+        el('input', { type: 'checkbox', checked: shares, onchange: (e) => setShare(e.target.checked) }),
+        el('span', { text: `${people.length ? `${people.length} 人` : 'お客さん'}から、同じ船のお店（${others}）に既往症と当日の体調を渡す同意をもらった` })),
+      el('p', { class: 'sheet__note', text: shares
+        ? `チェックを外すと、入っている健康の答えを消し、名簿には「${shop}が確かめた」とだけ出します。`
+        : `今は健康の答えを渡しません。名簿には「${shop}が確かめた」とだけ出します。当日の体調は、便の日に「渡す」を押したら確かめた扱いになります。` }));
+  }
+
   function renderPartner({ tripId, shop, ui }) {
     const s = R.rosterStore.get();
     const g = X().boatGroups(s, tripId);
     if (!g) return notFound(ui, '乗せる人');
-    const { trip } = g;
-    if (!trip.partners.includes(shop)) {
+    const group = g.groups.find(x => !x.own && x.key === shop);   // 乗り合いから外れても人の残っているお店は、ここで直せる
+    if (!group) {
       return [...ui.head('乗せる人'), el('p', { class: 'errors', text: 'このお店は乗り合いに入っていません。' }),
         el('p', { class: 'reset' }, button('乗り合いに戻る', () => ui.go('share', { tripId }), 'linkbtn linkbtn--muted'))];
     }
-    const d = draftFor(`partner:${tripId}:${shop}`);
-    const group = g.groups.find(x => x.key === shop);
+    const { trip } = g;
     const people = group.members.filter(m => m.kind === 'person');
-    const guide = X().partnerGuide(s, tripId, shop) || d.guide;
-    const shares = people.length ? X().partnerShares(s, tripId, shop) : d.share;
+    const d = draftFor(`partner:${tripId}:${shop}`);
+    const v = { tripId, shop, trip, people, d, back: { mode: 'partner', ctx: { tripId, shop } },
+      guide: X().partnerGuide(s, tripId, shop) || d.guide, shares: people.length ? X().partnerShares(s, tripId, shop) : d.share };
     const others = g.groups.filter(x => x.key !== shop).map(x => x.name).join('・');
     const owner = X().boatOwner(s, trip);
-    const back = { mode: 'partner', ctx: { tripId, shop } };
-    const add = (list, demo) => apply(ui, st => X().addPartnerPeople(st, { tripId, shop, people: list, guide: list === PARTNER_SAMPLE ? guide || SAMPLE_GUIDE : guide,
-      share: shares, today: R.today(), demo, at: nowIso(), newId: R.newId }), back, () => GUIDE_FIRST);
-    const setGuide = (value) => {
-      if (!people.length) { d.guide = value.trim(); ui.rerender(); return; }
-      apply(ui, st => X().setPartnerGuide(st, { tripId, shop, guide: value, at: nowIso() }), back, () => GUIDE_FIRST);
-    };
-    const setShare = (on) => {
-      if (!people.length) { d.share = on; ui.rerender(); return; }
-      apply(ui, st => X().setPartnerShare(st, { tripId, shop, share: on, today: R.today(), at: nowIso() }), back, String);
-    };
     const handOver = () => {
-      const r = ui.save(st => X().handOver(st, { tripId, shop, at: nowIso() }));
-      ui.go('share', { tripId, saved: r.saved, notice: `${shop}から ${people.length} 人を受け取りました（健康の 2 欄${shares ? 'あり' : 'なし'}）` });
+      const r = ui.save(st => X().handOver(st, { tripId, shop, today: R.today(), at: nowIso() }));
+      if (r.error) { ui.go('partner', { tripId, shop, warn: '渡せませんでした。もう一度押してください' }); return; }
+      ui.go('share', { tripId, saved: r.saved, notice: `${shop}から ${people.length} 人を受け取りました（健康の 2 欄${v.shares ? 'あり' : 'なし'}）` });
     };
     const [, ...head] = ui.head(owner === shop ? '自分の船に乗せる人' : `${owner}の船に乗せる人`, `${when(ui, trip)}　${trip.boat || ''}`.trim());
     return [
       el('p', { class: 'flag flag--info roleflag' }, el('span', { text: `${shop}役で入れています` }),
         button('戻る', () => ui.go('share', { tripId }))),
       ...head,
-      el('div', { class: 'sheet' },
-        el('p', { class: 'sheet__title' }, '乗せる人', el('small', { text: `${people.length} 人` })),
-        el('label', { class: 'pickrow' }, el('span', { class: 'rd__k', text: 'ガイド' }),
-          el('input', { class: 'input', type: 'text', maxlength: 40, value: guide, placeholder: `例: ${SAMPLE_GUIDE}`, onchange: (e) => setGuide(e.target.value) })),
-        people.length ? el('ul', { class: 'bks bks--sheet' }, people.map(m => partnerPersonLine(m, trip, ui))) : null,
-        el('div', { class: 'addrow' },
-          el('input', { class: 'input', type: 'text', maxlength: 60, 'aria-label': '足す人の名前', placeholder: '名前（イニシャルでもよい）', value: d.name,
-            oninput: (e) => { d.name = e.target.value; } }),
-          el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: '1 人足す', onclick: () => {
-            const name = d.name.trim();
-            if (!name) return;
-            if (!guide) { ui.go('partner', { tripId, shop, warn: GUIDE_FIRST }); return; }
-            d.name = '';
-            add([{ name }], false);
-          } })),
-        people.length ? null : el('p', { class: 'sheet__note' }, button('見本の 4 人で試す', () => add(PARTNER_SAMPLE, true)))),
-      el('div', { class: 'sheet' },
-        el('p', { class: 'sheet__title', text: '健康の 2 欄（既往症・当日の健康状態）' }),
-        el('label', { class: 'agree' },
-          el('input', { type: 'checkbox', checked: shares, onchange: (e) => setShare(e.target.checked) }),
-          el('span', { text: `${people.length ? `${people.length} 人` : 'お客さん'}から、同じ船のお店（${others}）に既往症と当日の体調を渡す同意をもらった` })),
-        el('p', { class: 'sheet__note', text: shares
-          ? `チェックを外すと、入っている健康の答えを消し、名簿には「${shop}が確かめた」とだけ出します。`
-          : `今は健康の答えを渡しません。名簿には「${shop}が確かめた」とだけ出します。` })),
+      partnerPeopleSheet(v, ui),
+      partnerHealthSheet(v, others, ui),
       ui.dock(el('button', { class: 'btn', type: 'button', disabled: !people.length, text: `${s.shop.name}に渡す（${people.length} 人）`, onclick: handOver }))
     ];
   }
@@ -249,7 +264,9 @@
   }
 
   /* ---------- 合同名簿（印刷） ---------- */
-  function jointPaper(s, j) {
+  /* 船の上で使う確認用の紙。条例の名簿は、お店ごとに自分のお客さんの分を今日の名簿から作る（決定ログ own-roster） */
+  const JOINT_TITLE = '合同名簿（船の上の確認用）';
+  function jointPaper(j) {
     const { trip, items } = j;
     const law = R.dayRoster.LAW[trip.kind];
     const label = (key) => items.find(i => i.key === key).ja;
@@ -260,8 +277,8 @@
       [label('when'), `${slash(trip.date)} ${trip.start ? clock(trip.start) : ''}`.trim()], [label('site'), trip.site || '—'],
       ['人数', `${j.people}（ガイド ${j.guides} 人を除く）`]];
     const cell = (v) => el('td', { class: v ? null : 'paper__none', text: v || '—' });
-    return el('section', { class: 'paper', 'aria-label': `${law.title}（乗り合い）`, 'data-trip': trip.id, 'data-people': String(j.people), 'data-paper': 'joint' },
-      el('h3', { class: 'paper__title', text: `${law.title}（乗り合い）` }),
+    return el('section', { class: 'paper', 'aria-label': JOINT_TITLE, 'data-trip': trip.id, 'data-people': String(j.people), 'data-paper': 'joint' },
+      el('h3', { class: 'paper__title', text: JOINT_TITLE }),
       el('p', { class: 'paper__meta' }, meta.map(([k, v]) => el('span', {}, `${k} `, el('b', { text: v })))),
       notDone ? el('p', { class: 'paper__warn', text: `まだそろっていない人が ${notDone} 人います（— の欄）。そろってから印刷し直してください。` }) : null,
       noTag ? el('p', { class: 'paper__warn', text: `札の番号がまだの人が ${noTag} 人います。合同名簿の画面で番号を付けてください。` }) : null,
@@ -272,7 +289,7 @@
           ...x.rows.map(r => el('tr', {}, el('td', { class: r.tag ? 'paper__tag' : 'paper__none', text: r.tag || '—' }), items.map(i => cell(r.cells[i.key]))))
         ])))),
       el('p', { class: 'paper__foot' },
-        el('span', { text: `この名簿は ${slash(C().keepUntil(trip.date))} まで残す（作成の日から 1 年。${law.rule}）` }),
+        el('span', { text: `条例の${law.title}は、お店ごとに自分のお客さんの分を作る（今日の名簿から印刷）` }),
         el('span', { text: `印刷 ${shortTime(nowIso())}　見る人はこの船のお店の人だけ。健康の欄は人に見せない` })));
   }
 
@@ -281,11 +298,17 @@
     const j = X().jointRows(s, tripId, healthShort());
     if (!j) return notFound(ui, '合同名簿');
     return [
-      ...ui.head(`${R.dayRoster.LAW[j.trip.kind].title}（乗り合い）`, `${when(ui, j.trip)}。印刷の画面で「PDF に保存」も選べます`),
-      jointPaper(s, j),
+      ...ui.head(JOINT_TITLE, `${when(ui, j.trip)}。印刷の画面で「PDF に保存」も選べます`),
+      jointPaper(j),
       el('p', { class: 'reset' }, button('合同名簿に戻る', () => ui.go('joint', { tripId }), 'linkbtn linkbtn--muted')),
-      ui.dock(el('button', { class: 'btn', type: 'button', text: '印刷する', onclick: () => window.print() }))
+      ui.dock(printButton())
     ];
+  }
+
+  /* 印刷のボタン。「札の番号を付ける」を続けて押したとき、同じ所に出たこのボタンで印刷の画面を開かない */
+  function printButton() {
+    const shownAt = Date.now();
+    return el('button', { class: 'btn', type: 'button', text: '印刷する', onclick: () => { if (Date.now() - shownAt >= PRINT_ARM_MS) window.print(); } });
   }
 
   /* ---------- 札ボード（印刷）。1 枚目がボード、2 枚目から切り取る札 ---------- */
@@ -329,7 +352,7 @@
       boardPaper(g, ui),
       tagPaper(g),
       el('p', { class: 'reset' }, button('合同名簿に戻る', () => ui.go('joint', { tripId }), 'linkbtn linkbtn--muted')),
-      ui.dock(el('button', { class: 'btn', type: 'button', text: '印刷する', onclick: () => window.print() }))
+      ui.dock(printButton())
     ];
   }
 
@@ -340,12 +363,16 @@
     if (!g) return notFound(ui, 'ポイントを離れる前');
     const { trip } = g;
     const checks = X().leaveChecks(trip);
+    const last = checks[checks.length - 1];
     const record = () => {
-      if (Date.now() - lastLeave < LEAVE_GUARD_MS) { ui.go('leave', { tripId, notice: 'いま記録しました' }); return; }
-      lastLeave = Date.now();
-      const at = nowIso();
-      const r = ui.save(st => X().recordLeave(st, { tripId, at }));
-      ui.go('leave', r.error ? { tripId, warn: '記録できませんでした' } : { tripId, saved: r.saved, notice: `${checks.length + 1} 回目を記録しました（${hm(at)}）` });
+      const now = Date.now();
+      if (X().leaveRepeat(last ? Date.parse(last.at) : null, now)) { ui.go('leave', { tripId, notice: 'いま記録しました' }); return; }
+      const at = new Date(now).toISOString();
+      let problem = null;
+      const r = ui.save(st => { const out = X().recordLeave(st, { tripId, at }); problem = out.problem; return out.state; });
+      if (r.error) { ui.go('leave', { tripId, warn: '記録できませんでした。もう一度押してください' }); return; }
+      if (problem) { ui.go('leave', { tripId, warn: LEAVE_PROBLEM_JA[problem] || problem }); return; }
+      ui.go('leave', { tripId, saved: r.saved, notice: `${checks.length + 1} 回目を記録しました（${hm(at)}）` });
     };
     return [
       ...ui.head('ポイントを離れる前', `${trip.boat || '船'}　${when(ui, trip)}。数えるのは札ボードで。「海の中」が 0 枚になったら、下のボタンを 1 回押す`),
@@ -360,7 +387,7 @@
           el('span', {}, `${i + 1} 回目　ポイントを離れる前`, el('small', { text: `全員戻った（札 ${c.tags === undefined ? '—' : c.tags} 枚）` })))),
         el('div', { class: 'logrow' }, el('time', { text: '―' }), el('span', {}, `${checks.length + 1} 回目`, el('small', { text: 'まだ' })))),
       el('p', { class: 'reset' }, button('合同名簿に戻る', () => ui.go('joint', { tripId }), 'linkbtn linkbtn--muted')),
-      ui.dock(el('button', { class: 'btn', type: 'button', text: '全員戻った（札 0 枚）', onclick: record }))
+      ui.dock(el('button', { class: 'btn', type: 'button', text: '全員戻った（札 0 枚）', disabled: !g.aboard || g.untagged > 0, onclick: record }))
     ];
   }
 

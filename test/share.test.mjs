@@ -12,7 +12,7 @@ load('../js/roster-guest.js');
 load('../js/roster-day.js');
 load('../js/roster-share.js');
 load('../js/data-samples.js');
-const { roster: S, rosterCore: C, rosterDay: D, rosterShare: X, SAMPLE_READINGS } = globalThis.REDUX;
+const { roster: S, rosterCore: C, rosterGuest: G, rosterDay: D, rosterShare: X, SAMPLE_READINGS } = globalThis.REDUX;
 
 const AT = '2026-10-21T09:00:00.000Z';
 const TODAY = '2026-10-21';
@@ -96,16 +96,24 @@ test('他のお店のお客さん（同意あり）: 出どころ partner の予
   assert.ok(S.validateState(r.state).ok);
 });
 
-test('他のお店のお客さん（同意なし）: 健康の答えは入れず、名簿の 2 欄は「そのお店が確かめた」', () => {
+test('他のお店のお客さん（同意なし）: 健康の答えは入れず、既往症は「そのお店が確かめた」。当日の欄は便の日に「渡す」を押したらそろう', () => {
   const r = addTwo(withPartner, false);
   const sakura = r.state.people.find(p => p.id === r.ids[1]);
   assert.ok(sakura.health.answers.every(a => a === null));
-  assert.deepEqual([sakura.health.today, sakura.health.heldBy, sakura.health.consentVer], ['', PARTNER, '']);
+  assert.deepEqual([sakura.health.today, sakura.health.todayAt, sakura.health.heldBy, sakura.health.consentVer], ['', '', PARTNER, '']);
   const t = tripOf(r.state);
   assert.equal(C.cellText(sakura, t, 'history', HEALTH_SHORT), `${PARTNER}が確かめた`);
-  assert.equal(C.cellText(sakura, t, 'today', HEALTH_SHORT), `${PARTNER}が確かめた`);
-  assert.deepEqual(C.status(sakura, t).missing, ['address'], '健康の 2 欄はそろった扱い。住所だけまだ');
+  assert.equal(C.cellText(sakura, t, 'today', HEALTH_SHORT), '', '便の前は、当日の体調をまだ誰も確かめていない');
+  assert.deepEqual(C.status(sakura, t).missing, ['address', 'today'], '住所と当日の欄がまだ');
   assert.deepEqual(C.askGuest(sakura, t), ['address'], 'お客さんに健康を聞かない');
+  const early = X.handOver(r.state, { tripId: 't1', shop: PARTNER, today: TODAY, at: AT });
+  assert.equal(C.status(X.shopPeople(early, 't1', PARTNER)[1], t).missing.includes('today'), true, '便の前に渡しても、当日の欄はそろわない');
+  const onDay = X.handOver(r.state, { tripId: 't1', shop: PARTNER, today: t.date, at: AT });
+  const later = X.shopPeople(onDay, 't1', PARTNER)[1];
+  assert.equal(C.cellText(later, t, 'today', HEALTH_SHORT), `${PARTNER}が確かめた`);
+  assert.deepEqual(C.status(later, t).missing, ['address']);
+  assert.ok(later.health.answers.every(a => a === null) && later.health.today === '', '答えは持たないまま');
+  assert.ok(S.validateState(onDay).ok);
   assert.equal(X.partnerShares(r.state, 't1', PARTNER), false);
   assert.ok(!r.state.log.some(e => e.demo === true), '健康を入れていないので、見本の印も無い');
 });
@@ -129,6 +137,47 @@ test('健康の 2 欄を渡すのをやめると、入っていた答えと同�
   const on = X.setPartnerShare(off, { tripId: 't1', shop: PARTNER, share: true, today: TODAY, at: AT });
   X.shopPeople(on, 't1', PARTNER).forEach(p => assert.deepEqual([p.health.heldBy, p.health.consentVer], ['', X.PARTNER_CONSENT_VER]));
   assert.ok(S.validateState(on).ok);
+  assert.equal(X.setPartnerShare(off, { tripId: 't1', shop: PARTNER, share: false, today: TODAY, at: AT }), off, 'もう渡さない形なら何もしない');
+});
+
+test('記録には健康の答えの中身を残さない（印を外して答えを消したら、記録からも読めない）', () => {
+  const unwell = { ...ICHIRO, health: { answers: ['yes', 'no', 'no', 'no', 'no'], today: 'unwell' } };
+  const st = X.addPartnerPeople(withPartner, { tripId: 't1', shop: PARTNER, people: [unwell], guide: '見本 三郎', share: true, today: TODAY, demo: true, at: AT, newId }).state;
+  const off = X.setPartnerShare(st, { tripId: 't1', shop: PARTNER, share: false, today: TODAY, at: AT });
+  const text = JSON.stringify(off.log);
+  assert.ok(!text.includes('"yes"') && !text.includes('unwell') && !text.includes('"answers"'), '答えの中身が記録に無い');
+  const e = off.log[off.log.length - 1];
+  assert.deepEqual([e.fields, e.before.health, e.after.health], [['health'],
+    { answered: 5, today: true, todayAt: '2026-10-24', heldBy: '', consentVer: X.PARTNER_CONSENT_VER },
+    { answered: 0, today: false, todayAt: '', heldBy: PARTNER, consentVer: '' }], '答えた数と、誰が確かめたかだけ');
+});
+
+test('他のお店の当日の体調は、答えた日で入れる（便の日の前に答えた物は当日の分にしない）', () => {
+  const r = X.addPartnerPeople(withPartner, { tripId: 't1', shop: PARTNER, people: [ICHIRO], guide: '見本 三郎', share: true, today: TODAY, at: AT, newId });
+  const ichiro = r.state.people.find(p => p.id === r.ids[0]);
+  assert.deepEqual([ichiro.health.today, ichiro.health.todayAt], ['ok', TODAY]);
+  assert.equal(C.cellText(ichiro, tripOf(r.state), 'today', HEALTH_SHORT), '');
+  assert.ok(C.status(ichiro, tripOf(r.state)).missing.includes('today'));
+  assert.ok(!r.state.log.some(e => e.demo === true), '見本でなければ印は付けない');
+});
+
+test('もう人のいるお店に足すときは、そのお店の今の形に合わせる（渡す人と渡さない人を混ぜない）', () => {
+  const held = addTwo(withPartner, false).state;
+  const more = X.addPartnerPeople(held, { tripId: 't1', shop: PARTNER, people: [ICHIRO], guide: '見本 三郎', share: true, today: TODAY, at: AT, newId });
+  const added = more.state.people.find(p => p.id === more.ids[0]);
+  assert.deepEqual([added.health.heldBy, added.health.answers.every(a => a === null)], [PARTNER, true]);
+  assert.equal(X.partnerShares(more.state, 't1', PARTNER), false);
+});
+
+test('健康を渡さない人には、この店の側で健康の答えを入れない（お客さんの入力・当日の体調・パスポート）', () => {
+  const r = addTwo(withPartner, false);
+  const id = r.ids[0];
+  assert.deepEqual(G.answerToday(r.state, { id, answer: 'unwell', day: '2026-10-24', consent: true, today: TODAY, at: AT }).problems, ['held']);
+  const offer = { name: '見本 一郎', items: [{ key: 'history', label: '既往症', patch: { health: { answers: NO5, historyAt: TODAY } } }] };
+  const fromPass = G.applyPassport(r.state, { id, offer, keys: ['history'], otherName: true, consent: true, today: TODAY, at: AT }).state;
+  assert.ok(fromPass.people.find(p => p.id === id).health.answers.every(a => a === null), 'パスポートからも入らない');
+  const person = r.state.people.find(p => p.id === id);
+  assert.equal(S.validatePerson({ ...person, health: { ...person.health, answers: NO5, historyAt: TODAY } }).ok, false, '形の検査でも、答えを持てない');
 });
 
 test('ガイドを替えると、そのお店の全員に入る。空にはできない', () => {
@@ -137,6 +186,31 @@ test('ガイドを替えると、そのお店の全員に入る。空にはで�
   assert.deepEqual(X.shopPeople(r.state, 't1', PARTNER).map(p => p.guide), ['見本 四郎', '見本 四郎']);
   assert.equal(X.partnerGuide(r.state, 't1', PARTNER), '見本 四郎');
   assert.equal(X.setPartnerGuide(st, { tripId: 't1', shop: PARTNER, guide: '', at: AT }).problem, 'guide');
+});
+
+test('札を付けた後にガイドの名前を直しても、札の番号は変わらない', () => {
+  const tagged = X.assignTags(addTwo(withPartner, true).state, { tripId: 't1', at: AT });
+  const r = X.setPartnerGuide(tagged, { tripId: 't1', shop: PARTNER, guide: '見本 四郎', at: AT });
+  const t = tripOf(r.state);
+  assert.deepEqual(t.tags.find(x => x.no === 'C-1'), { guide: '見本 四郎', shop: PARTNER, no: 'C-1' });
+  assert.equal(t.tags.length, 6, '札は増えない');
+  const g = X.boatGroups(r.state, 't1');
+  assert.deepEqual([g.groups[1].members[0].tag, g.untagged, g.tagged], ['C-1', 0, 6]);
+  assert.ok(S.validateState(r.state).ok);
+});
+
+test('名簿の取り込み（自分の店の申込書）は、同じ名前の他のお店のお客さんに入れない', () => {
+  const twin = X.addPartnerPeople(withPartner, { tripId: 't1', shop: PARTNER, people: [{ name: '見本 花子' }], guide: '見本 三郎', share: true, today: TODAY, at: AT, newId }).state;
+  const read = { ...JSON.parse(JSON.stringify(SAMPLE_READINGS.c1.people[0])), name: '見本 花子' };
+  const r = C.applyReading(twin, { tripId: 't1', read, src: 'paper', at: AT });
+  const own = C.peopleOf(twin, 't1', { own: true }).find(p => p.name === '見本 花子');
+  assert.equal(r.personId, own.id);
+});
+
+test('出どころ partner の予約は、お店の名前が要る', () => {
+  const b = base.bookings[0];
+  assert.equal(S.validateBooking({ ...b, source: 'partner', shop: '' }).ok, false);
+  assert.equal(S.validateBooking({ ...b, source: 'partner', shop: PARTNER }).ok, true);
 });
 
 test('今日の名簿と条例の名簿（P4）は、自分の店のお客さんだけ', () => {
@@ -193,13 +267,30 @@ test('札の形: 番号の重なり・名前の無いガイドの札は合わな
 
 test('ポイントを離れる前: 押すたびに時刻と札の枚数を足す（消さない）', () => {
   const tagged = X.assignTags(addTwo(withPartner, true).state, { tripId: 't1', at: AT });
-  const once = X.recordLeave(tagged, { tripId: 't1', at: '2026-10-24T01:31:00.000Z' });
-  const twice = X.recordLeave(once, { tripId: 't1', at: '2026-10-24T03:02:00.000Z' });
+  const once = X.recordLeave(tagged, { tripId: 't1', at: '2026-10-24T01:31:00.000Z' }).state;
+  const twice = X.recordLeave(once, { tripId: 't1', at: '2026-10-24T03:02:00.000Z' }).state;
   assert.deepEqual(X.leaveChecks(tripOf(twice)).map(c => [c.at, c.tags, c.missing]),
     [['2026-10-24T01:31:00.000Z', 6, []], ['2026-10-24T03:02:00.000Z', 6, []]]);
   const e = twice.log[twice.log.length - 1];
   assert.deepEqual([e.act, e.kind, e.after], ['aboard', 'trip', { stage: 'leave', tags: 6 }]);
   assert.ok(S.validateState(twice).ok);
+});
+
+test('ポイントを離れる前: 札の番号が無い人がいる・誰もいないときは残さない', () => {
+  const tagged = X.assignTags(addTwo(withPartner, true).state, { tripId: 't1', at: AT });
+  const more = X.addPartnerPeople(tagged, { tripId: 't1', shop: PARTNER, people: [{ name: 'Lena Fischer' }], guide: '見本 三郎', share: true, today: TODAY, at: AT, newId }).state;
+  const r = X.recordLeave(more, { tripId: 't1', at: AT });
+  assert.deepEqual([r.problem, r.state], ['untagged', more]);
+  const empty = X.recordLeave({ ...S.blankState(OWN), trips: [{ ...trip, guides: [] }] }, { tripId: 't1', at: AT });
+  assert.equal(empty.problem, 'empty');
+});
+
+test('ポイントを離れる前: 前の記録から 10 秒たたずに押したのは 2 回目と数えない', () => {
+  const t0 = Date.parse('2026-10-24T01:31:00.000Z');
+  assert.equal(X.leaveRepeat(null, t0), false, 'まだ記録が無い');
+  assert.equal(X.leaveRepeat(t0, t0 + 9999), true);
+  assert.equal(X.leaveRepeat(t0, t0 + 10000), false);
+  assert.equal(X.leaveRepeat(t0, t0 - 1), false, '端末の時計が戻っても止めない');
 });
 
 test('合同名簿: お店ごとに、札の番号と条例の項目。ガイドは名簿に入れず、他店のお客さんのガイドはそのお店のガイド', () => {
@@ -208,17 +299,17 @@ test('合同名簿: お店ごとに、札の番号と条例の項目。ガイド
   assert.deepEqual([j.people, j.guides, j.owner], [4, 2, OWN]);
   assert.deepEqual(j.groups.map(g => g.rows.map(r => r.tag)), [['B-2', 'B-3'], ['C-2', 'C-3']]);
   const ichiro = j.groups[1].rows[0].cells;
-  assert.deepEqual([ichiro.name, ichiro.guide, ichiro.history, ichiro.site], ['見本 一郎', '見本 三郎', `${PARTNER}が確かめた`, '北の根']);
+  assert.deepEqual([ichiro.name, ichiro.guide, ichiro.history, ichiro.today, ichiro.site], ['見本 一郎', '見本 三郎', `${PARTNER}が確かめた`, '', '北の根']);
   assert.equal(j.groups[0].rows[0].cells.guide, '見本 ガイド');
 });
 
 test('受け取った記録: 人数と、健康の欄を受け取ったかだけ', () => {
-  const shared = X.handOver(addTwo(withPartner, true).state, { tripId: 't1', shop: PARTNER, at: AT });
+  const shared = X.handOver(addTwo(withPartner, true).state, { tripId: 't1', shop: PARTNER, today: TODAY, at: AT });
   const e = shared.log[shared.log.length - 1];
   assert.deepEqual([e.act, e.kind, e.after], ['handover', 'booking', { people: 2, health: true }]);
-  const held = X.handOver(addTwo(withPartner, false).state, { tripId: 't1', shop: PARTNER, at: AT });
+  const held = X.handOver(addTwo(withPartner, false).state, { tripId: 't1', shop: PARTNER, today: TODAY, at: AT });
   assert.equal(held.log[held.log.length - 1].after.health, false);
-  assert.equal(X.handOver(withPartner, { tripId: 't1', shop: PARTNER, at: AT }), withPartner, 'まだ誰もいなければ何も残さない');
+  assert.equal(X.handOver(withPartner, { tripId: 't1', shop: PARTNER, today: TODAY, at: AT }), withPartner, 'まだ誰もいなければ何も残さない');
   assert.ok(S.validateState(shared).ok);
 });
 

@@ -41,7 +41,7 @@
     const before = typeof today === 'string' && today < trip.date;
     const onlyMorning = (x) => before && x.unsure.length === 0 && x.guest.length === 1 && x.guest[0] === 'today';
     const needs = (x) => !onlyMorning(x) && (x.unsure.length > 0 || x.guest.length > 0);
-    const count = C().bookingsOf(state, tripId).filter(b => b.source !== 'partner').reduce((n, b) => n + b.people, 0);
+    const count = C().bookingsOf(state, tripId).filter(b => !C().isPartnerBooking(b)).reduce((n, b) => n + b.people, 0);
     return { trip, items, tripMissing, check: people.filter(needs), morning: people.filter(onlyMorning),
       ready: people.filter(x => !needs(x) && !onlyMorning(x)), count };
   }

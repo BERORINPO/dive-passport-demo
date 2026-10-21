@@ -80,6 +80,8 @@
     if (!person) throw new Error(`お客さんの入力: 人が見つからない (${id})`);
     return guestView(state, person.bookingId).people.find(v => v.person.id === id);
   };
+  /* 乗り合いの他のお店が健康の答えを持つ人。この店では健康の答えを入れない */
+  const held = (entry) => !!entry.person.health.heldBy;
 
   /* ---------- 入力の欄 ---------- */
   /* 入力の形: { birthDate, address, emergency: { name, relation, phone }, cert: { course, date }, courses, dives, lastDive, answers, consent }
@@ -141,6 +143,7 @@
     const problems = guestProblems(input, entry.ask, entry.parts);
     if (problems.length) return { state, problems };
     const patch = guestPatch(input, entry.ask, today, entry.parts);
+    if (patch.health && held(entry)) return { state, problems: ['held'] };
     const markUnsure = halfCert(patch, entry.parts) ? ['cert'] : [];
     return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'guest', at, markUnsure }), problems: [] };
   }
@@ -151,6 +154,7 @@
     if (!['ok', 'unwell'].includes(answer)) throw new Error(`answerToday: answer は ok / unwell (${answer})`);
     if (!DAY.test(day)) throw new Error(`answerToday: day は YYYY-MM-DD (${day})`);
     const entry = entryOf(state, id);
+    if (held(entry)) return { state, problems: ['held'] };
     if (!entry.consented && consent !== true) return { state, problems: ['consent'] };
     const agree = entry.consented ? {} : { consentAt: DAY.test(today || '') ? today : day, consentVer: CONSENT_VER };
     return { state: C().editPerson(state, { id, patch: { health: { today: answer, todayAt: day, ...agree } }, who: 'guest', src: 'guest', at, demo: demo === true }),
@@ -257,6 +261,7 @@
     ].filter(Boolean);
     if (problems.length || !chosen.length) return { state, problems };
     const patch = chosen.reduce((acc, i) => ({ ...acc, ...i.patch }), {});
+    if (patch.health && held(entry)) return { state, problems: ['held'] };
     if (patch.health && !entry.consented) patch.health = { ...patch.health, consentAt: DAY.test(today || '') ? today : patch.health.historyAt, consentVer: CONSENT_VER };
     const markUnsure = halfCert(patch, entry.parts) ? ['cert'] : [];
     return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'passport', at, markUnsure }), problems: [] };

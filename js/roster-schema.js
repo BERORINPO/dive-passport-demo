@@ -143,18 +143,20 @@
       !isStr(b.site, 40) && 'site', !isStr(b.ref, 60) && 'ref', !isStr(b.leadName, 60) && 'leadName',
       !isStr(b.leadPhone, 30) && 'leadPhone',
       !(Number.isInteger(b.people) && b.people >= 1 && b.people <= MAX_PEOPLE) && 'people',
-      !isStr(b.shop, 60) && 'shop', !isStr(b.note, 400) && 'note', !isStr(b.createdAt, 40) && 'createdAt'
+      !(isStr(b.shop, 60) && (b.source !== 'partner' || b.shop.trim() !== '')) && 'shop', !isStr(b.note, 400) && 'note', !isStr(b.createdAt, 40) && 'createdAt'
     ]);
   }
 
   /* consentAt・consentVer は、お客さんが健康の答えに同意した日と同意の文の版（P3 で足した。無くてもよい）。
-     heldBy は、乗り合いの他のお店が健康の答えを渡さずに「確かめた」とだけ言ったときの、そのお店の名前（P5。無くてもよい） */
+     heldBy は、乗り合いの他のお店が健康の答えを渡さずに「確かめた」とだけ言ったときの、そのお店の名前（P5。無くてもよい）。
+     heldBy のある人は答えを持たない。todayAt は、そのお店が便の日に当日の体調を確かめた日 */
   function healthOk(h) {
     return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer', 'heldBy']) && isDay(h.historyAt) &&
       isList(h.answers, HEALTH_QUESTIONS, isAnswer) && h.answers.length === HEALTH_QUESTIONS &&
       isDay(h.todayAt) && TODAY.includes(h.today) &&
       (h.consentAt === undefined || isDay(h.consentAt)) && (h.consentVer === undefined || isStr(h.consentVer, 20)) &&
-      (h.heldBy === undefined || isStr(h.heldBy, 60));
+      (h.heldBy === undefined || isStr(h.heldBy, 60)) &&
+      (!h.heldBy || (h.answers.every(a => a === null) && h.today === '' && h.historyAt === ''));
   }
 
   /* 人の項目（AI の答えと名簿の人で同じ検査）。入れ子の中も決まった名前だけ */
