@@ -32,6 +32,12 @@
   --sound-bg: oklch(99% 0.004 85 / 0.92);
   --sound-ink: oklch(29% 0.020 190);
   --qr-bg: oklch(100% 0 0); /* QR は白地でないと読めない。暗い画面設定でも白のまま */
+  /* 条例の名簿は紙の色のまま（暗い画面設定でも白地に黒。印刷と同じ見た目） */
+  --paper-bg: oklch(100% 0 0);
+  --paper-ink: oklch(18% 0 0);
+  --paper-rule: oklch(45% 0 0);
+  --paper-head: oklch(93% 0 0);
+  --paper-faint: oklch(65% 0 0);
 
   --font-body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
   --font-figure: "BIZ UDGothic", "BIZ UDPGothic", ui-monospace, "Menlo", monospace;
@@ -289,6 +295,40 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .today { margin-top: 16px; }
 .big { display: block; width: 100%; text-align: left; padding: 14px 16px; margin-top: 10px; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--surface); color: var(--ink); font-size: 17px; font-weight: 700; cursor: pointer; }
 .big small { display: block; margin-top: 2px; font-size: 13px; font-weight: 400; color: var(--muted); }
+/* ---------- 今日の名簿・条例の名簿・カレンダー・記録 ---------- */
+.trip__links { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 0; }
+.pickrow { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--line); }
+.sheet__title + .pickrow { border-top: 0; }
+.pickrow .input { min-height: 40px; }
+.bks--sheet { margin: 0; padding: 0 14px; }
+.bks--sheet .bk:first-child { border-top: 0; }
+.ics { margin: 0 14px 8px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; }
+.sheet__title + .ics { margin-top: 10px; }
+.logrow { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 14px; }
+.sheet__title + .logrow { border-top: 0; }
+.logrow time { font-family: var(--font-figure); color: var(--muted); font-size: 13px; }
+.logrow small { display: block; color: var(--muted); font-size: 12px; }
+/* 条例の名簿。画面では横に送れる紙、印刷では A4 横 */
+.paper { margin-top: 16px; padding: 16px; background: var(--paper-bg); color: var(--paper-ink); border: 1px solid var(--line-2); border-radius: var(--radius); }
+.paper__title { margin: 0; font-size: 20px; }
+.paper__meta { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 6px 0 10px; font-size: 12px; }
+.paper__meta b { font-family: var(--font-figure); }
+.paper__warn { margin: 0 0 8px; font-size: 12px; font-weight: 700; }
+.paper__wrap { overflow-x: auto; }
+.paper__table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; font-size: 11px; line-height: 1.4; }
+.paper__table th, .paper__table td { border: 1px solid var(--paper-rule); padding: 4px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.paper__table th { background: var(--paper-head); font-weight: 700; }
+.paper__none { color: var(--paper-faint); }
+.paper__foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; margin: 10px 0 0; font-size: 11px; }
+@page { size: A4 landscape; margin: 10mm; }
+@media print {
+  html, body { background: var(--paper-bg); }
+  body * { visibility: hidden; }
+  .paper, .paper * { visibility: visible; }
+  .paper { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; border: 0; }
+  .paper__wrap { overflow: visible; }
+  .paper__table { min-width: 0; }
+}
 .big[aria-pressed="true"] { border-color: var(--accent); outline: 1px solid var(--accent); outline-offset: -2px; background: var(--accent-soft); }
 .timetable { margin-bottom: 24px; }
 .bk__meta { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }

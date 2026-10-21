@@ -6,9 +6,9 @@
 | 役割 | パス |
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js |
-| core | js/roster-core.js js/roster-guest.js js/match.js js/health-redact.js js/photo-mask.js |
+| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/match.js js/health-redact.js js/photo-mask.js |
 | adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js |
-| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js |
+| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - 外へ通信してよいのは js/ai-reader.js だけ。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）

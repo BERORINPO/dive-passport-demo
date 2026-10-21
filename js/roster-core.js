@@ -338,6 +338,30 @@
       entry(at, who, 'edit', 'person', id, { fields: keys, before: pick(before, keys), after: pick(after, keys), ...(demo === true ? { demo: true } : {}) }));
   }
 
+  /* ---------- 便で決めること（潜水場所・ガイド）と、名簿を書き出した記録 ---------- */
+  const TRIP_EDITABLE = ['site', 'guides'];
+  /* お店が便の潜水場所・ガイドを入れる。前と後を記録に残す */
+  function editTrip(state, { tripId, patch, at }) {
+    const before = state.trips.find(t => t.id === tripId);
+    if (!before) throw new Error(`editTrip: 便が見つからない (${tripId})`);
+    const clean = Object.fromEntries(Object.keys(patch).filter(k => TRIP_EDITABLE.includes(k)).map(k => [k,
+      k === 'site' ? String(patch[k]).trim() : (Array.isArray(patch[k]) ? patch[k] : []).map(g => String(g).trim()).filter(Boolean)]));
+    const after = { ...before, ...clean };
+    const keys = Object.keys(clean).filter(k => !same(after[k], before[k]));
+    if (!keys.length) return state;
+    const v = S().validateTrip(after);
+    if (!v.ok) throw new Error(`editTrip: 便の形が合わない (${v.errors.join(',')})`);
+    return withLog({ ...state, trips: state.trips.map(t => (t.id === tripId ? after : t)) },
+      entry(at, 'staff', 'edit', 'trip', tripId, { fields: keys, before: pick(before, keys), after: pick(after, keys) }));
+  }
+
+  /* 名簿を印刷した・CSV に書き出した。人数だけを残す（中身は残さない） */
+  function logOutput(state, { tripId, act, people, at }) {
+    if (!['print', 'csv'].includes(act)) throw new Error(`logOutput: act は print / csv (${act})`);
+    if (!state.trips.some(t => t.id === tripId)) throw new Error(`logOutput: 便が見つからない (${tripId})`);
+    return withLog(state, entry(at, 'staff', act, 'trip', tripId, { after: { people: Number(people) || 0 } }));
+  }
+
   /* お店が全部を確かめた。自信なしの印を外す */
   function checkPerson(state, { id, at }) {
     const p = state.people.find(x => x.id === id);
@@ -432,7 +456,7 @@
     COURSE_JA, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, toCheck,
-    mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi,
+    mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
   };
 })();

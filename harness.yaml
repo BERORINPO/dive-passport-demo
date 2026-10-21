@@ -1,7 +1,7 @@
 # 検査の入口。Node 18 以上だけで動く（npm の部品なし）
 # turtle3d.js だけは import を使う ES module なので、module として検査する
 typecheck: for f in js/*.js; do [ "$f" = js/turtle3d.js ] && continue; node --check "$f" || exit 1; done && node --input-type=module --check < js/turtle3d.js
-offline_smoke: node test/roster.test.mjs && node test/guest.test.mjs && node test/ai-reader.test.mjs && node test/booking-flow.test.mjs && node test/photo-mask.test.mjs && node test/pass.roundtrip.test.mjs && node test/match.eval.mjs --check
+offline_smoke: node test/roster.test.mjs && node test/guest.test.mjs && node test/day.test.mjs && node test/ai-reader.test.mjs && node test/booking-flow.test.mjs && node test/photo-mask.test.mjs && node test/pass.roundtrip.test.mjs && node test/match.eval.mjs --check
 arch: node test/arch.check.mjs
 contract: (P6 で足す) 置いたあとの Worker で、見本 16 件の読み取りと上限の止まり方を確かめる
 

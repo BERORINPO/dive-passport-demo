@@ -29,9 +29,11 @@
   };
 
   let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
+                            // day（今日の名簿）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
   let intakeTrip = '';
   let reviewPerson = '';
   let askBooking = '';
+  let dayTrip = '';
   let day = '';
   let notice = null;        // { kind: 'ok' | 'warn', text }
   let armedReset = false;
@@ -69,8 +71,8 @@
   function go(next, ctx = {}) {
     mode = next;
     armedReset = false;
-    notice = ctx.saved === false ? { kind: 'warn', text: NOT_SAVED } : ctx.notice ? { kind: 'ok', text: ctx.notice } : null;
-    if (ctx.tripId) intakeTrip = ctx.tripId;
+    notice = ctx.saved === false ? { kind: 'warn', text: NOT_SAVED } : ctx.warn ? { kind: 'warn', text: ctx.warn } : ctx.notice ? { kind: 'ok', text: ctx.notice } : null;
+    if (ctx.tripId) { intakeTrip = ctx.tripId; dayTrip = ctx.tripId; }
     if (ctx.personId) reviewPerson = ctx.personId;
     if (ctx.bookingId) askBooking = ctx.bookingId;
     if (next === 'mail') mail = blankMail();
@@ -128,7 +130,9 @@
           el('h3', { class: 'trip__title', text: trip.tour || KIND_JA[trip.kind] }),
           el('span', { class: 'trip__count' }, el('b', { text: String(C().tripSummary(s, trip.id).booked) }), ' 人')),
         rows.length ? el('ul', { class: 'bks' }, rows.map(bookingLine)) : el('p', { class: 'note', text: 'この便の予約はまだありません' }),
-        rows.length ? el('button', { class: 'linkbtn', type: 'button', text: '名簿の取り込み（申込書・C カード）', onclick: () => go('intake', { tripId: trip.id }) }) : null));
+        rows.length ? el('p', { class: 'trip__links' },
+          el('button', { class: 'linkbtn', type: 'button', text: '今日の名簿', onclick: () => go('day', { tripId: trip.id }) }),
+          el('button', { class: 'linkbtn', type: 'button', text: '名簿の取り込み（申込書・C カード）', onclick: () => go('intake', { tripId: trip.id }) })) : null));
   }
 
   function resetButton() {
@@ -433,6 +437,7 @@
   /* ---------- 描く ---------- */
   /* 名簿の取り込みと確かめる画面（intake-photo.js）に渡す道具 */
   const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back, dock };
+  const DAY_MODES = { day: 'renderDay', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
 
   function render() {
     mailOut = null;
@@ -441,7 +446,8 @@
     const body = mode === 'mail' ? renderMail() : mode === 'phone' ? renderPhone()
       : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
-          : mode === 'ask' ? renderAskLink() : renderList();
+          : mode === 'ask' ? renderAskLink()
+            : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui }) : renderList();
     R.fill(root, body);
     if (mode === 'list') showPickedDay();
   }
@@ -456,5 +462,5 @@
   }
 
   R.renderBooking = render;
-  R.rosterStore.subscribe(() => { if ((mode === 'list' || mode === 'ask') && !document.getElementById('view-booking').hidden) render(); });
+  R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
 })();

@@ -194,6 +194,15 @@
     el,
     /* replaceChildren は null を "null" という文字にしてしまうので、空のものを除いてから入れ替える */
     fill: (node, ...kids) => node.replaceChildren(...kids.flat(Infinity).filter(k => k != null && k !== false)),
+    /* 文字のファイルをこの端末に保存する（名簿の CSV・カレンダーの .ics）。ブラウザの「ダウンロード」になる */
+    saveFile: (name, text, type) => {
+      const url = URL.createObjectURL(new Blob([text], { type }));
+      const a = el('a', { href: url, download: name });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
     /* 画面の下に固定する操作の帯（design.md）。左が主、右が副。誤りの文もここに入れて、押したボタンの上に出す */
     dock: (...nodes) => {
       const buttons = nodes.flat().filter(n => n && n.tagName === 'BUTTON').length;
