@@ -52,15 +52,17 @@ if (CORE.length < 2) fail(`core の名前を拾えていない (${CORE.length} �
 const PURE_BAN = [
   [/\bdocument\b/, '画面 (document)'], [/\bwindow\b/, 'window'], [/localStorage|sessionStorage|indexedDB/, '保存'],
   [/\bfetch\b|XMLHttpRequest|WebSocket|EventSource/, '通信'], [/\bnavigator\b/, 'navigator'],
-  [/\bDate\b|performance\.now|Intl\.DateTimeFormat/, '時計'], [/Math\.random|\bcrypto\b/, '乱数'], [/\bprocess\b/, '環境変数']
+  [/\bDate\b|performance\.now|Intl\.DateTimeFormat|\bTemporal\b/, '時計'], [/Math\.random|\bcrypto\b/, '乱数'], [/\bprocess\b/, '環境変数']
 ];
-const HUB = '(?:R|globalThis\\.REDUX|window\\.REDUX)';
+const DOT = '\\s*\\??\\.\\s*';                                         // R.x / R?.x / R .x
+const HUB = `(?:R|globalThis${DOT}REDUX|window${DOT}REDUX)`;
 const usesNames = (names, what) => [
-  [new RegExp(`\\b${HUB}\\.(${names.join('|')})\\b`), what],
-  [new RegExp(`\\b${HUB}\\s*\\[\\s*['"\`](${names.join('|')})['"\`]\\s*\\]`), what]
+  [new RegExp(`\\b${HUB}${DOT}(${names.join('|')})\\b`), what],
+  [new RegExp(`\\b${HUB}\\s*(?:\\?\\.)?\\s*\\[\\s*['"\`](${names.join('|')})['"\`]\\s*\\]`), what]
 ];
-/* 分割代入（const { aiReader } = R）は複数行にまたがりうるので、ファイル全体で見る */
-const destructures = (names, what) => [new RegExp(`\\{[^{}]*\\b(${names.join('|')})\\b[^{}]*\\}\\s*=\\s*${HUB}\\b`), what];
+/* 分割代入（const { aiReader } = R）は複数行にまたがり、入れ子（{ aiReader: { read } }）もありうるので、ファイル全体で全件見る */
+const BRACE = '(?:[^{}]|\\{[^{}]*\\})*';
+const destructures = (names, what) => [new RegExp(`\\{${BRACE}\\b(${names.join('|')})\\b${BRACE}\\}\\s*=\\s*${HUB}\\b`, 'g'), what];
 const rulesFor = {
   shared: { line: [...PURE_BAN, ...usesNames(ADAPTER, 'adapter'), ...usesNames(CORE, 'core')],
     file: [destructures(ADAPTER, 'adapter'), destructures(CORE, 'core')] },
@@ -69,23 +71,37 @@ const rulesFor = {
 const HTML_BAN = { line: [[/\.(innerHTML|outerHTML)\s*\+?=|insertAdjacentHTML|document\.write/, 'HTML の文字列を直接入れている']], file: [] };
 const FETCH_BAN = { line: [[/\bfetch\s*\(/, '外への通信 (ai-reader.js 以外)']], file: [] };
 
-/* コメントを消す（文字列の中の // は残す）。正規表現の \/ は 1 組として読み飛ばす */
+/* コメントを消す。文字列・テンプレート文字列（複数行も）・正規表現の中の // と /* は残す。\ の次の 1 字は読み飛ばす。
+   / が正規表現の始まりかは、直前の文字で決める（( , = : [ ! & | ? { } ; + - * % < > ~ ^ の後か、行の頭か、return などの後） */
+const REGEX_AFTER = /(^|[(,=:[!&|?{};+\-*%<>~^]|\b(return|typeof|case|in|of))\s*$/;
 function stripComments(src) {
   let inBlock = false;
+  let inTemplate = false;
   return src.split('\n').map(line => {
     let out = '';
-    let quote = null;
+    let quote = inTemplate ? '`' : null;
+    let regex = false;
+    let klass = false;
     for (let i = 0; i < line.length; i += 1) {
       const c = line[i];
       const n = line[i + 1];
       if (inBlock) { if (c === '*' && n === '/') { inBlock = false; i += 1; out += '  '; } else out += ' '; continue; }
       if (c === '\\') { out += c + (n || ''); i += 1; continue; }
       if (quote) { out += c; if (c === quote) quote = null; continue; }
+      if (regex) {
+        out += c;
+        if (c === '[') klass = true;
+        else if (c === ']') klass = false;
+        else if (c === '/' && !klass) regex = false;
+        continue;
+      }
       if (c === '/' && n === '/') break;
       if (c === '/' && n === '*') { inBlock = true; i += 1; out += '  '; continue; }
+      if (c === '/' && REGEX_AFTER.test(out)) { regex = true; out += c; continue; }
       if (c === "'" || c === '"' || c === '`') quote = c;
       out += c;
     }
+    inTemplate = quote === '`';
     return out;
   });
 }
@@ -101,8 +117,7 @@ function violations(src, rules) {
   code.forEach((c, i) => rules.line.forEach(([re, what]) => { if (re.test(c)) hit(i, what); }));
   const joined = code.join('\n');
   rules.file.forEach(([re, what]) => {
-    const m = re.exec(joined);
-    if (m) hit(joined.slice(0, m.index).split('\n').length - 1, what);
+    for (const m of joined.matchAll(re)) hit(joined.slice(0, m.index).split('\n').length - 1, what);
   });
   return out;
 }
@@ -128,6 +143,11 @@ const PROBES = [
   [rulesFor.core, 'const r = globalThis.REDUX.aiReader;'], [rulesFor.core, "const r = R['aiReader'];"],
   [rulesFor.core, "const u = 'https://x'; fetch(u);"], [rulesFor.core, "const s = 'x //'; const t = Date.now();"],
   [rulesFor.core, 'document.title = 1;'], [rulesFor.core, 'const k = process.env.KEY;'],
+  [rulesFor.core, 'const r = R?.aiReader;'], [rulesFor.core, 'const r = R .aiReader;'], [rulesFor.core, "const r = R?.['aiReader'];"],
+  [rulesFor.core, 'const { aiReader: { read } } = R;'], [rulesFor.core, 'const { aiReader = {} } = R;'],
+  [rulesFor.core, 'const { aiReader } = R; // arch-allow: probe\nconst { aiReader: a2 } = R;'],
+  [rulesFor.core, 'const n = Temporal.Now.instant();'], [rulesFor.core, 'const re = /[/*]/; const t = Date.now();'],
+  [rulesFor.core, 'const s = `x\nhttp://y`; const t = Date.now();'], [rulesFor.core, 'const q = a.replace(/\\//g, "_"); const t = Date.now();'],
   [rulesFor.shared, 'const h = R.rosterCore.status(p);'], [rulesFor.shared, 'const r = R.healthRedact.redact(t);'],
   [HTML_BAN, 'box.innerHTML = name;'], [HTML_BAN, 'el.insertAdjacentHTML("beforeend", x);'], [HTML_BAN, 'document.write(x);']
 ];

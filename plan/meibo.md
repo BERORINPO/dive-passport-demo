@@ -71,7 +71,7 @@ Yosuke の確認は 3 回: ①今（この計画とモック）②P2 のあと�
 
 ## Worker で守ること（P6。ザクのレビュー 2026-10-21）
 - **Access を通ったかは、JWT を自分で確かめる**: `Cf-Access-Jwt-Assertion` を `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` の鍵で、署名・iss・aud・exp・許可したメールかまで見る（crypto.subtle で書ける）。`ctx.access` だけに頼らない。`preview_urls = false`。確かめられなければ断る
-- **画面側の検査を Worker でもう一度かける**: roster-schema.js を読み、validateRequest と redactHealthLines をかける。プロンプト・model・max_tokens は Worker が決める。答えにも fromModel と validateReading をかける。画像はファイルの先頭の印で JPEG / PNG かを見る
+- **画面側の検査を Worker でもう一度かける**: roster-schema.js を読み、validateRequest と healthRedact.redact をかける。プロンプト・model・max_tokens は Worker が決める。答えにも fromModel と validateReading をかける。画像はファイルの先頭の印で JPEG / PNG かを見る
 - **Anthropic への request は新しく組み立てる**: ヘッダは `x-api-key`・`anthropic-version`・`content-type` だけ（Cookie・JWT・合言葉を送らない）
 - **お金の上限はワークスペースで**: この Worker 専用のワークスペースを作って月の上限を付け、鍵はその中で作る（上限は鍵ごとではなくワークスペースごと）
 - **KV の数は目安**: 数えるのは呼び出す前。KV が失敗したら断る。合言葉の失敗は書かない。正確にしたければ Durable Object

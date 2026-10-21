@@ -202,10 +202,11 @@
      ほかの項目は受け付けない（健康の項目を紛れ込ませない）。sampleId は見本の読み取りだけが使い、送らない */
   const REQ_KEYS = { mail: ['doc', 'text', 'sampleId'], paper: ['doc', 'image', 'masked', 'sampleId'], ccard: ['doc', 'image', 'masked', 'sampleId'] };
 
-  function validateRequest(q) {
-    if (!isObj(q) || !DOCS.includes(q.doc)) return result(['doc']);
+  function validateRequest(given) {
+    if (!isObj(given) || !DOCS.includes(given.doc)) return result(['doc']);
     /* 値が undefined や null の項目は、無いのと同じに扱う（画面で sampleId: picked?.id と書けるように） */
-    const base = [!onlyKeys(q, REQ_KEYS[q.doc]) && 'keys', q.sampleId != null && !isStr(q.sampleId, 10) && 'sampleId'];
+    const q = Object.fromEntries(Object.entries(given).filter(([, v]) => v != null));
+    const base = [!onlyKeys(q, REQ_KEYS[q.doc]) && 'keys', has(q, 'sampleId') && !isStr(q.sampleId, 10) && 'sampleId'];
     if (q.doc === 'mail') {
       const textOk = isStr(q.text, MAX_TEXT) && q.text.trim() !== '';
       return result([...base, !textOk && 'text', textOk && looksEncoded(q.text) && 'encoded']);
@@ -213,7 +214,7 @@
     return result([
       ...base,
       !(isStr(q.image, MAX_IMAGE) && /^[A-Za-z0-9+/=]+$/.test(q.image)) && 'image',
-      q.masked != null && typeof q.masked !== 'boolean' && 'masked',
+      has(q, 'masked') && typeof q.masked !== 'boolean' && 'masked',
       q.doc === 'paper' && q.masked !== true && 'masked'
     ]);
   }

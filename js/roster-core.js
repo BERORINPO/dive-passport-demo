@@ -113,7 +113,8 @@
 
   /* ---------- AI の読み取りを人に入れる ----------
      空の所だけ埋め、人やお店が入れた所は上書きしない。人やお店がわざと空にした項目（出どころがあるのに空）は埋めない。
-     一部だけ入っていた項目の空の所を埋めたときは、出どころを変えず、自信なしの印も付けない（人が入れた所まで疑わしく見せない） */
+     人やお店が一部だけ入れていた項目の空の所を埋めたときは、出どころを変えない。元の出どころが AI なら、新しい読み取りに替える。
+     AI が自信なしと言った項目は、埋めたら必ず自信なしの印を付ける（お店が確かめるまで「そろった」にしない） */
   const blankValue = (v) => v === '' || v == null;
   const isBlank = (p, field) => (S().SUB[field] ? S().SUB[field].every(k => blankValue(p[field][k])) : blankValue(p[field]));
   const clearedByPerson = (p, field) => has(p.src, field) && !AI_SRC.includes(p.src[field]) && isBlank(p, field);
@@ -121,6 +122,16 @@
   function fillParts(p, read, key) {
     const keys = S().SUB[key].filter(k => blankValue(p[key][k]) && !blankValue(read[key][k]));
     return keys.length ? { ...p[key], ...pick(read[key], keys) } : null;
+  }
+
+  /* 緊急連絡先は名前と電話の組。空なら読み取りをそのまま入れ、一部だけ入っているときは同じ人だと分かるときだけ空の所を埋める
+     （同じ名前か、名前が空で電話が同じ）。別の人の電話を混ぜない */
+  function fillEmergency(p, read) {
+    if (isBlank(p, 'emergency')) return fillParts(p, read, 'emergency');
+    const pe = p.emergency;
+    const re = read.emergency;
+    const samePerson = pe.name ? !!re.name && sameName(pe.name, re.name) : !!pe.phone && pe.phone === re.phone;
+    return samePerson ? fillParts(p, read, 'emergency') : null;
   }
 
   /* C カードのコースと取得日は組で扱う。違うコースの日を混ぜない */
@@ -136,31 +147,32 @@
   function mergeReading(p, read, src) {
     const next = { ...p, src: { ...p.src } };
     const got = [];
-    const fresh = [];
     const put = (field, value) => {
-      if (clearedByPerson(p, field)) return;
+      if (value == null || clearedByPerson(p, field)) return;   // 潜った本数の 0 も値
       next[field] = value;
       got.push(field);
-      if (isBlank(p, field)) { next.src[field] = src; fresh.push(field); }
+      if (isBlank(p, field) || AI_SRC.includes(p.src[field])) next.src[field] = src;
     };
     SIMPLE.forEach(f => { if (blankValue(p[f]) && !blankValue(read[f])) put(f, read[f]); });
-    ['emergency', 'sizes'].forEach(k => { const v = fillParts(p, read, k); if (v) put(k, v); });
-    const cert = fillCert(p, read);
-    if (cert) put('cert', cert);
-    next.unsure = [...new Set([...p.unsure, ...read.unsure.filter(u => fresh.includes(u))])];
+    put('emergency', fillEmergency(p, read));
+    put('sizes', fillParts(p, read, 'sizes'));
+    put('cert', fillCert(p, read));
+    next.unsure = [...new Set([...p.unsure, ...read.unsure.filter(u => got.includes(u))])];
     return { person: next, fields: got };
   }
 
   /* ---------- 予約を足す（読み取りから・手入力から）。名前の分からない人は空の行で人数分そろえる ---------- */
   function addBooking(state, { trip, booking, reading, src, at, newId }) {
     const given = booking || {};
-    const fields = BOOKING_FIELDS.filter(k => has(given, k));   // 予約の形にある項目だけ拾う（読み取りの date や unsure を混ぜない）
+    const fields = BOOKING_FIELDS.filter(k => has(given, k) && given[k] !== undefined);   // 予約の形の項目だけ拾う（読み取りの date や unsure を混ぜない）
     const b = { ...S().blankBooking(), ...pick(given, fields), id: newId(), tripId: trip.id, createdAt: at };
     const want = Number.isInteger(b.people) && b.people >= 1 ? Math.min(b.people, S().MAX_PEOPLE) : 1;
     const people = (reading ? reading.people : []).slice(0, S().MAX_PEOPLE)
       .map(r => mergeReading({ ...S().blankPerson(), id: newId(), bookingId: b.id }, r, src).person);
     while (people.length < want) people.push({ ...S().blankPerson(), id: newId(), bookingId: b.id });
     const fixed = { ...b, people: Math.max(want, people.length) };
+    const v = S().validateBooking(fixed);
+    if (!v.ok) throw new Error(`addBooking: 予約の形が合わない (${v.errors.join(',')})`);
     const who = AI_SRC.includes(src) ? 'ai' : 'staff';
     return withLog(
       { ...state, bookings: [...state.bookings, fixed], people: [...state.people, ...people] },
@@ -189,18 +201,25 @@
   }
 
   /* ---------- 人やお店が直す。直した項目は「確かめ済み」になり、前と後を記録に残す ----------
-     who は記録の「した人」（staff / guest / system）、src はその項目の出どころ（guest / staff / passport / partner） */
+     who は記録の「した人」（staff / guest / system）、src はその項目の出どころ（guest / staff / passport / partner）。
+     入れ子の項目（緊急連絡先・C カード・サイズ・健康）は、渡した所だけ前の値に重ねる（{ emergency: { phone } } でよい）。
+     値の形は roster-schema.js のとおりに渡す（潜った本数は数。フォームの文字は画面で数に直す）。
+     引数や直した後の形が違えば例外にする。画面は try / catch で受け、入れた値を消さずにお客さんへ知らせる */
   const EDITABLE = [...SIMPLE, 'emergency', 'cert', 'courses', 'sizes', 'health', 'guide'];
+  const NESTED = ['emergency', 'cert', 'sizes', 'health'];
+  const isPlain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
   function editPerson(state, { id, patch, who, src, at }) {
     if (!EDIT_WHO.includes(who)) throw new Error(`editPerson: who は ${EDIT_WHO.join(' / ')} のどれか (${who})`);
     const from = src || (who === 'guest' ? 'guest' : 'staff');
     if (!EDIT_SRC.includes(from)) throw new Error(`editPerson: src は ${EDIT_SRC.join(' / ')} のどれか (${from})`);
     const before = state.people.find(p => p.id === id);
-    if (!before) return state;
-    const keys = Object.keys(patch).filter(k => EDITABLE.includes(k) && !same(patch[k], before[k]));
+    if (!before) throw new Error(`editPerson: 人が見つからない (${id})`);
+    const full = Object.fromEntries(Object.keys(patch).filter(k => EDITABLE.includes(k))
+      .map(k => [k, NESTED.includes(k) && isPlain(patch[k]) ? { ...before[k], ...patch[k] } : patch[k]]));
+    const keys = Object.keys(full).filter(k => !same(full[k], before[k]));
     if (!keys.length) return state;
-    const after = { ...before, ...pick(patch, keys), src: { ...before.src, ...Object.fromEntries(keys.map(k => [k, from])) },
+    const after = { ...before, ...pick(full, keys), src: { ...before.src, ...Object.fromEntries(keys.map(k => [k, from])) },
       unsure: before.unsure.filter(u => !keys.includes(u)) };
     const v = S().validatePerson(after);
     if (!v.ok) throw new Error(`editPerson: 直した後の形が合わない (${v.errors.join(',')})`);
@@ -269,7 +288,7 @@
   }
   function toCsv({ items, rows }) {
     const lines = [items.map(i => i.ja), ...rows.map(r => items.map(i => r.cells[i.key]))];
-    return '﻿' + lines.map(l => l.map(csvCell).join(',')).join('\r\n') + '\r\n';
+    return '\uFEFF' + lines.map(l => l.map(csvCell).join(',')).join('\r\n') + '\r\n';
   }
 
   /* ---------- 保存の期間（作った日から 1 年） ---------- */

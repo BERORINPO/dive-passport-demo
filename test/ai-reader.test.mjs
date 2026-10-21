@@ -62,7 +62,7 @@ test('本物: 送る中身は決まった項目だけ。メールの健康の行
   calls = [];
   reply = () => json(200, SAMPLE_READINGS.e1);
   const { sent } = await A.read({ doc: 'mail', text: '予約です\n持病: 喘息', sampleId: 'e1' });
-  assert.deepEqual(calls[0].body, { doc: 'mail', text: '予約です\n（健康についての行は送っていません）' });
+  assert.deepEqual(calls[0].body, { doc: 'mail', text: `予約です\n${globalThis.REDUX.healthRedact.REDACTED_LINE}` });
   assert.equal(calls[0].url, '/api/read');
   assert.equal(calls[0].headers.get('x-redux-code'), Buffer.from('合言葉').toString('base64url'), '日本語の合言葉でも送れる');
   assert.equal(calls[0].init.redirect, 'manual');

@@ -94,14 +94,14 @@ test('予約メールの健康に触れていそうな行は外す。見本の�
 
 test('健康の質問の次の行の答えも外す。空行か次の項目で止まる', () => {
   const r = H.redact('人数: 1 名\n健康上の問題はありますか？\nはい、少しだけ\n腰のあたりです\n代表者: 見本 花子\nQ: 持病は?\nA: はい\n\n日時: 10/24');
-  assert.deepEqual(r.text.split('\n'), ['人数: 1 名', '（健康についての行は送っていません）', '（健康についての行は送っていません）',
-    '（健康についての行は送っていません）', '代表者: 見本 花子', '（健康についての行は送っていません）', '（健康についての行は送っていません）', '', '日時: 10/24']);
+  assert.deepEqual(r.text.split('\n'), ['人数: 1 名', H.REDACTED_LINE, H.REDACTED_LINE,
+    H.REDACTED_LINE, '代表者: 見本 花子', H.REDACTED_LINE, H.REDACTED_LINE, '', '日時: 10/24']);
   assert.equal(r.redacted, 5);
 });
 
 test('書き方を変えた健康の言葉も外す（全角・半角カナ・カタカナ・ゼロ幅文字・中国語・韓国語・英語）', () => {
   const words = ['ＡＳＴＨＭＡ', 'ｱﾚﾙｷﾞｰ', 'ゼンソク', 'ぜん息', '入院', '中耳炎', '耳が弱い', '風邪', '熱', '発作', 'うつ', 'パニック',
-    'ペースメーカー', 'seizure', 'hospital', 'prescription', '哮喘', '高血压', '心脏', '氣喘', '懷孕', '천식', '임신', '喘​息'];
+    'ペースメーカー', 'seizure', 'hospital', 'prescription', '哮喘', '高血压', '心脏', '氣喘', '懷孕', '천식', '임신', '喘\u200B息'];
   for (const w of words) assert.equal(H.redact(`備考 ${w} です`).redacted, 1, w);
 });
 
@@ -183,14 +183,27 @@ test('名簿は 13 項目。健康と当日の体調がそろうまで「そろ�
 });
 
 test('AI の読み取りは空の所だけ埋め、人が入れた所は上書きしない（入れ子の中も）', () => {
-  const p = freeze(person({ name: '見本 花子', birthDate: '1998-04-21', emergency: { name: '', relation: '兄', phone: '' }, src: { birthDate: 'guest', emergency: 'guest' } }));
-  const read = { ...emptyRead(), birthDate: '1998-04-12', emergency: { name: '見本 洋子', relation: '母', phone: '090-0000-0001' }, cert: { course: 'OW', date: '2023-08-20' }, unsure: ['emergency'] };
+  const p = freeze(person({ name: '見本 花子', birthDate: '1998-04-21', emergency: { name: '見本 洋子', relation: '母', phone: '' }, src: { birthDate: 'guest', emergency: 'guest' } }));
+  const read = { ...emptyRead(), birthDate: '1998-04-12', emergency: { name: '見本洋子', relation: '叔母', phone: '090-0000-0001' }, cert: { course: 'OW', date: '2023-08-20' }, unsure: [] };
   const { person: next, fields } = C.mergeReading(p, read, 'paper');
   assert.equal(next.birthDate, '1998-04-21');
-  assert.deepEqual(next.emergency, { name: '見本 洋子', relation: '兄', phone: '090-0000-0001' });
+  assert.deepEqual(next.emergency, { name: '見本 洋子', relation: '母', phone: '090-0000-0001' }, '同じ人なので電話だけ埋める');
   assert.deepEqual(fields, ['emergency', 'cert']);
-  assert.deepEqual(next.unsure, [], '一部だけ埋めた項目は、人が入れた所まで疑わしく見せない');
-  assert.deepEqual([next.src.emergency, next.src.cert], ['guest', 'paper'], '一部だけ埋めたときは出どころを変えない');
+  assert.deepEqual(next.unsure, []);
+  assert.deepEqual([next.src.emergency, next.src.cert], ['guest', 'paper'], '人が一部だけ入れていた項目は出どころを変えない');
+  assert.deepEqual(C.mergeReading(p, { ...read, unsure: ['emergency'] }, 'paper').person.unsure, ['emergency'], 'AI が自信なしなら印を付ける');
+});
+
+test('緊急連絡先は名前と電話の組。別の人の電話を混ぜない', () => {
+  const passport = person({ emergency: { name: '見本 母', relation: '母', phone: '' }, src: { emergency: 'passport' } });
+  const aunt = { ...emptyRead(), emergency: { name: '見本 叔母', relation: '叔母', phone: '090-1111-2222' } };
+  assert.deepEqual(C.mergeReading(passport, aunt, 'paper').fields, []);
+  assert.deepEqual(C.mergeReading(passport, { ...aunt, emergency: { name: '', relation: '', phone: '090-1111-2222' } }, 'paper').fields, [], '名前の無い電話も入れない');
+  const byPhone = person({ emergency: { name: '', relation: '', phone: '090-1111-2222' }, src: { emergency: 'guest' } });
+  assert.equal(C.mergeReading(byPhone, aunt, 'paper').person.emergency.name, '見本 叔母', '電話が同じなら同じ人');
+  const fromMail = person({ emergency: { name: '見本 叔母', relation: '', phone: '' }, src: { emergency: 'mail' } });
+  const second = C.mergeReading(fromMail, { ...aunt, unsure: ['emergency'] }, 'paper').person;
+  assert.deepEqual([second.src.emergency, second.unsure], ['paper', ['emergency']], '元が AI の読み取りなら、新しい読み取りに替える');
 });
 
 test('人やお店がわざと空にした項目は、AI が埋め直さない', () => {
@@ -212,8 +225,12 @@ test('人が直すときの引数が違えば例外にする（壊れた state �
   assert.throws(() => C.editPerson(s, { id, patch: { address: 'x' }, who: 'passport', at: AT }), /who/);
   assert.throws(() => C.editPerson(s, { id, patch: { address: 'x' }, at: AT }), /who/);
   assert.throws(() => C.editPerson(s, { id, patch: { address: 'x' }, who: 'staff', src: 'mail', at: AT }), /src/);
-  assert.throws(() => C.editPerson(s, { id, patch: { emergency: { phone: '090' } }, who: 'staff', at: AT }), /形が合わない/);
+  assert.throws(() => C.editPerson(s, { id, patch: { dives: '12' } , who: 'staff', at: AT }), /形が合わない/, '本数は数で渡す');
+  assert.throws(() => C.editPerson(s, { id: 'nobody', patch: { address: 'x' }, who: 'staff', at: AT }), /見つからない/);
   const p = C.peopleOf(s, 't1')[0];
+  const part = C.editPerson(s, { id, patch: { emergency: { phone: '090-0000-0000' }, health: { today: 'ok', todayAt: '2026-10-24' } }, who: 'guest', at: AT });
+  const after = part.people.find(x => x.id === id);
+  assert.deepEqual([after.emergency.phone, after.health.today, after.health.answers.length], ['090-0000-0000', 'ok', 5], '入れ子は渡した所だけ重ねる');
   const reordered = { relation: p.emergency.relation, phone: p.emergency.phone, name: p.emergency.name };
   assert.equal(C.editPerson(s, { id, patch: { emergency: reordered }, who: 'staff', at: AT }), s, 'key の順が違うだけなら記録しない');
 });
@@ -291,7 +308,7 @@ test('既往症に未回答が 1 つでもあれば、名簿には何も書か�
 
 test('CSV は頭に空白や全角の記号がある式も止める', () => {
   const csv = C.toCsv({ items: [{ key: 'a', ja: 'A' }], rows: [{ cells: { a: ' =1+1' } }, { cells: { a: '＝1+1' } }, { cells: { a: '見本' } }] });
-  assert.deepEqual(csv.replace('﻿', '').trim().split('\r\n'), ['A', "' =1+1", "'＝1+1", '見本']);
+  assert.deepEqual(csv.replace('\uFEFF', '').trim().split('\r\n'), ['A', "' =1+1", "'＝1+1", '見本']);
 });
 
 test('保存期間を過ぎた便は、予約・人・記録ごと消え、消した件数だけが残る', () => {
@@ -334,6 +351,54 @@ test('健康の質問の答えは外すが、結び・署名・電話は残す�
   assert.equal(one.text, `10月24日に2名でお願いします。${H.REDACTED_PART}代表は見本 花子、電話は090-1234-5678です。`);
   const inline = H.redact('持病はありますか？はい、少し。電話は090-1234-5678です。');
   assert.equal(inline.text, `${H.REDACTED_PART}${H.REDACTED_PART}電話は090-1234-5678です。`);
+});
+
+test('健康の文の後ろの文や行も外す（質問でなくても）。予約の話で止まる', () => {
+  const cases = [
+    ['実は持病があります。毎日打っています。', `${H.REDACTED_LINE}`],
+    ['備考：持病があります\n毎日打っています\n代表者: 見本 花子', `${H.REDACTED_LINE}\n${H.REDACTED_LINE}\n代表者: 見本 花子`],
+    ['【持病】\nなし', `${H.REDACTED_LINE}\n${H.REDACTED_LINE}`],
+    ['持病はありますか。\nはい', `${H.REDACTED_LINE}\n${H.REDACTED_LINE}`],
+    ['持病はありますか？はい。毎日使っています。', H.REDACTED_LINE],
+    ['Any medical conditions? Yes, e.g. bad back and so on', H.REDACTED_LINE],
+    ['持病があります。10月24日に2名でお願いします。', `${H.REDACTED_PART}10月24日に2名でお願いします。`],
+    ['持病はありますか？\nはい、毎日使っています。緊急連絡先 090-1234-5678', `${H.REDACTED_LINE}\n${H.REDACTED_PART}緊急連絡先 090-1234-5678`],
+    ['Any medical conditions?\nYes, 2019 - 2021, now fine', `${H.REDACTED_LINE}\n${H.REDACTED_LINE}`],
+    ['Any medical conditions?\nYes: lower back and so on', `${H.REDACTED_LINE}\n${H.REDACTED_LINE}`],
+    ['持病はありますか？\nはい\n内容：毎日の注射', `${H.REDACTED_LINE}\n${H.REDACTED_LINE}\n${H.REDACTED_LINE}`],
+    ['Any medical conditions?\n\nYes, every day', `${H.REDACTED_LINE}\n\n${H.REDACTED_LINE}`],
+    ['名前: 見本 花子\u2028備考: 中耳炎気味です', `名前: 見本 花子\n${H.REDACTED_LINE}`]
+  ];
+  for (const [input, want] of cases) assert.equal(H.redact(input).text, want, input);
+});
+
+test('予約の項目に書かれた健康の話も外す。名前・住所の行は括弧の中だけ 1 字の言葉を見る', () => {
+  for (const line of ['人数：大人2名（1名は中耳炎気味）', '希望日：10/24（熱が下がれば）', 'プラン：ファンダイブ2本（前回減圧症の疑い）',
+    'ご予約時の質問への回答：耳が痛くなりやすいです', 'Preferences: my ear hurts', '代表者：見本 花子（貧血ぎみ）', '備考：生理中です', 'Note: I get seasick']) {
+    assert.equal(H.redact(line).redacted, 1, line);
+  }
+  for (const line of ['フリガナ：イケガミ ハナコ', 'Name: Priya Panicker', 'プラン：うつぼ観察ツアー', 'Hotel: Okinawa Hospitality Inn']) {
+    assert.equal(H.redact(line).redacted, 0, line);
+  }
+});
+
+test('外した後の文面にもう一度かけても同じ（Worker で 2 回かけるため）', () => {
+  const inputs = ['10月24日に2名でお願いします。持病で喘息があります。代表は見本 花子、電話は090-1234-5678です。',
+    'Hi, we would like to book 2 people.\nMy friend has a mild heart condition, is it ok?\nThanks,\nSeo-yeon Kim',
+    '持病はありますか？はい、少し。電話は090-1234-5678です。', '人数: 1 名\n健康上の問題はありますか？\nはい\n\n日時: 10/24',
+    readFileSync(new URL('../assets/samples/e2.txt', import.meta.url), 'utf8')];
+  for (const x of inputs) {
+    const once = H.redact(x).text;
+    assert.equal(H.redact(once).text, once, x.slice(0, 20));
+    assert.equal(H.redact(once).redacted, 0);
+  }
+});
+
+test('予約は形の項目の値が undefined なら拾わず、形が合わなければ例外にする', () => {
+  const s = C.addBooking(base, { trip, booking: { source: 'mail', leadName: undefined, people: 1 }, reading: null, src: 'mail', at: AT, newId });
+  assert.ok(S.validateState(s).ok);
+  assert.throws(() => C.addBooking(base, { trip, booking: { source: 'fax' }, reading: null, src: 'staff', at: AT, newId }), /予約の形/);
+  assert.ok(S.validateRequest({ doc: 'mail', text: '予約です', masked: undefined }).ok, 'mail でも undefined の項目は無いのと同じ');
 });
 
 test('保存は作った日から 1 年', () => {
