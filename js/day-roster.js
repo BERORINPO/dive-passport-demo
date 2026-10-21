@@ -22,7 +22,8 @@
     courses: '講習受講歴', dives: '経験', lastDive: '最後に潜った日', sizes: 'サイズ', health: '健康の答え', guide: 'ガイド',
     site: '潜水場所', guides: 'ガイド', source: '予約の出どころ', people: '人数', leadName: '代表者', leadPhone: '代表者の電話', note: 'メモ' };
   let icsRange = 'ahead';   // ahead（今日から先の便）/ day（この日の便だけ）
-  let csvHealth = false;    // CSV に健康の欄（既往症・当日の健康状態）を入れるか。初めは入れない
+  let csvHealth = false;    // CSV に健康の欄（既往症・当日の健康状態）を入れるか。初めは入れない。書き出した後と、便を替えたときに戻す
+  let csvTrip = '';
 
   const nowIso = () => new Date().toISOString();
   const slash = (d) => d.replace(/-/g, '/');
@@ -78,13 +79,16 @@
     const table = C().rosterRows(R.rosterStore.get(), trip.id, healthShort());
     const items = csvHealth ? table.items : table.items.filter(i => !i.health);
     R.saveFile(`meibo-${trip.date}${trip.start ? `-${trip.start.replace(':', '')}` : ''}.csv`, C().toCsv({ items, rows: table.rows }), 'text/csv;charset=utf-8');
-    const r = ui.save(st => C().logOutput(st, { tripId: trip.id, act: 'csv', people: table.rows.length, at: nowIso() }));
-    ui.go('day', { tripId: trip.id, saved: r.saved, notice: csvHealth
+    const withHealth = csvHealth;
+    csvHealth = false;
+    const r = ui.save(st => C().logOutput(st, { tripId: trip.id, act: 'csv', people: table.rows.length, health: withHealth, at: nowIso() }));
+    ui.go('day', { tripId: trip.id, saved: r.saved, notice: withHealth
       ? `CSV に書き出しました（${table.rows.length} 人、健康の欄あり）。人に送らず、使い終わったら消してください`
       : `CSV に書き出しました（${table.rows.length} 人、健康の欄なし）。使い終わったら消してください` });
   }
 
   function renderDay({ tripId, ui }) {
+    if (tripId !== csvTrip) { csvHealth = false; csvTrip = tripId; }
     const g = D().dayGroups(R.rosterStore.get(), tripId, R.today());
     if (!g) return [...ui.head('今日の名簿'), el('p', { class: 'errors', text: 'この便が見つかりません。' }), ui.back()];
     const { trip } = g;
@@ -182,7 +186,8 @@
     const text = {
       add: e.kind === 'trip' ? '便を作った' : e.kind === 'booking' ? '予約を入れた' : `${who.slice(0, -1)}を名簿に入れた`,
       edit: `${who}${fields}`, check: `${who.slice(0, -1)}を確かめた`,
-      print: `名簿を印刷した（${e.after.people} 人）`, csv: `名簿を CSV に書き出した（${e.after.people} 人）`, remove: '保存期間を過ぎた便を消した'
+      print: `名簿の印刷の画面を開いた（${e.after.people} 人）`,
+      csv: `名簿を CSV に書き出した（${e.after.people} 人、健康の欄${e.after.health === false ? 'なし' : 'あり'}）`, remove: '保存期間を過ぎた便を消した'
     }[e.act] || e.act;
     /* 便の項目（潜水場所・ガイド）だけは前と後を出す。人の中身（健康の答えなど）は出さない */
     const tripValues = e.kind === 'trip' && e.act === 'edit'

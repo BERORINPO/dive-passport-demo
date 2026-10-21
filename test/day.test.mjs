@@ -113,6 +113,8 @@ test('印刷と CSV は、人数だけを記録に残す', () => {
   const st = C.logOutput(base, { tripId: 't1', act: 'print', people: 2, at: AT });
   const e = st.log[st.log.length - 1];
   assert.deepEqual([e.act, e.kind, e.id, e.after.people], ['print', 'trip', 't1', 2]);
+  const csv = C.logOutput(base, { tripId: 't1', act: 'csv', people: 2, health: false, at: AT });
+  assert.equal(csv.log[csv.log.length - 1].after.health, false, 'CSV に健康の欄を入れたかを残す');
   assert.ok(S.validateState(st).ok);
   assert.throws(() => C.logOutput(base, { tripId: 't1', act: 'mail', people: 2, at: AT }));
   assert.throws(() => C.logOutput(base, { tripId: 'nope', act: 'csv', people: 2, at: AT }));

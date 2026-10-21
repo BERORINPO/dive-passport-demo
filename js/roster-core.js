@@ -355,11 +355,11 @@
       entry(at, 'staff', 'edit', 'trip', tripId, { fields: keys, before: pick(before, keys), after: pick(after, keys) }));
   }
 
-  /* 名簿を印刷した・CSV に書き出した。人数だけを残す（中身は残さない） */
-  function logOutput(state, { tripId, act, people, at }) {
+  /* 名簿を印刷した・CSV に書き出した。人数と、健康の欄を入れたかだけを残す（中身は残さない） */
+  function logOutput(state, { tripId, act, people, health, at }) {
     if (!['print', 'csv'].includes(act)) throw new Error(`logOutput: act は print / csv (${act})`);
     if (!state.trips.some(t => t.id === tripId)) throw new Error(`logOutput: 便が見つからない (${tripId})`);
-    return withLog(state, entry(at, 'staff', act, 'trip', tripId, { after: { people: Number(people) || 0 } }));
+    return withLog(state, entry(at, 'staff', act, 'trip', tripId, { after: { people: Number(people) || 0, health: health !== false } }));
   }
 
   /* お店が全部を確かめた。自信なしの印を外す */

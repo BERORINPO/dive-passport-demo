@@ -9,6 +9,7 @@
   const renderers = { pass: () => R.renderPassport(), shop: () => R.renderShop(), booking: () => R.renderBooking() };
 
   R.showTab = (name) => {
+    document.body.classList.remove('print-roster');   // 名簿の紙を出したまま別の画面に移っても、印刷が白紙にならないように（予約の画面に戻れば付け直す）
     ORDER.forEach(k => {
       const on = k === name;
       tabs[k].setAttribute('aria-selected', String(on));
