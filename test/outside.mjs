@@ -10,7 +10,8 @@ const SELF_ORIGIN = new URL(SELF).origin;
 const LOADING_REL = ['stylesheet', 'preload', 'modulepreload', 'prefetch'];
 const INTEGRITY = /^\s*sha(?:256|384|512)-[A-Za-z0-9+/=]+/;
 
-/* 表の行は「| ファイル | 外から読んでよい先 | integrity なしでよい先 |」。先は `…` で囲んだものだけ拾う。前方一致で比べる */
+/* 表の行は「| ファイル | 外から読んでよい先 | integrity なしでよい先 | 字体 |」。先は `…` で囲んだものだけ拾う。前方一致で比べる。
+   字体の列が「読まない」のページは、@font-face のある CSS を読めない */
 export function allowTable(doc) {
   const start = doc.indexOf('### 外から読む先');
   if (start < 0) return null;
@@ -18,8 +19,8 @@ export function allowTable(doc) {
   const rows = doc.slice(start, end < 0 ? undefined : end).split('\n').filter(l => /^\|\s*[\w./-]+\.(?:html|css)\s*\|/.test(l));
   const ticks = (s) => [...(s || '').matchAll(/`([^`]+)`/g)].map(m => m[1]);
   return Object.fromEntries(rows.map(l => {
-    const [, file, allow, bare] = l.split('|').map(s => s.trim());
-    return [file, { allow: ticks(allow), bare: ticks(bare) }];
+    const [, file, allow, bare, fonts] = l.split('|').map(s => s.trim());
+    return [file, { allow: ticks(allow), bare: ticks(bare), fonts: !/読まない/.test(fonts || '') }];
   }));
 }
 
@@ -49,7 +50,10 @@ export function decode(text) {
     .replace(/&([a-z]+);/gi, (m, n) => ENTITY[n.toLowerCase()] ?? m);
 }
 /* CSS のエスケープ（\2f と書いて / にする）を元の字に戻す */
-const cssUnescape = (t) => t.replace(/\\([0-9a-f]{1,6})\s?/gi, (_, h) => fromCode(parseInt(h, 16))).replace(/\\(.)/g, '$1');
+const cssUnescape = (t) => t.replace(/\\(?:\r\n|[\n\r\f])/g, '').replace(/\\([0-9a-f]{1,6})\s?/gi, (_, h) => fromCode(parseInt(h, 16))).replace(/\\(.)/g, '$1');
+
+/* HTML の注釈。<!--> と <!---> と --!> でも閉じる（ブラウザと同じ所で切らないと、間の script が見えなくなる） */
+const HTML_COMMENT = /<!--(?:-?>|[\s\S]*?--!?>|[\s\S]*$)/g;
 
 /* 外の行き先なら URL、同じ場所なら null。読めなければ 'bad'。URL の中のタブと改行はブラウザが消す */
 export function external(value) {
@@ -66,12 +70,14 @@ export function external(value) {
 const DEST = /(?:[a-z][a-z0-9+.-]*:)?[\\/]{2}[^\s"'<>()`,]+/gi;
 const SCHEMED = /^[a-z][a-z0-9+.-]*:/i;
 export function destinations(text) {
-  const base = decode(text.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const base = decode(text.replace(HTML_COMMENT, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\sxmlns(?::[\w-]+)?\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, ' '));
-  const spaced = base.replace(/[\t\r\n]/g, ' ');
-  const joined = base.replace(/[\t\r\n]/g, '');
-  const all = (t) => [...t.matchAll(DEST), ...cssUnescape(t).matchAll(DEST)].map(m => m[0]);
-  return [...new Set([...all(spaced), ...all(joined).filter(d => SCHEMED.test(d))])];
+  const found = [];
+  [base, cssUnescape(base)].forEach(v => {
+    found.push(...[...v.replace(/[\t\r\n]/g, ' ').matchAll(DEST)].map(m => m[0]));
+    found.push(...[...v.replace(/[\t\r\n]/g, '').matchAll(DEST)].map(m => m[0]).filter(d => SCHEMED.test(d)));
+  });
+  return [...new Set(found)];
 }
 
 /* 属性を 1 つ読む。名前、値（引用符あり・なし）、次に読む位置を返す */
@@ -95,7 +101,7 @@ function readAttr(html, start) {
 
 /* (b) の網: タグを属性ごとに読む。コメントは先に外す。引用符の中の > で切れない。同じ名前の属性は最初の物が効く（ブラウザと同じ） */
 export function tags(source) {
-  const html = source.replace(/<!--[\s\S]*?-->/g, ' ');
+  const html = source.replace(HTML_COMMENT, ' ');
   const lower = html.toLowerCase();
   const out = [];
   const re = /<([a-z][a-z0-9:-]*)/gi;
@@ -144,6 +150,7 @@ function tagProblems({ tag, attrs, content }, rule) {
     if (/^(?:javascript|vbscript)$/i.test(scheme(v) || '')) out.push(`javascript: の URL を使っている（${k}）`);
   });
   if (tag === 'base') out.push('<base> は使わない（以後の相対の読み込みが全部その先になる）');
+  if (['iframe', 'frame', 'object', 'embed'].includes(tag)) out.push(`<${tag}> は使わない（srcdoc などの中は同じ origin で動き、検査が見ない）`);
   if (tag === 'script') {
     const srcRaw = attrs.get('src') ?? attrs.get('href') ?? attrs.get('xlink:href');   // SVG の script は href で読む
     const type = (attrs.get('type') || '').trim().toLowerCase();
@@ -178,6 +185,21 @@ export function fileProblems(text, rule, isHtml) {
     else if (!allowedBy(rule.allow, u)) out.push(`外の読み込み先が許可に無い: ${show(u)}`);
   });
   if (isHtml) tags(text).forEach(t => out.push(...tagProblems(t, rule)));
+  return out;
+}
+
+/* 字体を読まないページ（表の字体の列が「読まない」）が、@font-face のある CSS を読んでいないか。readLocal は repo のファイルを読む関数 */
+export function fontFaceProblems(html, readLocal) {
+  const out = [];
+  tags(html).forEach(({ tag, attrs, content }) => {
+    if (tag === 'style' && /@font-face/i.test(content)) out.push('字体を読まないページの <style> に @font-face がある');
+    if (tag !== 'link' || !(attrs.get('rel') || '').toLowerCase().split(/\s+/).includes('stylesheet')) return;
+    const href = String(attrs.get('href') || '').trim();
+    if (external(href)) return;   // 外の CSS は fileProblems が見る
+    let css = '';
+    try { css = readLocal(href.replace(/^\.?\//, '').split(/[?#]/)[0]); } catch { out.push(`読めない CSS: ${href}`); return; }
+    if (/@font-face/i.test(css)) out.push(`字体を読まないページが、@font-face のある CSS を読んでいる: ${href}`);
+  });
   return out;
 }
 

@@ -14,4 +14,6 @@ SIL Open Font License 1.1。ライセンス本文は同じ場所の `OFL.txt`（
 
 - Copyright 2022 The BIZ UDGothic Project Authors (https://github.com/googlefonts/morisawa-biz-ud-gothic)
 - 各ファイルの中（name の表）にも、上の著作権の行と OFL の URL が入っている
-- 字体だけを売ることはできない。このフォルダの字体は改変していない（束に分けたのは Google）
+- 字体だけを売ることはできない。こちらでは手を加えていない。Google が束に分けた物（OFL でいう改変版）をそのまま配っている
+- 中身の指紋は `SHA256SUMS`（`node tools/font-sums.mjs` で作る。test/arch.check.mjs が突き合わせる）。取り直したら、差分を見てから commit する
+- パスポートの画面（pass.html）は、この字体を読まない（spec/architecture.md）

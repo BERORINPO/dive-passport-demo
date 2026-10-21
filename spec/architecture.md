@@ -12,10 +12,10 @@
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - 外へ通信してよいのは js/ai-reader.js だけ。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）
-- 字体（BIZ UD ゴシック）は repo の fonts/ から自前で配る（css/fonts.css）。外の字体は読まない
-  - Google Fonts から読むと、IP・端末の種類・時刻・サイトの origin が Google に伝わる（字体ファイルの要求には Origin ヘッダが付き、referrer を止めても消えない）
-  - しかも日本語の字体は約 50 字ずつのファイルに分けて配られ（unicode-range）、端末は画面に出た字・打った字を含むファイルだけを取りに行く。どのファイルを取ったかで字の一部が分かり、pass.html では健康の「はい」の項目まで分かった
-  - 自前で配れば、取りに行く先は同じ場所だけになる。分け方は Google と同じ（取得と作り方は fonts/README.md）
+- 字体（BIZ UD ゴシック）は index.html だけが、repo の fonts/ から自前で配る（css/fonts.css）。外の字体は読まない
+  - 日本語の字体は約 50 字ずつのファイルに分けて配られ（unicode-range）、端末は画面に出た字・打った字を含むファイルだけを取りに行く。どのファイルを取ったかで、配っている所に字の一部が分かる
+  - Google Fonts から読むと、それが IP・端末の種類・時刻・サイトの origin と一緒に Google に伝わる（字体ファイルの要求には Origin ヘッダが付き、referrer を止めても消えない）。自前で配れば Google には伝わらない。分け方は Google と同じ（取得と作り方は fonts/README.md）
+  - pass.html は字体を読まない（端末の字体で描く）。自前で配っても、取りに行く束が中身で変わると、配っている所（今は GitHub Pages、後で Worker）のアクセスの記録から、健康の答えや名前の字の一部が分かる。pass.html が出す要求は、中身に関係なく毎回同じにする（置き場所が決まっても変えない）。CSP を meta で付けている
 
 ## 2. 外部境界表
 | adapter | 相手 | Fake | fixture | credential | 書き込み |
@@ -30,17 +30,19 @@
 
 ### 外から読む先（test/arch.check.mjs の 8 番はこの表だけを読む）
 `…` で囲んだ先を前方一致で許す。表に書いて使っていない先も FAIL にする。ここに無いファイルからは外を読まない。
-| ファイル | 外から読んでよい先 | integrity なしでよい先 |
-|---|---|---|
-| index.html | `https://cdn.jsdelivr.net/npm/three@0.160.0/` `https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/` | なし |
-| pass.html | なし | なし |
-| css/app.css | なし | なし |
-| css/fonts.css | なし | なし |
+| ファイル | 外から読んでよい先 | integrity なしでよい先 | 字体 |
+|---|---|---|---|
+| index.html | `https://cdn.jsdelivr.net/npm/three@0.160.0/` `https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/` | なし | 読む |
+| pass.html | なし | なし | 読まない |
+| css/app.css | なし | なし | — |
+| css/fonts.css | なし | なし | — |
+
+- 字体の列が「読まない」のページは、@font-face のある CSS を読めない（検査する）。fonts/ の字体は fonts/SHA256SUMS と中身を突き合わせる
 
 - three.js（importmap）と qrcode-generator（script）は、画面と同じ権限で動くコード。qrcode-generator は健康の答えを含むパスポートの URL を受け取る。両方に integrity（中身が書き換えられていないかをブラウザが確かめる指定）を付けた
 - importmap の integrity が効くのは Chrome/Edge 127・Safari/iOS 18・Firefox 138 から（古い iPhone では確かめないまま読む）
 - js の import は importmap で URL に直し、1 つずつ integrity を求める。CDN のファイルの中の import（GLTFLoader.js → BufferGeometryUtils.js）は検査で追えないので、integrity に並べて、Network で漏れが無いか確かめる
-- js では、ai-reader.js 以外の fetch、全部の js の動的な import・sendBeacon・XMLHttpRequest・WebSocket・EventSource・Worker、読み込むタグ（script・link・iframe など）を作ること、外の URL を文字で書くこと、window[…]・eval・Function を禁止する（同じ 8 番）。HTML の中に直に書いてよいスクリプトは importmap だけ（on… の属性と javascript: の URL も禁止）
+- js では、ai-reader.js 以外の fetch、全部の js の動的な import・sendBeacon・XMLHttpRequest・WebSocket・EventSource・Worker、読み込むタグ（script・link・iframe など）を作ること、外の URL を文字で書くこと、window[…]・eval・Function を禁止する（同じ 8 番）。HTML の中に直に書いてよいスクリプトは importmap だけ（on… の属性・javascript: の URL・iframe・frame・object・embed も禁止）。js では setTimeout に文字列を渡すこと、constructor・Reflect・top[…] も禁止
 - 検査で追えない形（window を変数に入れてから文字で名前を引く、など）は、P6 の CSP で止める。検査が見るのはルートの HTML と js/・css/ の直下だけなので、P6 で js/vendor/ などを作るときは、検査を下の階層まで広げる
 
 ## 4. 決定ログ

