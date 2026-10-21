@@ -12,10 +12,10 @@
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - 外へ通信してよいのは js/ai-reader.js だけ。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）
-- 字体（BIZ UD ゴシック）は index.html だけが Google Fonts から読む。URL の # 以降は送らない
-  - Google には IP・端末の種類・時刻と、サイトの origin が伝わる（字体ファイルの要求には Origin ヘッダが付き、referrer を止めても消えない）
-  - Google は日本語の字体を約 50 字ずつのファイルに分けて配る（unicode-range）。端末は画面に出た字・打った字を含むファイルだけを取りに行くので、どのファイルを取ったかで字の一部が分かる
-  - pass.html は健康の「はい」の項目だけを出すので、取ったファイルの組み合わせで答えが分かる。だから pass.html は端末の字体だけで描く
+- 字体（BIZ UD ゴシック）は repo の fonts/ から自前で配る（css/fonts.css）。外の字体は読まない
+  - Google Fonts から読むと、IP・端末の種類・時刻・サイトの origin が Google に伝わる（字体ファイルの要求には Origin ヘッダが付き、referrer を止めても消えない）
+  - しかも日本語の字体は約 50 字ずつのファイルに分けて配られ（unicode-range）、端末は画面に出た字・打った字を含むファイルだけを取りに行く。どのファイルを取ったかで字の一部が分かり、pass.html では健康の「はい」の項目まで分かった
+  - 自前で配れば、取りに行く先は同じ場所だけになる。分け方は Google と同じ（取得と作り方は fonts/README.md）
 
 ## 2. 外部境界表
 | adapter | 相手 | Fake | fixture | credential | 書き込み |
@@ -32,15 +32,16 @@
 `…` で囲んだ先を前方一致で許す。表に書いて使っていない先も FAIL にする。ここに無いファイルからは外を読まない。
 | ファイル | 外から読んでよい先 | integrity なしでよい先 |
 |---|---|---|
-| index.html | `https://cdn.jsdelivr.net/npm/three@0.160.0/` `https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/` `https://fonts.googleapis.com/` `https://fonts.gstatic.com/` | `https://fonts.googleapis.com/css2` |
+| index.html | `https://cdn.jsdelivr.net/npm/three@0.160.0/` `https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/` | なし |
 | pass.html | なし | なし |
 | css/app.css | なし | なし |
+| css/fonts.css | なし | なし |
 
 - three.js（importmap）と qrcode-generator（script）は、画面と同じ権限で動くコード。qrcode-generator は健康の答えを含むパスポートの URL を受け取る。両方に integrity（中身が書き換えられていないかをブラウザが確かめる指定）を付けた
 - importmap の integrity が効くのは Chrome/Edge 127・Safari/iOS 18・Firefox 138 から（古い iPhone では確かめないまま読む）
 - js の import は importmap で URL に直し、1 つずつ integrity を求める。CDN のファイルの中の import（GLTFLoader.js → BufferGeometryUtils.js）は検査で追えないので、integrity に並べて、Network で漏れが無いか確かめる
-- Google の字体の CSS は端末ごとに中身が変わるので integrity を付けられない（上の表の右の列）。この `<link>` は描画を止めるので、遅い電波だと画面が白いまま待つことがある
-- js では、ai-reader.js 以外の fetch、全部の js の動的な import・sendBeacon・XMLHttpRequest・WebSocket・EventSource・Worker、読み込むタグ（script・link・iframe など）を作ること、外の URL を文字で書くことを禁止する（同じ 8 番）
+- js では、ai-reader.js 以外の fetch、全部の js の動的な import・sendBeacon・XMLHttpRequest・WebSocket・EventSource・Worker、読み込むタグ（script・link・iframe など）を作ること、外の URL を文字で書くこと、window[…]・eval・Function を禁止する（同じ 8 番）。HTML の中に直に書いてよいスクリプトは importmap だけ（on… の属性と javascript: の URL も禁止）
+- 検査で追えない形（window を変数に入れてから文字で名前を引く、など）は、P6 の CSP で止める。検査が見るのはルートの HTML と js/・css/ の直下だけなので、P6 で js/vendor/ などを作るときは、検査を下の階層まで広げる
 
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
@@ -55,5 +56,5 @@
 | 2026-10-21 redact-core | 健康の行の外し方を js/health-redact.js（core）に分け、画面と Worker の両方が使う。1 字の言葉は予約の項目の行では見ない。文ごとに外し、質問の答えは結び・署名・電話の手前まで | ジンの再レビュー（予約に要る行まで消える）とザク（取りこぼし）の両方を満たすため。行ごとに全部外す案は、1 段落のメールが丸ごと消えるので却下 | test/roster.test.mjs |
 | 2026-10-21 arch-grep | 依存の向きは grep で検査し、dependency-cruiser は使わない | script タグで読む素の JS で、npm を入れていない | test/arch.check.mjs |
 | 2026-10-21 core-clock | core は時計と乱数を使わない（at と newId を受け取る） | テストで毎回同じ結果にするため | test/arch.check.mjs |
-| 2026-10-21 fonts | 字体は試作の間だけ index.html が Google Fonts から読む。pass.html は外の字体を読まない。本物のお客さんの情報を入れる前に、外から読むのをやめる（spec/meibo.md の 11） | ザクのレビュー（字体の束の取り寄せで、画面に出た字・打った字が Google に推測される）。repo に置く案は字体の取得に Yosuke の了承が要る | test/arch.check.mjs（読み込み先） |
+| 2026-10-21 fonts | 字体は Google Fonts と同じ束に分けた woff2 を repo の fonts/ に置き、自前で配る。数字用の BIZ UDGothic は英数字の束だけ | ザクのレビュー（外から読むと、取った束から画面に出た字・打った字が Google に推測される）。Yosuke が取得を了承（2026-10-21）。端末の字体だけにする案は、design.md の BIZ UD と見た目が変わるので次点 | test/arch.check.mjs（読み込み先） |
 | 2026-10-21 outside-reads | HTML と CSS から外を読むのは、3. の表「外から読む先」にファイルごとに書いた先だけ。外のスクリプトと読み込む link には integrity を付ける。js の通信の道具と外の URL の文字は禁止 | ザクのレビュー（CDN の中身が差し替えられると、画面と同じ権限で localStorage の健康の答えを読める。2024 年の polyfill.io の件）。cdnjs が spec から漏れていたのを検査で捕まえるため。許可は表「外から読む先」だけから読み、ファイルごとに分ける（散文のサイト名を拾うと、書いただけで許可になる） | test/arch.check.mjs（test/outside.mjs） |
