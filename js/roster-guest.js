@@ -98,7 +98,8 @@
       wants('address') && !text(x.address, ADDRESS_MAX) && 'address',
       wants('emergency') && !((!openE('name') || text(e.name, NAME_MAX)) && (!openE('phone') || text(e.phone, PHONE_MAX)) &&
         (!openE('relation') || (typeof (e.relation || '') === 'string' && (e.relation || '').length <= RELATION_MAX))) && 'emergency',
-      courseOpen && !(S().COURSES.includes(c.course) && c.course !== '') && 'cert',
+      /* 取得年月が分かっている人は「なし（体験）」を選べない（年月のある体験、という形を作らない） */
+      courseOpen && !(S().COURSES.includes(c.course) && c.course !== '' && !(c.course === 'NONE' && isMonth(open.date))) && 'cert',
       wants('certDate') && open.cert.includes('date') && course !== 'NONE' && !isMonth(c.date) && 'certDate',
       wants('courses') && typeof x.courses === 'string' && x.courses.length > COURSES_MAX && 'courses',
       wants('dives') && !(Number.isInteger(x.dives) && x.dives >= 0 && x.dives <= DIVES_MAX) && 'dives',

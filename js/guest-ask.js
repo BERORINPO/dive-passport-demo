@@ -129,7 +129,7 @@
       const course = courseOpen ? d.cert.course : entry.parts.course;
       out.push(courseOpen ? field(T.cert, el('select', { class: 'input', onchange: (e) => { d.cert.course = e.target.value; render(); } },
         el('option', { value: '', text: '—' }),
-        R.roster.COURSES.filter(Boolean).map(c => el('option', { value: c, selected: d.cert.course === c, text: courseLabel(c) }))))
+        R.roster.COURSES.filter(c => c && !(c === 'NONE' && /^\d{4}-\d{2}/.test(entry.parts.date || ''))).map(c => el('option', { value: c, selected: d.cert.course === c, text: courseLabel(c) }))))
         : el('p', { class: 'note', text: `${L(T.cert)}: ${courseLabel(course)}（${L(T.filled)}）` }));
       if (ask.includes('certDate') && entry.parts.cert.includes('date') && course && course !== 'NONE') {
         out.push(field(T.certDate, el('input', { class: 'input input--short', type: 'month', value: d.cert.date, oninput: (e) => { d.cert.date = e.target.value; } })));

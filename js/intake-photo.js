@@ -328,10 +328,14 @@
       el('div', { class: 'sheet' }, rows.map(r => el('div', { class: `rd${r.unsure ? ' rd--unsure' : ''}` },
         el('span', { class: 'rd__k', text: r.label }),
         el('span', { class: 'rd__v' }, r.text || '（まだ無い）', subOf(r) ? el('span', { class: 'rd__sub', text: subOf(r) }) : null)))),
-      unsure.map(r => el('div', { class: 'band band--warn' },
-        el('p', { class: 'band__title', text: `${r.label}は、AI が自信なしと言いました` }),
-        el('p', { class: 'band__text', text: '写真と見比べて、違っていたら直してください。' }),
-        editor(r, p))),
+      unsure.map(r => {
+        /* 自信なしの印の理由は 2 つ。AI が自信なしと言った、または、お客さんやパスポートが組の片方だけを入れた */
+        const byGuest = ['guest', 'passport'].includes(r.src);
+        return el('div', { class: 'band band--warn' },
+          el('p', { class: 'band__title', text: byGuest ? `${r.label}は、${SRC_JA[r.src]}が片方だけ入れました` : `${r.label}は、AI が自信なしと言いました` }),
+          el('p', { class: 'band__text', text: byGuest ? '講習と取得年月が同じカードの物か、お客さんに確かめてください。' : '写真と見比べて、違っていたら直してください。' }),
+          editor(r, p));
+      }),
       el('p', { class: 'note', text: '既往症と健康の質問は、お客さん本人が答えます。AI は読んでいません。' }),
       ui.dock(
         el('p', { class: 'errors', role: 'alert', text: review.error }),

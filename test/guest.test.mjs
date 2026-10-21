@@ -143,6 +143,13 @@ test('C カード: 分かっている方は残し、片方だけ入れたら自�
   assert.ok(C.status(p, trip).unsure.includes('certDate') || C.status(p, trip).unsure.includes('courses'), 'お店の確かめに出る');
 });
 
+test('取得年月が分かっている人は、講習で「なし（体験）」を選べない', () => {
+  const read = staffEdit(base, taro.id, { cert: { course: '', date: '2024-05' } });
+  const v = G.guestView(read, bookingId).people.find(x => x.person.id === taro.id);
+  assert.ok(G.guestProblems(fullInput({ cert: { course: 'NONE', date: '' } }), v.ask, v.parts).includes('cert'));
+  assert.ok(!G.guestProblems(fullInput({ cert: { course: 'OW', date: '' } }), v.ask, v.parts).includes('cert'));
+});
+
 test('講習だけを聞いたときは、AI が読んだ取得年月を残す', () => {
   const read = staffEdit(base, taro.id, { cert: { course: '', date: '2024-05' } });
   const v = G.guestView(read, bookingId).people.find(x => x.person.id === taro.id);

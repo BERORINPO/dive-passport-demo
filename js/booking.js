@@ -111,7 +111,7 @@
     const lead = b.leadName || (row.people[0] && row.people[0].name) || '名前の分からない予約';
     const others = Math.max(b.people, total) - 1;
     const where = b.site ? `${b.site}（${SOURCE_JA[b.source]}）` : SOURCE_JA[b.source];
-    const status = unsure ? 'AI が自信なしと言った所がある' : guests ? `${guests} 人分の入力を待っている` : waiting ? '便のポイントかガイドがまだ' : '';
+    const status = unsure ? '確かめてほしい所がある' : guests ? `${guests} 人分の入力を待っている` : waiting ? '便のポイントかガイドがまだ' : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, lead, others > 0 ? el('span', { class: 'nw', text: ` ほか ${others} 人` }) : null),
       el('span', { class: `st st--${st[0]}`, text: st[1] }),
