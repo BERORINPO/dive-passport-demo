@@ -18,9 +18,9 @@
 
 ## 2. ★ Cloudflare にログインする（約 2 分・権限）
 ```bash
-npx wrangler@4.151.0 login
+npx wrangler@4.151.0 login --scopes account:read user:read workers:write workers_kv:write workers_scripts:write workers_routes:write workers_tail:read
 ```
-ブラウザで Cloudflare の許可の画面が出る（wrangler にこのアカウントの Workers を触る権限を渡す）。
+ブラウザで Cloudflare の許可の画面が出る（wrangler にこのアカウントの Workers を触る権限を渡す）。範囲は要る物だけに絞る（`--scopes` を付けないと、D1・Pages・AI・メール送信・証明書なども丸ごと求める）。許可の画面に出るのは、この 7 つと「Background Access」（ログインを続ける）の 8 つ。終わったら `npx wrangler@4.151.0 whoami` で確かめる（足りない範囲の警告が出るが、この作業には要らない物）
 
 ## 3. 回数を数える KV を作り、置く（約 3 分・公開）
 ```bash
