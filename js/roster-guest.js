@@ -12,8 +12,9 @@
 
   /* 同意の文の版。文を変えたら、ここも変える（名簿に残り、どの文に同意したかを後で示せる）。
      目的を足すなど前の同意が使えなくなる変え方をしたら、古い版を VALID_CONSENT から外す（同意し直してもらう） */
-  const CONSENT_VER = '2026-10-21';
-  const VALID_CONSENT = [CONSENT_VER];
+  const CONSENT_VER = '2026-10-22';
+  /* 2026-10-21 の版は「乗り合いでは同じ船の他のお店にも渡す」と書いていた。2026-10-22 から渡さない（渡す先が狭まった）ので、前の同意もそのまま使える */
+  const VALID_CONSENT = [CONSENT_VER, '2026-10-21'];
   /* 長さの上限は roster-schema.js の人の形と同じ */
   const ADDRESS_MAX = 120;
   const NAME_MAX = 60;

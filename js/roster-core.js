@@ -470,7 +470,7 @@
     const yes = h.answers.map((a, i) => (a === 'yes' ? healthShort[i] : null)).filter(Boolean);
     return yes.length ? `あり（${yes.join('・')}）` : 'なし';
   }
-  /* 乗り合いの他のお店が、健康の答えを渡さずに確かめた */
+  /* 乗り合いの他のお店のお客さん。健康は、そのお店が確かめる（答えはこの店に来ない） */
   const heldText = (p) => (isHeld(p) ? `${p.health.heldBy}が確かめた` : '');
   function emergencyText(e) {
     if (!e.name && !e.phone) return '';

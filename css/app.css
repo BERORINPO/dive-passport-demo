@@ -415,11 +415,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .paper__shop td { background: var(--paper-head); font-weight: 700; }
 .paper__tag { font-family: var(--font-figure); font-weight: 700; }
 .paper__table th.paper__tagcol { width: 4.5%; }
-/* 合同名簿（7 項目）の列。短い種類は細く、緊急時の連絡先と既往症は広く */
+/* 合同名簿（5 項目。健康の 2 欄は載せない）の列。短い種類は細く、緊急時の連絡先は広く */
 .paper__table th.paper__col--kind { width: 6%; }
 .paper__table th.paper__col--shop { width: 12%; }
 .paper__table th.paper__col--emergency { width: 22%; }
-.paper__table th.paper__col--history { width: 17%; }
 /* 札ボード（印刷の見本。画面では縮めて見せる） */
 .board__top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
 .board__top h3 { margin: 0; font-size: 24px; }

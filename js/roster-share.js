@@ -1,6 +1,8 @@
 /* 乗り合い便の決まり（純ロジック）。保存・通信・画面・時計は知らない。
    1 隻に、この店と他のお店（trip.partners）のお客さんとガイドが乗る。他のお店のお客さんは、出どころ partner の予約（shop にそのお店の名前）に入れる。
    札は 1 人 1 枚（ガイドも）。番号は「お店の頭文字-番号」で、一度付けたら変えない。
+   健康の 2 欄（既往症・当日の健康状態）は船にも他のお店にも渡さない。そのお客さんのお店だけが確かめ、ここには「確かめた」印（heldBy）だけを持つ
+   （2026-10-22。店から船へ渡すには本人の同意が要り、船の全員の一覧に載せる理由が無い。報告「乗り合い便の名簿と横断の勝ち筋」）。
    便と人を直して記録に残すのは roster-core.js（editTrip・addPerson・editPerson・addTags・addCheck・logHandover） */
 (() => {
   'use strict';
@@ -9,8 +11,6 @@
   const S = () => R.roster;
   const C = () => R.rosterCore;
 
-  /* 他のお店が「お客さんから、同じ船のお店に健康の答えを渡す同意をもらった」と言った版。お客さん本人の同意（roster-guest.js）とは別 */
-  const PARTNER_CONSENT_VER = 'partner-2026-10-21';
   const MAX_PARTNERS = 10;
   const SHOP_MAX = 60;
   const GUIDE_MAX = 40;
@@ -79,33 +79,19 @@
   /* ---------- 他のお店のお客さん ---------- */
   const partnerGuide = (state, tripId, shop) => (shopPeople(state, tripId, shop).find(p => p.guide) || { guide: '' }).guide;
 
-  /* 健康の 2 欄を渡しているか。渡していない人（heldBy のある人）が 1 人もいなければ渡している */
-  function partnerShares(state, tripId, shop) {
-    const people = shopPeople(state, tripId, shop);
-    return people.length > 0 && people.every(p => !p.health.heldBy);
-  }
-
+  /* 健康の答えは持たず、そのお店が確かめた印だけ。当日の体調は、そのお店が便の日に「渡す」を押したら確かめた扱い（handOver） */
   const heldHealth = (shop) => ({ historyAt: '', answers: Array(S().HEALTH_QUESTIONS).fill(null), todayAt: '', today: '',
     consentAt: '', consentVer: '', heldBy: shop });
-  /* 渡すにした。他のお店が確かめた日（todayAt）は、答えた日ではないので消す */
-  const sharedHealth = (h, today) => ({ ...h, ...(h.heldBy ? { todayAt: '' } : {}), heldBy: '', consentAt: today, consentVer: PARTNER_CONSENT_VER });
 
-  /* 他のお店が自分のお客さんを入れる。people は人の項目（name・birthDate・… と health: { answers, today }）。
-     share（同じ船のお店に健康の答えを渡す同意をお客さんからもらった）が無いときは、健康の答えを入れず、そのお店が確かめた印だけ付ける。
-     もう人のいるお店が渡さない形なら、share があっても渡さない（混ぜない）。渡す形のお店に share の無い人を足すときは problem: 'share'
-     （同意の無い人の答えを入れない。先に印を外してもらう）。
-     health.today は答えた日（today）の体調として入れ、便の日に答えた物だけが当日の分になる。見本（demo）は便の日として入れ、記録に印を付ける。ガイドは要る */
-  function addPartnerPeople(state, { tripId, shop, people, guide, share, today, demo, at, newId }) {
+  /* 他のお店が自分のお客さんを入れる。people は人の項目（name・birthDate・…）。健康の答えが付いていても入れない（そのお店だけが持つ）。ガイドは要る。
+     見本（demo）は、そのお店が便の日に当日の体調を確かめたことにして入れ、記録に見本の印を付ける（試作の画面で「そろった」まで見せるため） */
+  function addPartnerPeople(state, { tripId, shop, people, guide, demo, at, newId }) {
     const trip = tripById(state, tripId);
     if (!trip) throw new Error(`addPartnerPeople: 便が見つからない (${tripId})`);
     if (!trip.partners.includes(shop)) return { state, problem: 'shop', ids: [] };
     const g = String(guide || '').trim();
     if (!g || g.length > GUIDE_MAX) return { state, problem: 'guide', ids: [] };
     if (!people.length) return { state, problem: null, ids: [] };
-    const existing = shopPeople(state, tripId, shop).length > 0;
-    const shopShares = existing && partnerShares(state, tripId, shop);
-    if (shopShares && share !== true) return { state, problem: 'share', ids: [] };
-    const sharing = share === true && (!existing || shopShares);
     let st = state;
     const ids = [];
     people.forEach(data => {
@@ -121,13 +107,8 @@
       const id = ids[ids.length - 1];
       const patch = { ...Object.fromEntries(PERSON_FIELDS.filter(k => has(data, k)).map(k => [k, data[k]])), guide: g };
       st = C().editPerson(st, { id, patch, who: 'staff', src: 'partner', at });
-      const h = data.health || {};
-      const answers = Array.isArray(h.answers) ? h.answers : null;
-      const todayAt = h.today ? (demo === true ? trip.date : today) : '';
-      const health = !sharing ? heldHealth(shop)
-        : answers ? sharedHealth({ historyAt: today, answers, todayAt, today: h.today || '' }, today)
-          : { consentAt: today, consentVer: PARTNER_CONSENT_VER, heldBy: '' };
-      st = C().editPerson(st, { id, patch: { health }, who: 'staff', src: 'partner', demo: demo === true && sharing && !!answers && !!h.today, at });
+      const health = { ...heldHealth(shop), todayAt: demo === true ? trip.date : '' };
+      st = C().editPerson(st, { id, patch: { health }, who: 'staff', src: 'partner', demo: demo === true, at });
     });
     return { state: st, problem: null, ids };
   }
@@ -141,23 +122,28 @@
     return { state: unique(people.map(p => p.guide)).reduce((s, from) => C().renameGuideTag(s, { tripId, shop, from, to: g, at }), st), problem: null };
   }
 
-  /* 健康の 2 欄を渡すか。渡さないにしたら、入っていた健康の答えも消す（同意が無いなら持たない）。もうその形の人はそのまま */
-  function setPartnerShare(state, { tripId, shop, share, today, at }) {
-    return shopPeople(state, tripId, shop).filter(p => !!p.health.heldBy === share).reduce((st, p) => C().editPerson(st, {
-      id: p.id, who: 'staff', src: 'partner', at,
-      patch: { health: share ? sharedHealth(p.health, today) : heldHealth(shop) }
-    }), state);
+  /* 前の版（健康の 2 欄を同意つきで船に渡せた版、2026-10-21〜22）で入れた他のお店のお客さんの健康の答えを消し、
+     そのお店が確かめた印だけにする。便の日に答えていた人は、その日に確かめた扱いのまま残す（当日の欄を「まだ」に戻さない）。
+     名簿を読み込むたびに通す（変える人がいなければ同じ state を返す） */
+  function holdPartnerHealth(state, { at }) {
+    return state.bookings.filter(isPartner).reduce((st, b) => {
+      const trip = tripById(st, b.tripId);
+      return st.people.filter(p => p.bookingId === b.id && !p.health.heldBy).reduce((s, p) => {
+        const onTheDay = !!trip && p.health.todayAt === trip.date;
+        return C().editPerson(s, { id: p.id, patch: { health: { ...heldHealth(b.shop), todayAt: onTheDay ? trip.date : '' } }, who: 'system', src: 'partner', at });
+      }, st);
+    }, state);
   }
 
-  /* 他のお店から受け取った（「渡す」を押した）。人数と、健康の欄を受け取ったかを記録に残す。
-     便の日（today がその日）に押したら、健康の答えを渡さない人の当日の体調は、そのお店がその日に確かめたことにする */
+  /* 他のお店から受け取った（「渡す」を押した）。人数を記録に残す（健康の欄は受け取らない）。
+     便の日（today がその日）に押したら、その人たちの当日の体調は、そのお店がその日に確かめたことにする */
   function handOver(state, { tripId, shop, today, at }) {
     const b = shopBookings(state, tripId, shop)[0];
     if (!b) return state;
     const onTheDay = today === tripById(state, tripId).date;
     const st = shopPeople(state, tripId, shop).filter(p => onTheDay && p.health.heldBy && p.health.todayAt !== today)
       .reduce((s, p) => C().editPerson(s, { id: p.id, patch: { health: { todayAt: today } }, who: 'staff', src: 'partner', at }), state);
-    return C().logHandover(st, { bookingId: b.id, people: shopPeople(st, tripId, shop).length, health: partnerShares(st, tripId, shop), at });
+    return C().logHandover(st, { bookingId: b.id, people: shopPeople(st, tripId, shop).length, health: false, at });
   }
 
   /* ---------- 船に乗る人と札 ---------- */
@@ -226,17 +212,18 @@
   }
 
   /* ---------- 合同名簿（印刷） ---------- */
-  /* 合同名簿に載せる項目。船の上で要る物だけ（札は別の列）。住所・生年月日・C カード・潜水経験などは、各店の条例の名簿（P4）だけに残す */
-  const JOINT_KEYS = ['name', 'shop', 'kind', 'guide', 'emergency', 'history', 'today'];
+  /* 合同名簿に載せる項目。船の上で要る物だけ（札は別の列）。住所・生年月日・C カード・潜水経験と、健康の 2 欄（既往症・当日の健康状態）は、
+     各店の条例の名簿（P4）だけに残す（この店のお客さんの分も載せない。船の全員の一覧に健康を載せない） */
+  const JOINT_KEYS = ['name', 'shop', 'kind', 'guide', 'emergency'];
   const JOINT_JA = { shop: '店', kind: '種類', guide: 'ガイド' };
   const jointItems = (kind) => JOINT_KEYS.map(key => ({ key, ja: JOINT_JA[key] || S().ITEMS[kind].find(i => i.key === key).ja }));
 
   /* お店ごとに、お客さんの行（札の番号と合同名簿の項目）。ガイドは名簿に入れず、札だけ。blank は空の欄の数 */
-  function jointRows(state, tripId, healthShort) {
+  function jointRows(state, tripId) {
     const g = boatGroups(state, tripId);
     if (!g) return null;
     const items = jointItems(g.trip.kind);
-    const cellOf = (m, group, key) => (key === 'shop' ? group.name : key === 'kind' ? m.label : C().cellText(m.person, g.trip, key, healthShort));
+    const cellOf = (m, group, key) => (key === 'shop' ? group.name : key === 'kind' ? m.label : C().cellText(m.person, g.trip, key, []));   // 健康の欄は載せないので、質問の短い名前は要らない
     const groups = g.groups.map(group => ({
       name: group.name, own: group.own, owner: group.owner, guides: group.guides,
       rows: group.members.filter(m => m.kind === 'person').map(m => {
@@ -263,8 +250,8 @@
   const leaveRepeat = (lastMs, nowMs) => Number.isFinite(lastMs) && nowMs >= lastMs && nowMs - lastMs < LEAVE_GUARD_MS;
 
   R.rosterShare = {
-    PARTNER_CONSENT_VER, MAX_PARTNERS, JOINT_KEYS, boatOwner, shopsOf, shopPeople, shopProblem, addPartner, removePartner, setHost,
-    partnerGuide, partnerShares, addPartnerPeople, setPartnerGuide, setPartnerShare, handOver,
+    MAX_PARTNERS, JOINT_KEYS, boatOwner, shopsOf, shopPeople, shopProblem, addPartner, removePartner, setHost,
+    partnerGuide, addPartnerPeople, setPartnerGuide, holdPartnerHealth, handOver,
     kindLabel, boatGroups, assignTags, jointRows, recordLeave, leaveChecks, leaveRepeat
   };
 })();

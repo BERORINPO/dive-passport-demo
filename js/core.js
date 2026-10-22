@@ -112,14 +112,38 @@
     }
   }
 
-  function dropOldBackups() {
+  /* 退避する名簿の文字から、乗り合いの他のお店のお客さんの健康の答えを外す（2026-10-22 から健康は船に持たない）。
+     形の検査に落ちた名簿でも、JSON として読めて予約と人の並びがあれば外す。読めなければ元の文字のまま。外す物が無ければ元の文字のまま返す */
+  function stripPartnerHealth(text) {
+    let o = null;
+    try { o = JSON.parse(text); } catch (e) { return text; }
+    if (!o || typeof o !== 'object' || !Array.isArray(o.bookings) || !Array.isArray(o.people)) return text;
+    const partner = new Set(o.bookings.filter(b => b && b.source === 'partner').map(b => b.id));
+    const answered = (h) => !!h && typeof h === 'object' &&
+      ((Array.isArray(h.answers) && h.answers.some(a => a !== null && a !== undefined)) || (typeof h.today === 'string' && h.today !== ''));
+    if (!o.people.some(p => p && partner.has(p.bookingId) && answered(p.health))) return text;
+    const people = o.people.map(p => {
+      if (!p || !partner.has(p.bookingId) || !answered(p.health)) return p;
+      const { health, ...rest } = p;
+      return rest;
+    });
+    return JSON.stringify({ ...o, people });
+  }
+
+  /* 1 年を過ぎた退避を消す。残す退避からも、他のお店のお客さんの健康の答えを外す（前の版で退避した物のため） */
+  function tidyBackups() {
     try {
-      const old = [];
+      const keys = [];
       for (let i = 0; i < localStorage.length; i += 1) {
         const k = localStorage.key(i);
-        if (k && k.startsWith(ROSTER_BACKUP) && Date.now() - Number(k.slice(ROSTER_BACKUP.length)) > BACKUP_KEEP_MS) old.push(k);
+        if (k && k.startsWith(ROSTER_BACKUP)) keys.push(k);
       }
-      old.forEach(k => localStorage.removeItem(k));
+      keys.forEach(k => {
+        if (Date.now() - Number(k.slice(ROSTER_BACKUP.length)) > BACKUP_KEEP_MS) { localStorage.removeItem(k); return; }
+        const v = localStorage.getItem(k);
+        const stripped = v === null ? v : stripPartnerHealth(v);
+        if (stripped !== v) localStorage.setItem(k, stripped);
+      });
     } catch (e) {
       // 保存場所が使えないときは何もしない
     }
@@ -127,21 +151,27 @@
 
   function loadRoster() {
     if (roster) return roster;
-    dropOldBackups();
+    /* 他のお店のお客さんの健康の答えを消す決まり（roster-share.js）が無いまま名簿を開かない（消し忘れたまま保存し直さない） */
+    if (!R.rosterShare) throw new Error('loadRoster: roster-share.js を先に読む');
+    tidyBackups();
     let raw = null;
     try { raw = localStorage.getItem(ROSTER_KEY); } catch (e) { /* 保存場所が使えないときは、空の名簿から始める */ }
     let parsed = null;
     try { parsed = raw ? JSON.parse(raw) : null; } catch (e) { parsed = null; }
     const cleaned = parsed && typeof parsed === 'object' ? R.rosterCore.scrubLog(parsed) : parsed;   // 前の版の記録に残った健康の答えの中身を消す
     if (cleaned && R.roster.validateState(cleaned).ok) {
-      roster = R.rosterCore.purgeExpired(cleaned, { today: ymd(new Date()), at: new Date().toISOString() });
+      const at = new Date().toISOString();
+      const kept = R.rosterCore.purgeExpired(cleaned, { today: ymd(new Date()), at });
+      /* 前の版で船に渡した他のお店のお客さんの健康の答えを消す（健康は、そのお客さんのお店だけが持つ。roster-share.js）。
+         期限切れの便を先に消してから（消える人に記録を足さない）。roster-share.js は index.html でこのファイルより後に読むが、名簿を読むのは画面ができてから */
+      roster = R.rosterShare.holdPartnerHealth(kept, { at });
       if (roster !== parsed) writeRoster(roster);   // 書き換えたり期限切れを消したりしたら、保存場所にも入れる
     } else {
       roster = R.roster.blankState(ROSTER_SHOP);
       if (raw) {
         let kept = false;
         try {
-          localStorage.setItem(`${ROSTER_BACKUP}${Date.now()}`, raw);
+          localStorage.setItem(`${ROSTER_BACKUP}${Date.now()}`, stripPartnerHealth(raw));
           kept = true;
         } catch (e) {
           kept = false;

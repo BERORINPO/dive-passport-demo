@@ -148,7 +148,7 @@
   }
 
   /* consentAt・consentVer は、お客さんが健康の答えに同意した日と同意の文の版（P3 で足した。無くてもよい）。
-     heldBy は、乗り合いの他のお店が健康の答えを渡さずに「確かめた」とだけ言ったときの、そのお店の名前（P5。無くてもよい）。
+     heldBy は、乗り合いの他のお店のお客さんで、健康はそのお店が確かめる（答えはこの店に来ない）ときの、そのお店の名前（P5。無くてもよい）。
      heldBy のある人は答えを持たない。todayAt は、そのお店が便の日に当日の体調を確かめた日 */
   function healthOk(h) {
     return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer', 'heldBy']) && isDay(h.historyAt) &&

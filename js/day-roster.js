@@ -19,7 +19,7 @@
   const WHO_JA = { staff: 'お店', guest: 'お客さん', ai: 'AI', system: '自動' };
   const DOC_JA = { mail: '予約メール', paper: '申込書', ccard: 'C カード' };
   const FIELD_JA = { name: '氏名', birthDate: '生年月日', phone: '電話', address: '住所', emergency: '緊急時の連絡先', cert: 'C カード',
-    courses: '講習受講歴', dives: '経験', lastDive: '最後に潜った日', sizes: 'サイズ', health: '健康の答え', guide: 'ガイド',
+    courses: '講習受講歴', dives: '経験', lastDive: '最後に潜った日', sizes: 'サイズ', health: '健康の欄', guide: 'ガイド',
     site: '潜水場所', guides: 'ガイド', source: '予約の出どころ', people: '人数', leadName: '代表者', leadPhone: '代表者の電話', note: 'メモ',
     boat: '船', host: '船を出す店', partners: '乗り合いのお店' };
   let icsRange = 'ahead';   // ahead（今日から先の便）/ day（この日の便だけ）
@@ -139,7 +139,7 @@
         el('tbody', {}, table.rows.map(r => el('tr', {}, table.items.map(i => el('td', { class: r.cells[i.key] ? null : 'paper__none', text: r.cells[i.key] || '—' }))))))),
       el('p', { class: 'paper__foot' },
         el('span', { text: `この名簿は ${slash(C().keepUntil(trip.date))} まで残す（作成の日から 1 年。${law.rule}）` }),
-        el('span', { text: `印刷 ${shortTime(nowIso())}　見る人はこの便のお店の人だけ（乗り合いの便では同じ船のお店も）。健康の欄は人に見せない` })));
+        el('span', { text: `印刷 ${shortTime(nowIso())}　見る人はこのお店の人だけ（乗り合いの便でも、同じ船の他のお店には見せない）。健康の欄は人に見せない` })));
   }
 
   function renderPrint({ tripId, ui }) {
@@ -199,7 +199,7 @@
     /* 便の項目（潜水場所・ガイド）だけは前と後を出す。人の中身（健康の答えなど）は出さない */
     const tripValues = e.kind === 'trip' && e.act === 'edit'
       ? e.fields.map(f => `${[].concat(e.before[f] || '—').join('・') || '—'} → ${[].concat(e.after[f] || '—').join('・') || '—'}`).join('　') : '';
-    const sub = [tripValues, e.kind === 'person' && e.act === 'edit' ? '中身は名簿の画面で見る' : '', e.demo ? 'デモで当日として答えた' : ''].filter(Boolean).join('　');
+    const sub = [tripValues, e.kind === 'person' && e.act === 'edit' ? '中身は名簿の画面で見る' : '', e.demo ? (e.after && e.after.health && e.after.health.heldBy ? '見本: 便の日にそのお店が確かめたことにした' : 'デモで当日として答えた') : ''].filter(Boolean).join('　');
     return el('div', { class: 'logrow' }, el('time', { datetime: e.at, text: shortTime(e.at) }),
       el('span', {}, `${WHO_JA[e.who] || e.who}　${text}`, sub ? el('small', { text: sub }) : null));
   }

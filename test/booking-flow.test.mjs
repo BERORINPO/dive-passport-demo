@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
-const SCRIPTS = ['core.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'data-samples.js', 'photo-mask.js', 'photo-prep.js', 'ai-reader.js'];
+const SCRIPTS = ['core.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'roster-share.js', 'data-samples.js', 'photo-mask.js', 'photo-prep.js', 'ai-reader.js'];
 const memory = (init) => {
   const m = new Map(Object.entries(init || {}));
   return {
@@ -88,6 +88,40 @@ test('壊れた名簿の退避は 1 回だけ。開き直しても増えない',
   const again = boot(local).rosterStore;
   again.get();
   assert.equal(again.note(), null, '2 回目からは、読めた名簿として開く');
+});
+
+test('前の版で船に渡した他のお店のお客さんの健康の答えは、開いたときに名簿からも退避からも消える', () => {
+  const local = memory();
+  const R = boot(local);
+  const C = R.rosterCore;
+  const X = R.rosterShare;
+  R.rosterStore.update(s => C.addTrip(s, { trip: { date: '2099-01-10', start: '08:30', kind: 'dive' }, at: AT, newId: R.newId }).state);
+  const tripId = R.rosterStore.get().trips[0].id;
+  R.rosterStore.update(s => X.addPartner(s, { tripId, name: 'C ダイブ（見本）', at: AT }).state);
+  R.rosterStore.update(s => X.addPartnerPeople(s, { tripId, shop: 'C ダイブ（見本）', people: [{ name: '見本 一郎' }], guide: '見本 三郎', at: AT, newId: R.newId }).state);
+  const id = R.rosterStore.get().people.find(p => p.name === '見本 一郎').id;
+  /* 前の版の形: 他のお店が同意つきで渡した答え */
+  const old = C.editPerson(R.rosterStore.get(), { id, who: 'staff', src: 'partner', at: AT, patch: { health: {
+    answers: ['yes', 'no', 'no', 'no', 'no'], historyAt: '2026-10-21', today: 'unwell', todayAt: '2099-01-10', consentAt: '2026-10-21', consentVer: 'partner-2026-10-21', heldBy: '' } } });
+  const backupKey = `redux-roster-v1-broken-${Date.now()}`;
+  local.setItem('redux-roster-v1', JSON.stringify(old));
+  local.setItem(backupKey, JSON.stringify({ ...old, v: 'broken' }));
+  assert.ok(local.getItem('redux-roster-v1').includes('unwell') && local.getItem(backupKey).includes('unwell'), '前の版の答えが入っている');
+  const again = boot(local).rosterStore.get();
+  const p = again.people.find(x => x.id === id);
+  assert.deepEqual([p.health.heldBy, p.health.todayAt, p.health.answers.every(a => a === null)], ['C ダイブ（見本）', '2099-01-10', true], '便の日の確かめは残す');
+  for (const key of ['redux-roster-v1', backupKey]) {
+    const text = local.getItem(key);
+    assert.ok(!text.includes('"yes"') && !text.includes('unwell'), `${key} に答えの中身が残っていない`);
+  }
+  assert.equal(JSON.parse(local.getItem(backupKey)).v, 'broken', '退避のほかの中身はそのまま');
+});
+
+test('他のお店の健康を消す決まり（roster-share.js）を読まずに名簿を開こうとしたら止まる', () => {
+  const ctx = vm.createContext({ localStorage: memory(), sessionStorage: memory(), setTimeout, clearTimeout, TextEncoder, btoa, console, addEventListener: () => {} });
+  ctx.window = ctx;
+  SCRIPTS.filter(f => f !== 'roster-share.js').forEach(f => vm.runInContext(readFileSync(new URL(`../js/${f}`, import.meta.url), 'utf8'), ctx, { filename: f }));
+  assert.throws(() => ctx.REDUX.rosterStore.get(), /roster-share\.js/);
 });
 
 test('保存期間を過ぎた便は、開いたときに保存場所からも消える', async () => {
