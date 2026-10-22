@@ -15,7 +15,7 @@
   const KIND_JA = { dive: 'ダイビング', snorkel: 'スノーケル' };
   const ERROR_JA = {
     input: '送れない文面です。届いたメールの本文をそのまま貼ってください（メールのソースは読めません）',
-    auth: '合言葉か、ログインを確かめてください',
+    auth: 'ログインが切れたか、通りませんでした。画面を読み込み直してください',
     limit: '今日か今月の上限に達しました。見本の読み取りでは続けられます',
     offline: '届きませんでした。通信を確かめて、もう一度試してください',
     bad: 'AI の答えが形に合わなかったので、使いませんでした。もう一度試すか、電話などの予約から手で入れてください'
@@ -161,6 +161,22 @@
     return dates.find(d => d >= today) || dates[dates.length - 1] || '';
   }
 
+  /* AI の読み取り（見本 / 本物）。本物を選べるのは、Worker 版で /api/healthz が通ったときだけ。公開版には出さない */
+  function aiRow() {
+    const A = R.aiReader;
+    if (!A.available()) return null;
+    const real = A.mode() === 'real';
+    const left = A.left();
+    const fig = (t) => el('span', { class: 'fig', text: t });
+    return el('div', { class: `ai${real ? ' ai--on' : ''}` },
+      el('span', { class: 'rd__k', text: 'AI の読み取り' }),
+      el('span', { class: 'ai__v' }, el('b', { text: real ? '本物' : '見本' }),
+        real ? el('small', {}, el('span', { class: 'nw' }, '今日あと ', fig(String(left.today)), ' 件'), '・',
+          el('span', { class: 'nw' }, '今月あと ', fig(`$${left.monthUsd.toFixed(2)}`)))
+          : el('small', { text: '試験の答えを使う。AI には送らない' })),
+      el('button', { class: 'linkbtn', type: 'button', text: real ? '見本に戻す' : '本物にする', onclick: () => A.setMode(real ? 'sample' : 'real') }));
+  }
+
   function renderList() {
     const s = R.rosterStore.get();
     const trips = C().tripList(s);
@@ -168,6 +184,7 @@
     day = pickDay(dates);
     return [
       ...head('予約', '便ごとの予約と、名簿のそろい具合'),
+      aiRow(),
       R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
         class: 'day', type: 'button', 'aria-pressed': String(d === day), 'aria-label': md(d),
@@ -260,9 +277,9 @@
           ? `健康に触れていそうな所（${mail.shown.redacted} か所）は外しました。外した所は［ ］の印になっています。`
           : '健康に触れていそうな所は見つかりませんでした。' }),
         el('pre', { class: 'mail__shown', text: mail.shown.text })),
-      sampleMode ? el('p', { class: 'note', text: cannotRead
+      el('p', { class: 'note', text: !sampleMode ? 'この文面を Anthropic の AI に送ります。' : cannotRead
         ? 'いまは見本の読み取りです。読めるのは見本のメールだけです。ほかの予約は「電話などの予約を足す」から入れてください。'
-        : 'いまは見本の読み取りです（AI には送らず、試験で読んだ答えを使います）。' }) : null,
+        : 'いまは見本の読み取りです（AI には送らず、試験で読んだ答えを使います）。' }),
       dock(
         mailErr(),
         el('button', { class: 'btn', type: 'button', disabled: cannotRead || mail.busy, text: mail.busy ? '読んでいます…' : 'この文面を AI で読む', onclick: readMail }),
@@ -474,4 +491,6 @@
 
   R.renderBooking = render;
   R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log', 'joint', 'leave'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
+  /* 見本 / 本物が変わった（切り替えた・上限で見本に戻った・healthz が通った）。入力の途中の画面は描き直さない */
+  R.aiReader.onChange(() => { if (mode === 'list' && !document.getElementById('view-booking').hidden) render(); });
 })();

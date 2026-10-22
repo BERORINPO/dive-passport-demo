@@ -4,6 +4,7 @@
    io = { fetch, now }（テストでは差し替える）。鍵は 10 分ためておく */
 
 const CERTS_TTL_MS = 10 * 60 * 1000;
+const REFRESH_GAP_MS = 60 * 1000;   // 知らない kid での取り直しは 1 分に 1 回まで（kid を変えた JWT で何度も取りに行かせない）
 const SKEW_S = 60;   // 時計のずれを 1 分まで許す
 let cache = { url: '', at: 0, keys: [] };
 
@@ -15,7 +16,7 @@ const b64urlJson = (s) => JSON.parse(new TextDecoder().decode(b64urlBytes(s)));
 
 async function certs(url, io, fresh) {
   if (!fresh && cache.url === url && io.now() - cache.at < CERTS_TTL_MS) return cache.keys;
-  const res = await io.fetch(url, { headers: { accept: 'application/json' } });
+  const res = await io.fetch(url, { headers: { accept: 'application/json' }, redirect: 'error' });
   if (!res.ok) throw new Error(`certs ${res.status}`);
   const body = await res.json();
   const keys = Array.isArray(body && body.keys) ? body.keys : [];
@@ -25,7 +26,8 @@ async function certs(url, io, fresh) {
 
 const allowList = (env) => String(env.ALLOWED_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
-/* { ok: true, email } か { ok: false, why }。why はログ用の短い言葉（トークンの中身は入れない） */
+/* { ok: true, email } か { ok: false, why }。why はログ用の短い言葉（トークンの中身は入れない）。
+   why が 'certs' のときは、Cloudflare の鍵が取れなかった（こちら側の障害）。呼び出す側は 503 にする */
 export async function verifyAccess(request, env, io) {
   const token = request.headers.get('cf-access-jwt-assertion') || '';
   const parts = token.split('.');
@@ -40,12 +42,13 @@ export async function verifyAccess(request, env, io) {
   }
   if (!head || head.alg !== 'RS256' || typeof head.kid !== 'string') return { ok: false, why: 'alg' };
 
-  const team = String(env.ACCESS_TEAM_DOMAIN || '').replace(/^https:\/\//, '').replace(/\/+$/, '');
+  /* 「<team>.cloudflareaccess.com」の形で入れる。頭に付けた https:// と、後ろの / は外す */
+  const team = String(env.ACCESS_TEAM_DOMAIN || '').trim().replace(/^[a-z]+:\/*/i, '').replace(/\/+$/, '');
   const url = `https://${team}/cdn-cgi/access/certs`;
   let jwk;
   try {
     jwk = (await certs(url, io, false)).find(k => k && k.kid === head.kid);
-    if (!jwk) jwk = (await certs(url, io, true)).find(k => k && k.kid === head.kid);   // 鍵が入れ替わった直後
+    if (!jwk && io.now() - cache.at >= REFRESH_GAP_MS) jwk = (await certs(url, io, true)).find(k => k && k.kid === head.kid);   // 鍵が入れ替わった直後
   } catch (e) {
     return { ok: false, why: 'certs' };
   }
@@ -70,22 +73,6 @@ export async function verifyAccess(request, env, io) {
   const email = typeof claims.email === 'string' ? claims.email.trim().toLowerCase() : '';
   if (!email || !allowList(env).includes(email)) return { ok: false, why: 'email' };
   return { ok: true, email };
-}
-
-/* 合言葉。header x-redux-code に UTF-8 の base64url で来る（ヘッダに日本語を入れられないため）。
-   両方を SHA-256 にしてから、長さの同じ 32 バイトを全部比べる（途中で止めないので、どこまで合ったかが時間に出ない）。空は通さない */
-const MAX_CODE_HEADER = 400;
-export async function codeOk(header, secret) {
-  if (!header || header.length > MAX_CODE_HEADER || !/^[A-Za-z0-9_-]+$/.test(header)) return false;
-  let given;
-  try { given = new TextDecoder('utf-8', { fatal: true }).decode(b64urlBytes(header)).trim(); } catch (e) { return false; }
-  const want = String(secret || '').trim();
-  if (!given || !want) return false;
-  const sha = async (s) => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
-  const [a, b] = await Promise.all([sha(given), sha(want)]);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
 }
 
 /* テストで鍵のためを消す */

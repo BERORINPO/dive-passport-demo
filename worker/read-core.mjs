@@ -8,16 +8,19 @@ const R = globalThis.REDUX;
 
 export const MODEL = 'claude-haiku-5-5';
 export const MAX_TOKENS = 3000;   // AI の読み取り試験 (2026-10-21) と同じ
-/* Claude Haiku 5.5 の料金（100K トークン以下の入力。claude-api の参照 2026-10-06）。1 件の費用の目安にだけ使う */
+/* Claude Haiku 5.5 の料金（100 万トークンあたりのドル。入力が 100K トークン以下のとき）。
+   出典: Claude Code の claude-api の参照の表（2026-10-06 時点）と、AI の読み取り試験の run_ocr.py（2026-10-21）。1 件の費用の目安にだけ使う。
+   本当の額の歯止めは Anthropic のワークスペースの上限。置いたあと、Console の使用額と KV の month を 1 回見比べる（docs/deploy.md） */
 const PRICE_IN = 0.10;
 const PRICE_OUT = 0.50;
-/* 呼ぶ前に、1 件で使うかもしれない最大の額を見込んでおく（写真の入力 約 6,000 トークン + 出力の上限） */
-export const WORST_MICRO = Math.ceil((6000 * PRICE_IN + MAX_TOKENS * PRICE_OUT));   // 100 万分の 1 ドル単位
+/* 呼ぶ前に、1 件で使うかもしれない最大の額を見込んでおく。入力は予約メールの上限 2 万字 + プロンプト（写真より多い）、出力は上限まで */
+const WORST_IN_TOKENS = 24000;
+export const WORST_MICRO = Math.ceil(WORST_IN_TOKENS * PRICE_IN + MAX_TOKENS * PRICE_OUT);   // 100 万分の 1 ドル単位
 /* 依頼の本文の上限。写真の base64 + JSON の囲み */
 export const MAX_BODY = R.roster.MAX_IMAGE + 2000;
 
-/* AI の読み取り試験と同じ文。書き方を変えたら、置いたあとの Worker で見本 16 件を読み直す */
-const PROMPT = `あなたはダイビングショップの受付事務を手伝います。この書類から、ダイビングに参加する人ごとに名簿の項目を読み取り、JSON だけを返してください。
+/* 写真（申込書・C カード）は AI の読み取り試験と同じ文。書き方を変えたら、置いたあとの Worker で見本 16 件を読み直す */
+const RULES = `あなたはダイビングショップの受付事務を手伝います。この書類から、ダイビングに参加する人ごとに名簿の項目を読み取り、JSON だけを返してください。
 
 決まり:
 - 書類に書かれていないこと・読めないことは null にする。推測で埋めない。
@@ -26,22 +29,26 @@ const PROMPT = `あなたはダイビングショップの受付事務を手伝�
 - 電話番号は書いてあるとおり（ハイフンはあってもなくてもよい）。
 - 少しでも自信がない項目は、その項目名を unsure に入れる。
 - 健康や病気についての情報が見えても書き写さない。見えたかどうかだけを health_info_visible に書く。
-- お店のスタッフや、引用された過去のメールの差出人は参加者に含めない。
+- お店のスタッフや、引用された過去のメールの差出人は参加者に含めない。`;
+const PHOTO_FORMAT = `
 
 形式:
 {"participants": [{"name": "", "birth_date": "", "phone": "", "address": "", "emergency_name": "", "emergency_relation": "", "emergency_phone": "", "cert_course": "", "cert_date": "", "dive_count": 0, "last_dive": "", "height_cm": 0, "weight_kg": 0, "foot_cm": 0, "unsure": []}], "health_info_visible": false}`;
+const PHOTO_PROMPT = RULES + PHOTO_FORMAT;
 
-/* 予約メールだけ、予約そのものも読む。試験では聞いていなかった部分なので、置いたあとの確かめで見る */
-const MAIL_PART = (today) => `
+/* 予約メールだけ、予約そのものも読む（試験では聞いていない部分。置いたあとの確かめで見る）。
+   答えを 2 つの JSON に分けさせないよう、形式は 1 つにまとめて見せる。例の値は null にする（0 を書き写させない） */
+const MAIL_PROMPT = (today) => `${RULES}
 
 この書類は予約のメールです。参加者のほかに、予約そのものも "booking" に書いてください。
 - site: 予約を受けたサイトやフォームの名前。ref: 予約番号。date: 潜る日（YYYY-MM-DD）。start: 集合か開始の時刻（HH:MM、24 時間）。tour: ツアーの名前。people: 人数。lead_name・lead_phone: 代表者の名前と電話。
 - 今日は ${today}。年が書かれていない日付は、今日か今日より後の一番近い日にする。
 - 分からない所は null にし、少しでも自信がない項目は booking の unsure に入れる。
 - 「${R.healthRedact.REDACTED_LINE}」「${R.healthRedact.REDACTED_PART}」は、お店が送らなかった所。中身を推測しない。
+- 答えは次の形の JSON 1 つだけ。前後に説明を書かない。
 
-booking の形式:
-{"booking": {"site": "", "ref": "", "date": "", "start": "", "tour": "", "people": 0, "lead_name": "", "lead_phone": "", "unsure": []}}`;
+形式:
+{"participants": [{"name": null, "birth_date": null, "phone": null, "address": null, "emergency_name": null, "emergency_relation": null, "emergency_phone": null, "cert_course": null, "cert_date": null, "dive_count": null, "last_dive": null, "height_cm": null, "weight_kg": null, "foot_cm": null, "unsure": []}], "booking": {"site": null, "ref": null, "date": null, "start": null, "tour": null, "people": null, "lead_name": null, "lead_phone": null, "unsure": []}, "health_info_visible": false}`;
 
 /* 日付は日本の時刻で決める（便も名簿も沖縄の日付）。core は時計を使わないので、受け取った ms から暦の日を計算する
    （1970-01-01 からの日数を年月日に直す。グレゴリオ暦の 400 年の周期で数える） */
@@ -83,23 +90,70 @@ export function checkRequest(given, today) {
   if (body.doc === 'mail') {
     const { text, redacted } = R.healthRedact.redact(body.text);
     if (text.length > R.roster.MAX_TEXT) return { ok: false, error: 'text' };
-    return { ok: true, ask: { doc: 'mail', prompt: PROMPT + MAIL_PART(today), text, size: text.length, redacted } };
+    return { ok: true, ask: { doc: 'mail', prompt: MAIL_PROMPT(today), text, size: text.length, redacted } };
   }
   const mediaType = imageType(body.image);
   if (!mediaType) return { ok: false, error: 'image-type' };
-  return { ok: true, ask: { doc: body.doc, prompt: PROMPT, image: body.image, mediaType, size: body.image.length, redacted: 0 } };
+  return { ok: true, ask: { doc: body.doc, prompt: PHOTO_PROMPT, image: body.image, mediaType, size: body.image.length, redacted: 0 } };
 }
 
-/* AI の答えの文から JSON を取り出し、答えの形に直して検査する。予約は予約メールのときだけ受け取る */
+/* 答えの文の中の JSON の塊を、前から順に全部取り出す（文字列の中の括弧は数えない）。前後の説明・```json の囲み・2 つに分かれた答えに耐える */
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+function jsonObjects(text) {
+  const found = [];
+  let i = text.indexOf('{');
+  while (i !== -1) {
+    let depth = 0;
+    let quote = false;
+    let end = -1;
+    for (let j = i; j < text.length; j += 1) {
+      const c = text[j];
+      if (quote) {
+        if (c === '\\') j += 1;
+        else if (c === '"') quote = false;
+      } else if (c === '"') quote = true;
+      else if (c === '{') depth += 1;
+      else if (c === '}') { depth -= 1; if (depth === 0) { end = j; break; } }
+    }
+    if (end === -1) break;
+    try {
+      const v = JSON.parse(text.slice(i, end + 1));
+      if (isObj(v)) { found.push(v); i = text.indexOf('{', end + 1); continue; }
+    } catch (e) { /* JSON でない括弧（説明の文など）。次の { から探す */ }
+    i = text.indexOf('{', i + 1);
+  }
+  return found;
+}
+
+/* AI の答えの文から JSON を取り出し、答えの形に直して検査する。予約は予約メールのときだけ受け取る。
+   参加者の塊と予約の塊が分かれて返ったときは、参加者の塊に予約を足す */
 export function readingFrom(text, doc) {
-  const m = typeof text === 'string' ? text.match(/\{[\s\S]*\}/) : null;
-  if (!m) return { ok: false, error: 'no-json' };
-  let raw;
-  try { raw = JSON.parse(m[0]); } catch (e) { return { ok: false, error: 'json' }; }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: 'shape' };
+  if (typeof text !== 'string') return { ok: false, error: 'no-json' };
+  const objects = jsonObjects(text);
+  if (!objects.length) return { ok: false, error: text.includes('{') ? 'json' : 'no-json' };
+  const base = objects.find(o => Object.prototype.hasOwnProperty.call(o, 'participants')) || objects[0];
+  const withBooking = isObj(base.booking) ? base : objects.find(o => isObj(o.booking));
+  const raw = { ...base, booking: withBooking ? withBooking.booking : base.booking };
+  if (objects.some(o => o !== base && o.health_info_visible === true)) raw.health_info_visible = true;
   const reading = R.roster.fromModel(doc === 'mail' ? raw : { ...raw, booking: undefined });
   const v = R.roster.validateReading(reading);
   return v.ok ? { ok: true, reading } : { ok: false, error: v.errors.join(',') };
+}
+
+/* 上限の判定（数えるのは呼ぶ前）。{ day: 今日呼んだ回数, month: 今月使った額 } と上限から、超えるなら 'day' か 'month' */
+export function overLimit(used, limits) {
+  if (used.day >= limits.day) return 'day';
+  if (used.month + WORST_MICRO > limits.monthMicro) return 'month';
+  return '';
+}
+
+/* 上限の設定（wrangler.jsonc の vars。文字で来る）。読めない値は 0（= 呼ばない側に倒す） */
+export function limitsFrom(vars) {
+  const num = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+  return { day: Math.floor(num(vars.DAILY_LIMIT)), monthMicro: Math.floor(num(vars.MONTHLY_USD) * 1e6) };
 }
 
 /* 使った額（100 万分の 1 ドル単位の整数）。usage が無ければ最大の見込みで数える */

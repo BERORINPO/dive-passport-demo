@@ -1,6 +1,6 @@
 // Cloudflare Worker の設定（P6）。置き方は docs/deploy.md。
-// この repo は公開なので、鍵・合言葉・チームのメールアドレス・Access の値はここに書かず、wrangler secret put で入れる
-// （ANTHROPIC_API_KEY・REDUX_CODE・ACCESS_TEAM_DOMAIN・ACCESS_AUD・ALLOWED_EMAILS）。
+// この repo は公開なので、鍵・チームのメールアドレス・Access の値はここに書かず、wrangler secret put で入れる
+// （ANTHROPIC_API_KEY・ACCESS_TEAM_DOMAIN・ACCESS_AUD・ALLOWED_EMAILS）。
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dive-passport-demo",

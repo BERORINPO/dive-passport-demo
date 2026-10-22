@@ -1,5 +1,5 @@
 /* Claude API を呼ぶ（adapter）。request は毎回ここで新しく組み立てる。
-   送るヘッダは x-api-key・anthropic-version・content-type の 3 つだけ（画面から来た Cookie・JWT・合言葉は送らない）。
+   送るヘッダは x-api-key・anthropic-version・content-type の 3 つだけ（画面から来た Cookie・Access の JWT は送らない）。
    SDK を使わず fetch で書くのは、この repo が npm の部品を入れない作りで、送るヘッダを 3 つに決めているため（spec/architecture.md の決定ログ）。
    エラーの本文は返さない（状態の番号だけ）。io = { fetch } */
 import { MODEL, MAX_TOKENS } from './read-core.mjs';
@@ -15,7 +15,7 @@ export class UpstreamError extends Error {
   }
 }
 
-/* ask は read-core.mjs の checkRequest が組み直した物。{ text, usage } を返す */
+/* ask は read-core.mjs の checkRequest が組み直した物。{ text, usage, stopReason } を返す */
 export async function callModel(ask, env, io) {
   const content = ask.doc === 'mail'
     ? [{ type: 'text', text: `${ask.prompt}\n\n--- 書類 ---\n${ask.text}` }]
@@ -26,6 +26,7 @@ export async function callModel(ask, env, io) {
       method: 'POST',
       headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({ model: MODEL, max_tokens: MAX_TOKENS, messages: [{ role: 'user', content }] }),
+      redirect: 'error',   // 別の所へ転送されても、鍵の付いた要求を付いて行かせない
       signal: AbortSignal.timeout(TIMEOUT_MS)
     });
   } catch (e) {
@@ -40,5 +41,5 @@ export async function callModel(ask, env, io) {
   const text = (Array.isArray(body && body.content) ? body.content : [])
     .filter(b => b && b.type === 'text' && typeof b.text === 'string').map(b => b.text).join('');
   if (!text) throw Object.assign(new UpstreamError('empty', 200), { usage });
-  return { text, usage };
+  return { text, usage, stopReason: typeof body.stop_reason === 'string' ? body.stop_reason.slice(0, 20) : '' };
 }

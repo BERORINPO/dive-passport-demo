@@ -21,15 +21,17 @@
 ## 2. 外部境界表
 | adapter | 相手 | Fake | fixture | credential | 書き込み |
 |---|---|---|---|---|---|
-| js/ai-reader.js | 同じ場所の Worker `/api/read` → Claude API（Haiku） | `readSample`（同じファイル）+ js/data-samples.js | AI の読み取り試験 2026-10-21 の Haiku の答え（tools/make-samples.mjs が作る） | Cloudflare Access の cookie + 合言葉（`x-redux-code`、sessionStorage）。API キーは Worker の secret だけ（この Worker 専用の 1 本） | なし |
+| js/ai-reader.js | 同じ場所の Worker `/api/read` → Claude API（Haiku） | `readSample`（同じファイル）+ js/data-samples.js | AI の読み取り試験 2026-10-21 の Haiku の答え（tools/make-samples.mjs が作る） | Cloudflare Access の cookie（合言葉は 2026-10-22 に外した）。API キーは Worker の secret だけ（この Worker 専用の 1 本） | なし |
 | js/core.js | localStorage | 無し（ブラウザの中だけ） | — | なし | このブラウザだけ |
 | worker/anthropic.mjs | Claude API（claude-haiku-5-5、/v1/messages） | `fakeAnthropic`（worker/fakes.mjs） | AI の読み取り試験 2026-10-21 の答え（予約の項目は試験していない。置いたあとに確かめる） | `ANTHROPIC_API_KEY`（この Worker 専用の 1 本、並行 1 本。Anthropic のこの Worker 専用ワークスペースで発行し、そこで月の上限） | なし |
-| worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS`・合言葉 `REDUX_CODE` は secret） | なし |
+| worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS` は secret） | なし |
 | worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | 1 日の回数と今月の費用（目安）だけ |
 
 ## 3. Origin・監視
 - 画面のファイルと `/api` は同じ Worker から配る（同じ origin）。CORS と cross-site の Cookie は使わない
-- 入口は 2 重: Cloudflare Access（Worker 全体）と合言葉。Worker は `Cf-Access-Jwt-Assertion` を自分で確かめ（署名・iss・aud・期限・許したメール）、通らない呼び出しを 403 で断る。`ctx.access` には頼らない
+- 入口は Cloudflare Access（Worker 全体）だけ。Worker は `Cf-Access-Jwt-Assertion` を自分で確かめ（署名・iss・aud・期限・許したメール）、通らない呼び出しを 403 で断る。`ctx.access` には頼らない。Access の鍵が取れないとき（Cloudflare 側の障害）は 503
+- 画面の「本物」は、同じ場所の `/api/healthz` が通ったときだけ選べる（js/ai-reader.js の probe。GitHub Pages 版から本文を外に送らない）
+- Worker が画面を信じる所: 申込書の写真を塗ったか（`masked: true` は画面の photo-prep.js の申告で、Worker は確かめられない）。spec/meibo.md の「本物の前に」21
 - /api は `Sec-Fetch-Site: same-origin` と JSON を求め、CORS のヘッダは出さない。画面のファイルは Static Assets が `dist/_headers` の CSP を付けて配る（tools/build-site.mjs が作る）
 - 監視: Worker は回数と費用だけを KV に数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える。ログは 1 要求 1 行で、道・状態・doc・量・時間・理由の短い言葉だけ。Cloudflare の observability は切る
 - 他のお店のスマホで開くパスポート（pass.html）は、GitHub Pages の公開版に置いたまま。Worker 版の画面の QR は公開版の pass.html を指す（Worker は Access の中なので、他のお店は開けない）
@@ -58,6 +60,7 @@
 |---|---|---|---|
 | 2026-10-21 ai-place | AI は Cloudflare Worker から呼ぶ | Yosuke 指定。手元のサーバー案は会場の Wi-Fi 頼みになる | なし |
 | 2026-10-21 access | Access と合言葉の 2 重 | Yosuke 指定。合言葉だけだと、漏れたら誰でも使える | なし |
+| 2026-10-22 access-only | 合言葉を外し、入口は Access だけ（2026-10-21 access を置き換える） | Yosuke の判断。Worker が Access の JWT を自分で確かめるので、合言葉が足す守りは小さい（ザク同意）。共有の言葉は 1 人だけ止められず、漏れやすく、発表の場で打つ手間がある。1 人を止めるときは Access の Policy と ALLOWED_EMAILS から消す。2 つ目の鍵が要るなら、合言葉ではなく Access のログインを 2 段階にする | test/worker.test.mjs |
 | 2026-10-21 health | 健康の情報は AI に送らない。申込書は健康の欄を塗ってから | 要配慮個人情報 | test/roster.test.mjs（送る物と答えの形） |
 | 2026-10-21 health-mail | 予約メールは健康に触れていそうな行を外して送り、AI が健康を見たら記録に印を残す | ジンのレビュー（予約サイトの質問欄に健康が書かれうる）。本文を送らない案は、予約を読めなくなるので却下 | test/roster.test.mjs・test/ai-reader.test.mjs |
 | 2026-10-21 who-src | 記録の「した人」と項目の「出どころ」を分けて持つ | ジンのレビュー（パスポートや他店から入った項目を正しく残す） | test/roster.test.mjs |
@@ -73,7 +76,8 @@
 | 2026-10-21 held-today | 健康を渡さない他店のお客さんの当日の欄は、そのお店が便の日に「渡す」を押したらそろう | 便の前に「確かめた」と出すと、まだ誰も見ていない体調を確かめた扱いにする（ジン）。いつもそろった扱いにする案は却下 | test/share.test.mjs |
 | 2026-10-22 joint-items | 合同名簿は札・氏名・店・種類・ガイド・緊急時の連絡先・健康の 2 欄だけ。住所・生年月日などは各店の条例の名簿だけ | 船の上の安全に要る物だけを他のお店に見せる（ザク SEC-003、Yosuke の判断）。条例の 13 項目を全部載せる案は、住所・生年月日・家族の電話まで全店に渡すので却下 | test/share.test.mjs（行に 7 項目のほかを持たない） |
 | 2026-10-22 worker-fetch | Worker から Claude API へは SDK を使わず fetch で、ヘッダは x-api-key・anthropic-version・content-type の 3 つだけ | この repo は npm の部品を入れない作りで、送るヘッダを決めた 3 つにしたい（ザクのレビュー 2026-10-21）。SDK はヘッダを足すので却下 | test/worker.test.mjs（ヘッダが 3 つ） |
-| 2026-10-22 worker-guard | Worker の守りの順番: 設定 → 道と method → Sec-Fetch-Site → Access の JWT → 合言葉 → 大きさと形 → 上限（KV、呼ぶ前）→ AI。画面の検査（validateRequest・健康の行を外す・validateReading）を Worker でもう一度かける | 画面は書き換えられる前提（plan/meibo.md の「Worker で守ること」） | test/worker.test.mjs・test/arch.check.mjs（9 番） |
+| 2026-10-22 worker-guard | Worker の守りの順番: 道と method → Sec-Fetch-Site → 設定 → Access の JWT → 種類・大きさ・形 → 上限（KV、呼ぶ前。判定は core の overLimit）→ AI → 答えの形。画面の検査（validateRequest・健康の行を外す・validateReading）を Worker でもう一度かける | 画面は書き換えられる前提（plan/meibo.md の「Worker で守ること」） | test/worker.test.mjs（順番と各段）・test/arch.check.mjs 9 番（Worker の通信の先） |
+| 2026-10-22 mail-format | 予約メールのプロンプトは形式を 1 つの JSON にまとめ、例の値を null にする。答えは JSON の塊を前から全部取り出し、分かれていたら参加者の塊に予約を足す | ジンのレビュー（別の形を見せると 2 つに分けて返し、最初の { から最後の } までを取る作りでは読めない）。写真のプロンプトは試験と同じ文のまま | test/worker.test.mjs |
 | 2026-10-22 pass-place | pass.html は GitHub Pages に置いたまま。Worker 版の QR は公開版を指す | Access を Worker 全体にかけると他のお店が開けない。Access に例外の道（Bypass）を足す案は、pass.html が読む 9 ファイル分の設定が要り、外す道を増やすので次点 | なし |
 | 2026-10-21 leave-one-tap | ポイントを離れる前は札ボードで数え、スマホは 1 回押すだけ | 店へのアンケート（2 人のスマホ記録は 8 店中 4 店が難しい、和船はしぶきで触れない）。札を選ぶボタンを並べる案は Yosuke の判断で外した | なし |
 | 2026-10-21 outside-reads | HTML と CSS から外を読むのは、3. の表「外から読む先」にファイルごとに書いた先だけ。外のスクリプトと読み込む link には integrity を付ける。js の通信の道具と外の URL の文字は禁止 | ザクのレビュー（CDN の中身が差し替えられると、画面と同じ権限で localStorage の健康の答えを読める。2024 年の polyfill.io の件）。cdnjs が spec から漏れていたのを検査で捕まえるため。許可は表「外から読む先」だけから読み、ファイルごとに分ける（散文のサイト名を拾うと、書いただけで許可になる） | test/arch.check.mjs（test/outside.mjs） |

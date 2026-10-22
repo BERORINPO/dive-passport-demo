@@ -1,10 +1,10 @@
 // 置く物（dist/）を手元で配って確かめる。Static Assets と同じく dist/_headers のヘッダ（CSP など）を付ける。
 // /api/* は Worker（worker/handler.mjs）に渡し、外との境目は見本（worker/fakes.mjs）にする: Access の JWT はこの道具が付け、
 // Claude API は見本の答え（予約メールは見本の読み取りと同じ答え、写真は空の答え）を返す。本物の Cloudflare と Claude API は呼ばない。
-// 実行: node tools/build-site.mjs && node tools/serve-dist.mjs [port]   → http://127.0.0.1:8106  （合言葉は「みほん」）
+// 実行: node tools/build-site.mjs && node tools/serve-dist.mjs [port]   → http://127.0.0.1:8106
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { dirname, join, extname, normalize } from 'node:path';
+import { dirname, join, extname, normalize, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handle } from '../worker/handler.mjs';
 import { fakeKv, fakeAccess, fakeAnthropic } from '../worker/fakes.mjs';
@@ -31,7 +31,7 @@ const EMAIL = 'local@example.com';
 const access = await fakeAccess(TEAM);
 const api = fakeAnthropic();
 const kv = fakeKv();
-const env = { ANTHROPIC_API_KEY: 'local-not-real', REDUX_CODE: 'みほん', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
+const env = { ANTHROPIC_API_KEY: 'local-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
   DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv };
 /* 見本の答え: 予約メールは見本の読み取り（data-samples.js）を、モデルの形（snake_case）に戻して返す */
 const SAMPLES = globalThis.REDUX.SAMPLE_READINGS;
@@ -56,7 +56,20 @@ const io = {
   }
 };
 
+/* dist/ の中のファイルだけ。%2f などで ../ を作っても、dist で始まる別のフォルダ（dist-old など）でも外に出ない */
+function fileFor(pathname) {
+  let rel;
+  try { rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).replace(/^\/+/, ''); } catch (e) { return null; }
+  const file = normalize(join(root, rel));
+  const inside = relative(root, file);
+  if (!inside || inside.startsWith('..') || isAbsolute(inside) || inside.startsWith('_')) return null;
+  return existsSync(file) && statSync(file).isFile() ? file : null;
+}
+const HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+
 createServer(async (req, res) => {
+  /* 手元だけ。ほかの名前で来た要求（DNS rebinding）は断る */
+  if (!HOSTS.has(req.headers.host || '')) { res.writeHead(403); res.end('Forbidden'); return; }
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
   if (url.pathname.startsWith('/api/')) {
     const chunks = [];
@@ -69,9 +82,8 @@ createServer(async (req, res) => {
     res.end(Buffer.from(await out.arrayBuffer()));
     return;
   }
-  const rel = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname).replace(/^\/+/, '');
-  const file = normalize(join(root, rel));
-  if (!file.startsWith(root) || rel.startsWith('_') || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end('Not found'); return; }
+  const file = fileFor(url.pathname);
+  if (!file) { res.writeHead(404); res.end('Not found'); return; }
   res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream', ...headersFor(url.pathname) });
   res.end(readFileSync(file));
-}).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています（合言葉: みほん）`));
+}).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています`));

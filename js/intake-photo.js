@@ -16,7 +16,7 @@
   const SRC_JA = { mail: '予約メール', paper: '申込書', ccard: 'C カード', guest: 'お客さん', staff: 'お店', passport: 'パスポート', partner: '乗り合いのお店' };
   const ERROR_JA = {
     input: '送れない写真です。写真を選び直してください',
-    auth: '合言葉か、ログインを確かめてください',
+    auth: 'ログインが切れたか、通りませんでした。画面を読み込み直してください',
     limit: '今日か今月の上限に達しました。見本の読み取りでは続けられます',
     offline: '届きませんでした。通信を確かめて、もう一度試してください',
     bad: 'AI の答えが形に合わなかったので、使いませんでした。もう一度試してください'
@@ -195,9 +195,9 @@
           el('p', { class: 'band__title', text: 'AI に送る写真' }),
           el('p', { class: 'note', text: shot.doc === 'paper' ? '黒い所は送りません。描き直したので、撮った場所などの情報も入っていません。' : '描き直したので、撮った場所などの情報は入っていません。' }),
           el('img', { class: 'photo__sent', src: shot.prepared.dataUrl, alt: 'AI に送る写真' })),
-        sampleMode ? el('p', { class: 'note', text: cannotRead
+        el('p', { class: 'note', text: !sampleMode ? 'この写真を Anthropic の AI に送ります。' : cannotRead
           ? 'いまは見本の読み取りです。読めるのは見本の写真だけです。'
-          : 'いまは見本の読み取りです（AI には送らず、試験で読んだ答えを使います）。' }) : null,
+          : 'いまは見本の読み取りです（AI には送らず、試験で読んだ答えを使います）。' }),
         shot.reading ? readResult(ui) : ui.dock(
           shotErr(),
           el('button', { class: 'btn', type: 'button', disabled: cannotRead || shot.busy, text: shot.busy ? '読んでいます…' : 'この写真を AI で読む', onclick: () => readPhoto(ui) }),

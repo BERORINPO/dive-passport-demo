@@ -14,7 +14,10 @@ globalThis.localStorage = memory();
 globalThis.sessionStorage = memory();
 let calls = [];
 let reply = null;
+let health = null;   // /api/healthz の答え（Worker 版かどうか）
+let probes = 0;
 globalThis.fetch = async (url, init) => {
+  if (url === '/api/healthz') { probes += 1; return health(); }
   // 本物のブラウザと同じく、ヘッダに入れられない文字があればここで例外になる
   calls.push({ url, init, headers: new Headers(init.headers), body: JSON.parse(init.body) });
   return reply();
@@ -60,15 +63,37 @@ test('見本: 答えが形に合わないと、待ち続けずに bad で終わ�
   delete SAMPLE_READINGS.broken;
 });
 
-test('本物: 送る中身は決まった項目だけ。メールの健康の行は外れる', async () => {
+test('本物を選べるのは /api/healthz が通ったときだけ（GitHub Pages や手元の http.server では見本のまま）', async () => {
+  const seen = [];
+  A.onChange(() => seen.push(A.mode()));
   A.setMode('real');
-  A.setCode('合言葉');
+  for (const h of [() => json(404, {}), () => json(200, { ok: false }), () => json(200, null), () => { throw new TypeError('Failed to fetch'); },
+    () => ({ type: 'opaqueredirect', status: 0, ok: false, json: async () => ({}) }), () => ({ ...json(200, {}), json: async () => { throw new SyntaxError('x'); } })]) {
+    health = h;
+    assert.equal(await A.probe(), null);
+    assert.equal(A.available(), false);
+    assert.equal(A.mode(), 'sample', '選んでいても本物にならない');
+  }
+  calls = [];
+  await A.read({ doc: 'mail', text: 'abc', sampleId: 'e1' });
+  assert.equal(calls.length, 0, '本物を選べないときは /api/read を呼ばない');
+  health = () => json(200, { ok: true, model: 'claude-haiku-5-5', left: { today: 198, monthUsd: 4.98 } });
+  assert.deepEqual(await A.probe(), { today: 198, monthUsd: 4.98 });
+  assert.equal(A.mode(), 'real');
+  A.setMode('sample');
+  assert.equal(A.mode(), 'sample');
+  assert.ok(seen.includes('real') && seen[seen.length - 1] === 'sample', '切り替わったら画面に知らせる');
+  A.setMode('real');
+});
+
+test('本物: 送る中身は決まった項目だけ。メールの健康の行は外れる。合言葉のヘッダは送らない', async () => {
   calls = [];
   reply = () => json(200, SAMPLE_READINGS.e1);
   const { sent } = await A.read({ doc: 'mail', text: '予約です\n持病: 喘息', sampleId: 'e1' });
   assert.deepEqual(calls[0].body, { doc: 'mail', text: `予約です\n${globalThis.REDUX.healthRedact.REDACTED_LINE}` });
   assert.equal(calls[0].url, '/api/read');
-  assert.equal(calls[0].headers.get('x-redux-code'), Buffer.from('合言葉').toString('base64url'), '日本語の合言葉でも送れる');
+  assert.deepEqual([...calls[0].headers.keys()], ['content-type']);
+  assert.equal(A.left().today, 197, '読んだら残りを 1 つ減らす（目安）');
   assert.equal(calls[0].init.redirect, 'manual');
   assert.equal(sent.redacted, 1);
   await rejectsKind(A.read({ doc: 'mail', text: '予約です', history: '喘息' }), 'input');
@@ -84,9 +109,11 @@ test('本物: 申込書は塗った印付きで送り、健康が見えたら se
   await rejectsKind(A.read(P({ doc: 'paper', image: 'QUJD' })), 'input');
 });
 
-test('本物: 失敗の種類を分け、送ったあとの失敗には送った量が付く', async () => {
+test('本物: 失敗の種類を分け、送ったあとの失敗には送った量が付く。上限なら見本に戻す', async () => {
   reply = () => json(429, {});
   assert.equal((await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'limit')).sent.size, 4);
+  assert.equal(A.mode(), 'sample', '上限のあとは見本で続ける');
+  A.setMode('real');
   reply = () => json(403, {});
   await rejectsKind(A.read(P({ doc: 'ccard', image: 'QUJD' })), 'auth');
   reply = () => ({ type: 'opaqueredirect', status: 0, ok: false, json: async () => ({}) });

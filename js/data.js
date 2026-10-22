@@ -127,6 +127,8 @@
     langBtn: { ja: 'English', en: '日本語' },
     demoNote: { ja: 'デモです。入力した内容はこのブラウザの中だけに残り、どこにも送りません。答えはお店が書いた文だけで、AI は文章を作りません。',
                 en: 'Demo. What you enter stays in this browser and is not sent anywhere. Answers are written by the shop; no AI-written text.' },
+    demoNoteReal: { ja: 'デモです。中身はすべて架空の見本です。本物の AI にしているので、予約メールの文面と写真（健康の所は外して・塗って）を AI に送ります。',
+                    en: 'Demo with made-up sample data only. The real AI is on, so booking emails and photos (health parts removed or blacked out) are sent to the AI.' },
     chatTitle: { ja: 'ウミガメのリドに聞く', en: 'Ask Lido the sea turtle' },
     greet: { ja: 'こんにちは、リドだよ。答えられるのは、お店が書いた答えがあることだけ。分からないことは、お店の人に聞いてもらうね。',
              en: "Hi, I'm Lido. I only answer with what the shop has written. If I don't know, I'll pass your question to the shop." },

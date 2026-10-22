@@ -30,7 +30,7 @@
    │ 本物のときだけ（同じ場所の /api。別のドメインにしないので CORS と Cookie の穴が出ない）
    └─ fetch ─▶ [Cloudflare Worker] ─▶ Claude API（Haiku）
                画面のファイルも同じ Worker から配る（Static Assets、無料）
-               入口: Cloudflare Access（Worker 全体、チームのメールだけ）+ 合言葉 + 1 日の回数の上限
+               入口: Cloudflare Access（Worker 全体、チームのメールだけ）+ 1 日の回数の上限（合言葉は 2026-10-22 に外した）
                鍵: この Worker 専用の API キー（Worker の secret。コードと画面には置かない）
                お金: 今月の上限を KV で数える。超えたら「見本の読み取り」に切り替わる
                記録: 回数と費用だけ。メールや画像の中身は残さない
@@ -45,7 +45,7 @@
 ## AI を呼ぶ場所: Cloudflare Worker（2026-10-21 Yosuke 指定で手元のサーバー案から変更）
 - 良い所: スマホの通信だけで、どこからでも動く。PC と同じ Wi-Fi が要らない。チームも各自のスマホで試せる
 - お金: Workers の無料プラン（1 日 10 万回まで）で収まる。AI の費用は 1 件約 $0.0006（Haiku）
-- 入口の守り方（2026-10-21 Yosuke 指定で最初から 2 重）: ① Cloudflare Access を Worker 全体に付け、チームのメールアドレスだけ通す（メールで本人確認、50 人まで無料）② その上で合言葉 ③ 1 日の回数の上限。Worker は Access を通っていない呼び出し（ctx.access が無い）を 403 で断る。Access は Zero Trust の初回設定が要り、そこで支払い方法を求められるかは公式で確かめられなかった。求められたら Yosuke が決める（お金の境界）
+- 入口の守り方（2026-10-21 Yosuke 指定で最初から 2 重）: ① Cloudflare Access を Worker 全体に付け、チームのメールアドレスだけ通す（メールで本人確認、50 人まで無料）② その上で合言葉 ③ 1 日の回数の上限。Worker は Access を通っていない呼び出し（ctx.access が無い）を 403 で断る。Access は Zero Trust の初回設定が要り、そこで支払い方法を求められるかは公式で確かめられなかった。求められたら Yosuke が決める（お金の境界）（2026-10-22 Yosuke の判断で ② の合言葉を外し、Access と回数の上限にした。spec/architecture.md の access-only）
 - 鍵は分ける: この Worker 専用の API キーを Yosuke が発行し、使える額の上限（例: 月 $10）も Anthropic の画面で付ける。登録（`wrangler secret put`）も Yosuke が打つ。こちらは鍵の値を見ない
 - 会場の通信が不安なときのために、画面に「見本の読み取り」へ切り替えるボタンを付ける
 - 公開の範囲: 中身は見本データだけ。今の GitHub Pages と同じく検索に出さない（noindex）
@@ -61,9 +61,9 @@
 | P3 お客さん | 足りない所だけ・当日の体調・パスポートから | 半日 | 13 項目がそろうと「そろった」になる |
 | P4 名簿 | 今日の名簿・条例の名簿（印刷・PDF）・CSV・保存と記録・カレンダーに書き出す（.ics、便ごとに予定 1 件。時刻・ツアー・人数だけで、名前・電話・健康は入れない。約半日） | 1.5 日 | 印刷に 13 項目全部、直したら記録に残る。.ics を Google カレンダー・iPhone に読み込める |
 | P5 乗り合い | 便・他店のお客さん・合同名簿・札ボード・離れる前 | 1 日 | 2 店分が 1 枚の名簿になり、札の数が合う |
-| P6 本物の AI | Cloudflare Worker（/api・合言葉・上限・/healthz）・発表の台本・通しの確認 | 半日 | 置いたあとの Worker で、見本 16 件の読み取りと上限の止まり方を確かめる。通しを 2 回（本物と見本） |
+| P6 本物の AI | Cloudflare Worker（/api・上限・/healthz）・発表の台本・通しの確認 | 半日 | 置いたあとの Worker で、見本 16 件の読み取りと上限の止まり方を確かめる。通しを 2 回（本物と見本） |
 
-P6 で Yosuke がやること（約 25 分）: ① Anthropic でこの Worker 専用の API キーを発行し、上限を付ける ② `wrangler login` ③ `wrangler secret put` で鍵と合言葉を入れる ④ Cloudflare の画面で Zero Trust を有効にし、Worker の Access タブで「この Worker を守る」→ 通すメールアドレス（チーム 6 人）を入れる ⑤ 置く（`wrangler deploy`）の最終確認。wrangler を入れる（npm）ときは、こちらから先に聞く
+P6 で Yosuke がやること（約 25 分）: ① Anthropic でこの Worker 専用の API キーを発行し、上限を付ける ② `wrangler login` ③ `wrangler secret put` で鍵と Access の値を入れる ④ Cloudflare の画面で Zero Trust を有効にし、Worker の Access タブで「この Worker を守る」→ 通すメールアドレス（チーム 6 人）を入れる ⑤ 置く（`wrangler deploy`）の最終確認。wrangler を入れる（npm）ときは、こちらから先に聞く
 
 合計 約 5.5 日（こちらの作業）。P0 で形を決めたあと、P1〜P5 は別々の作業場（worktree）で並べて作れるので、1〜2 日縮む見込み。11/9 まで 19 日。
 
@@ -74,7 +74,7 @@ Yosuke の確認は 3 回: ①今（この計画とモック）②P2 のあと�
 - **画面側の検査を Worker でもう一度かける**: roster-schema.js を読み、validateRequest と healthRedact.redact をかける。プロンプト・model・max_tokens は Worker が決める。答えにも fromModel と validateReading をかける。画像はファイルの先頭の印で JPEG / PNG かを見る
 - **Anthropic への request は新しく組み立てる**: ヘッダは `x-api-key`・`anthropic-version`・`content-type` だけ（Cookie・JWT・合言葉を送らない）
 - **お金の上限はワークスペースで**: この Worker 専用のワークスペースを作って月の上限を付け、鍵はその中で作る（上限は鍵ごとではなくワークスペースごと）
-- **KV の数は目安**: 数えるのは呼び出す前。KV が失敗したら断る。合言葉の失敗は書かない。正確にしたければ Durable Object
+- **KV の数は目安**: 数えるのは呼び出す前。KV が失敗したら断る。Access を通らない呼び出しは書かない。正確にしたければ Durable Object
 - **ログに中身を出さない**: 残すのは状態・doc・量・時間だけ。Anthropic のエラー本文は画面に返さない
 - **画面のスクリプトと字体を自前で配る**: cdnjs・jsDelivr・Google Fonts の物を Static Assets に置き、CSP を付ける（ザクのレビュー 2026-10-21）
   - index.html: `default-src 'none'; script-src 'self' 'sha256-<importmap の中身の hash>'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; connect-src 'self' blob:; media-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'`
@@ -82,7 +82,7 @@ Yosuke の確認は 3 回: ①今（この計画とモック）②P2 のあと�
   - /fonts/ の要求は、path をログに残さない（どの束を取ったかで画面の字が分かる）。長い cache（`immutable`）を付ける
   - importmap は HTML の中のスクリプトなので hash で許す（`<script type="importmap">` と `</script>` の間の文字そのまま。CSP を付けて開くと、Chrome のコンソールに要る `sha256-...` が出る）。blob: は写真と 3D の模様、media-src は亀の声のため
   - CDN を残す間は、サイト名だけで許さずパスまで書き（`https://cdn.jsdelivr.net/npm/three@0.160.0/`）、integrity と組み合わせる。付けたら、コンソールに違反が出ないか、亀・QR・写真・声が動くかを確かめる
-- 合言葉は header `x-redux-code` に UTF-8 の base64url で来る。両方を SHA-256 にしてから `crypto.subtle.timingSafeEqual` で比べ、空なら 401
+- ~~合言葉は header `x-redux-code` で比べる~~（2026-10-22 に合言葉を外したので無し）
 - /api は `application/json` と `Sec-Fetch-Site: same-origin` を必須にし、CORS のヘッダは出さず、OPTIONS は断る
 - カレンダーの購読用の URL（`/api/calendar/<長い合言葉>.ics`）。中身は .ics の書き出しと同じ（便の時刻・ツアー・人数だけ）。URL を知る人は誰でも見られるので、合言葉は長くし、作り直せるようにする。Google カレンダーは反映が数時間〜1 日遅れる
 - 画面の「本物」は、同じ origin の `/api/healthz` が通ったときだけ選べる（GitHub Pages 版から github.io に本文を送らない）

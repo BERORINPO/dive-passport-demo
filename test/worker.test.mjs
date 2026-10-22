@@ -1,11 +1,12 @@
 // Cloudflare Worker（worker/）を、外との境目を見本（worker/fakes.mjs）に差し替えて確かめる。
-// 守る順番（Access の JWT・合言葉・形・上限）、AI に渡す中身とヘッダ、ログに中身が出ないこと。
+// 守る順番（Access の JWT・形・上限）、AI に渡す中身とヘッダ、ログに中身が出ないこと。
 // 実行: node test/worker.test.mjs （Node 18 以上。依存なし。本物の Cloudflare と Claude API は呼ばない）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { handle } from '../worker/handler.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
-import { imageType, periods, costMicro, WORST_MICRO } from '../worker/read-core.mjs';
+import { imageType, periods, costMicro, overLimit, limitsFrom, readingFrom, WORST_MICRO } from '../worker/read-core.mjs';
+import vm from 'node:vm';
 import { fakeKv, fakeAccess, fakeAnthropic } from '../worker/fakes.mjs';
 
 const R = globalThis.REDUX;
@@ -13,19 +14,11 @@ const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
 const TEAM = 'mihon-team.cloudflareaccess.com';
 const AUD = 'aud-0123456789abcdef';
 const EMAIL = 'mihon.member@example.com';
-const CODE = 'うみがめ-2026';
 const NOW = Date.parse('2026-10-22T01:00:00Z');   // 日本では 10/22 の 10:00
 const MAIL = readFileSync(new URL('../assets/samples/e1.txt', import.meta.url), 'utf8');
 const JPEG = btoa(String.fromCharCode(0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 74, 70, 73, 70, 0, 1)) + 'AAAA';
 const PNG = btoa(String.fromCharCode(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13)) + 'AAAA';
 const GIF = btoa('GIF89a' + '\0'.repeat(6)) + 'AAAA';
-
-/* 画面（js/ai-reader.js）と同じ作り方の合言葉のヘッダ */
-const codeHeader = (code) => {
-  let bin = '';
-  new TextEncoder().encode(code).forEach(b => { bin += String.fromCharCode(b); });
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
 
 const access = await fakeAccess(TEAM);
 const goodClaims = () => ({ iss: `https://${TEAM}`, aud: [AUD], email: EMAIL, exp: NOW / 1000 + 3600, iat: NOW / 1000 - 10, nbf: NOW / 1000 - 10, type: 'app' });
@@ -36,7 +29,7 @@ function setup(over = {}) {
   const kv = fakeKv();
   const api = fakeAnthropic();
   const env = {
-    ANTHROPIC_API_KEY: 'sk-test-not-real', REDUX_CODE: CODE, ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD,
+    ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD,
     ALLOWED_EMAILS: `other@example.com, ${EMAIL.toUpperCase()}`, DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, ...over
   };
   const io = {
@@ -56,10 +49,9 @@ function setup(over = {}) {
   return { kv, api, env, io };
 }
 
-function req(path, { method = 'POST', body, headers = {}, jwt = goodJwt, code = CODE, site = 'same-origin' } = {}) {
+function req(path, { method = 'POST', body, headers = {}, jwt = goodJwt, site = 'same-origin' } = {}) {
   const h = { ...(method === 'POST' ? { 'content-type': 'application/json' } : {}), ...headers };
   if (jwt) h['cf-access-jwt-assertion'] = jwt;
-  if (code !== null) h['x-redux-code'] = codeHeader(code);
   if (site) h['sec-fetch-site'] = site;
   return new Request(ORIGIN + path, { method, headers: h, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
 }
@@ -78,7 +70,7 @@ const test = (name, fn) => tests.push({ name, fn });
 
 test('/api/healthz: Access を通った同じ場所の呼び出しに、model と今日・今月の残りだけを返す', async () => {
   const s = setup();
-  const res = await call(s, req('/api/healthz', { method: 'GET', code: null }));
+  const res = await call(s, req('/api/healthz', { method: 'GET' }));
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.deepEqual(body, { ok: true, model: 'claude-haiku-5-5', left: { today: 200, monthUsd: 5 } });
@@ -86,13 +78,14 @@ test('/api/healthz: Access を通った同じ場所の呼び出しに、model �
   assert.equal(res.headers.get('access-control-allow-origin'), null);
 });
 
-test('設定が欠けていたら 503 で、欠けた名前だけを返す（値は出さない）', async () => {
-  const s = setup({ REDUX_CODE: '', ALLOWED_EMAILS: undefined, BUDGET: undefined });
+test('設定が欠けていたら 503。欠けた名前はログにだけ出す（画面には返さない。値はどこにも出さない）', async () => {
+  const s = setup({ ACCESS_AUD: '', ALLOWED_EMAILS: undefined, BUDGET: undefined });
+  logs.length = 0;
   const res = await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL } }));
   assert.equal(res.status, 503);
-  const body = await res.json();
-  assert.deepEqual(body.missing, ['REDUX_CODE', 'ALLOWED_EMAILS', 'BUDGET (KV)']);
-  assert.ok(!JSON.stringify(body).includes('sk-test'));
+  assert.deepEqual(await res.json(), { error: 'config' });
+  assert.equal(JSON.parse(logs[0]).why, 'config:ACCESS_AUD+ALLOWED_EMAILS+BUDGET');
+  assert.ok(!logs[0].includes('sk-test'));
   assert.equal(s.api.calls.length, 0);
 });
 
@@ -141,7 +134,7 @@ test('Access の JWT: 無い・形が違う・別の鍵の署名・alg が違う
   assert.equal((await call(s, req('/api/healthz', { method: 'GET' }))).status, 200, '大文字のメールアドレスの許可でも通る');
 });
 
-test('Access の鍵: 10 分ためる。知らない kid が来たら 1 回取り直す。鍵が取れなければ通さない', async () => {
+test('Access の鍵: 10 分ためる。知らない kid での取り直しは 1 分に 1 回まで。鍵が取れなければ 503（こちらの障害）', async () => {
   const s = setup();
   access.certsCalls = 0;
   await call(s, req('/api/healthz', { method: 'GET' }));
@@ -151,22 +144,39 @@ test('Access の鍵: 10 分ためる。知らない kid が来たら 1 回取り
   const later = await access.sign({ ...goodClaims(), exp: s.io.clock / 1000 + 60 });
   await call(s, req('/api/healthz', { method: 'GET', jwt: later }));
   assert.equal(access.certsCalls, 2);
+  /* 鍵が入れ替わった: ためている間でも、1 分たっていれば新しい kid のために 1 回取り直す */
+  const second = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+  const pub = await crypto.subtle.exportKey('jwk', second.publicKey);
+  access.keys.push({ kid: 'key-2', kty: 'RSA', alg: 'RS256', n: pub.n, e: pub.e });
+  try {
+    const rotated = await access.sign({ ...goodClaims(), exp: s.io.clock / 1000 + 600 }, { kid: 'key-2' }, second.privateKey);
+    s.io.clock += 20 * 1000;
+    assert.equal((await call(s, req('/api/healthz', { method: 'GET', jwt: rotated }))).status, 403, '取ったばかり（20 秒）なら取り直さない');
+    assert.equal(access.certsCalls, 2);
+    s.io.clock += 60 * 1000;
+    assert.equal((await call(s, req('/api/healthz', { method: 'GET', jwt: rotated }))).status, 200);
+    assert.equal(access.certsCalls, 3);
+    const junk = await access.sign({ ...goodClaims(), exp: s.io.clock / 1000 + 600 }, { kid: 'key-9' });
+    for (let i = 0; i < 5; i += 1) await call(s, req('/api/healthz', { method: 'GET', jwt: junk }));
+    assert.equal(access.certsCalls, 3, '知らない kid を何度送っても、すぐには取りに行かない');
+  } finally {
+    access.keys.pop();
+  }
   const s2 = setup();
   s2.io.certsDown = true;
-  assert.equal((await call(s2, req('/api/healthz', { method: 'GET' }))).status, 403);
+  const down = await call(s2, req('/api/healthz', { method: 'GET' }));
+  assert.equal(down.status, 503);
+  assert.deepEqual(await down.json(), { error: 'access-keys' });
 });
 
-test('合言葉: 無い・違う・前後の空白だけ違う・壊れたヘッダ。合っていれば日本語でも通る。失敗は KV に書かない', async () => {
+test('Access を通らない呼び出しは数えない（KV に書かない）。昔の合言葉のヘッダは見ない', async () => {
   const s = setup();
   const body = { doc: 'mail', text: MAIL };
-  assert.equal((await call(s, req('/api/read', { body, code: null }))).status, 401);
-  assert.equal((await call(s, req('/api/read', { body, code: 'うみがめ-2025' }))).status, 401);
-  assert.equal((await call(s, req('/api/read', { body, code: '' }))).status, 401);
-  assert.equal((await call(s, req('/api/read', { body, headers: { 'x-redux-code': '!!!' }, code: null }))).status, 401);
-  assert.equal((await call(s, req('/api/read', { body, headers: { 'x-redux-code': 'A'.repeat(500) }, code: null }))).status, 401);
-  assert.equal(s.kv.puts.length, 0, '合言葉の失敗は数えない');
+  assert.equal((await call(s, req('/api/read', { body, jwt: null }))).status, 403);
+  assert.equal((await call(s, req('/api/read', { body, jwt: null, headers: { 'x-redux-code': 'c29tZXRoaW5n' } }))).status, 403);
+  assert.equal(s.kv.puts.length, 0);
   assert.equal(s.api.calls.length, 0);
-  assert.equal((await call(s, req('/api/read', { body, code: ` ${CODE} ` }))).status, 200);
+  assert.equal((await call(s, req('/api/read', { body, headers: { 'x-redux-code': '!!!' } }))).status, 200);
 });
 
 test('予約メール: AI へはモデル・上限・中身だけを新しく組み立て、ヘッダは 3 つだけ。健康の行は Worker でも外す', async () => {
@@ -184,7 +194,8 @@ test('予約メール: AI へはモデル・上限・中身だけを新しく組
   assert.ok(!/ぜんそく|吸入器/.test(prompt), '健康の行が AI に届いていない');
   assert.ok(prompt.includes(R.healthRedact.REDACTED_LINE));
   assert.ok(prompt.includes('今日は 2026-10-22'), '年の無い日付のために、日本の今日を渡す');
-  assert.ok(!prompt.includes('e1'.repeat(3)) && !JSON.stringify(sent.body).includes('sampleId'));
+  assert.ok(!JSON.stringify(sent.body).includes('sampleId') && !JSON.stringify(sent.body).includes('"e1"'), 'sampleId は送らない');
+  assert.ok(prompt.includes('"booking": {"site": null'), '予約メールは 1 つの形にまとめて見せる');
 });
 
 test('写真: JPEG と PNG は先頭の印で種類を決めて送る。ほかの種類・塗っていない申込書・知らない項目は 400', async () => {
@@ -212,10 +223,11 @@ test('写真: JPEG と PNG は先頭の印で種類を決めて送る。ほか�
 test('大きすぎる本文は読まずに 413（content-length でも、実際の長さでも）', async () => {
   const s = setup();
   const big = JSON.stringify({ doc: 'ccard', image: 'A'.repeat(R.roster.MAX_IMAGE + 5000) });
+  assert.equal((await call(s, req('/api/read', { body: '{}', headers: { 'content-length': '99999999' } }))).status, 413, 'content-length だけで断る');
   assert.equal((await call(s, req('/api/read', { body: big }))).status, 413);
   const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(big)); c.close(); } });
   const r = new Request(ORIGIN + '/api/read', { method: 'POST', body: stream, duplex: 'half',
-    headers: { 'content-type': 'application/json', 'cf-access-jwt-assertion': goodJwt, 'x-redux-code': codeHeader(CODE), 'sec-fetch-site': 'same-origin' } });
+    headers: { 'content-type': 'application/json', 'cf-access-jwt-assertion': goodJwt, 'sec-fetch-site': 'same-origin' } });
   assert.equal((await call(s, r)).status, 413);
   assert.equal(s.api.calls.length, 0);
 });
@@ -306,17 +318,100 @@ test('AI の答え: 考えた所は使わず文だけを読み、答えの形に
   assert.deepEqual((await odd.json()).people, []);
 });
 
-test('ログ: 道・状態・doc・量・時間だけ。メールの中身・メールアドレス・合言葉・鍵は出さない', async () => {
+test('ログ: 道・状態・doc・量・時間だけ。メールの中身・メールアドレス・JWT・鍵は出さない', async () => {
   const s = setup();
   logs.length = 0;
   await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL } }));
-  await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL }, code: 'ちがう' }));
+  await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL }, jwt: await access.sign({ ...goodClaims(), email: 'stranger@example.com' }) }));
   await call(s, req('/api/read', { body: { doc: 'ccard', image: JPEG } }));
   assert.equal(logs.length, 3);
   for (const line of logs) {
     const row = JSON.parse(line);
-    assert.deepEqual(Object.keys(row).filter(k => !['route', 'status', 'ms', 'doc', 'size', 'why'].includes(k)), []);
-    for (const word of [EMAIL, CODE, 'ちがう', 'sk-test', '見本 花子', JPEG.slice(0, 12), goodJwt.slice(0, 20)]) assert.ok(!line.includes(word), word);
+    assert.deepEqual(Object.keys(row).filter(k => !['route', 'status', 'ms', 'doc', 'size', 'why', 'redacted', 'seen', 'stop'].includes(k)), []);
+    for (const word of [EMAIL, 'stranger@example.com', 'sk-test', '見本 花子', JPEG.slice(0, 12), goodJwt.slice(0, 20)]) assert.ok(!line.includes(word), word);
+  }
+});
+
+test('AI の答えの取り出し: 2 つに分かれた答え・```json の囲み・前後の説明と括弧・文字列の中の括弧に耐える', () => {
+  const people = JSON.stringify({ participants: [{ name: '見本 花子' }], health_info_visible: false });
+  const booking = JSON.stringify({ booking: { site: 'S', date: '2026-10-24', people: 2, lead_name: '見本 花子' } });
+  const cases = {
+    split: `${people}\n${booking}`,
+    fences: `\`\`\`json\n${people}\n\`\`\`\n\`\`\`json\n${booking}\n\`\`\``,
+    around: `読みました {メモ}\n${JSON.stringify({ ...JSON.parse(people), ...JSON.parse(booking) })}\n（注: {名前} は読めた所だけ）`
+  };
+  for (const [name, text] of Object.entries(cases)) {
+    const r = readingFrom(text, 'mail');
+    assert.ok(r.ok, name);
+    assert.deepEqual([r.reading.people[0].name, r.reading.booking.date], ['見本 花子', '2026-10-24'], name);
+  }
+  const quoted = readingFrom(JSON.stringify({ participants: [{ name: 'a"}{b' }], health_info_visible: false }), 'mail');
+  assert.equal(quoted.reading.people[0].name, 'a"}{b');
+  const seenLater = readingFrom(`${people}\n{"health_info_visible": true}`, 'mail');
+  assert.equal(seenLater.reading.healthSeen, true, '後ろの塊で「健康が見えた」と答えたら、それを取る');
+  assert.equal(readingFrom('{"participants": [', 'mail').ok, false);
+  assert.equal(readingFrom('なし', 'mail').error, 'no-json');
+});
+
+test('上限の判定（core）: ちょうど上限で止める。設定が読めなければ呼ばない側に倒す', () => {
+  const limits = limitsFrom({ DAILY_LIMIT: '3', MONTHLY_USD: '0.01' });
+  assert.deepEqual(limits, { day: 3, monthMicro: 10000 });
+  assert.equal(overLimit({ day: 2, month: 0 }, limits), '');
+  assert.equal(overLimit({ day: 3, month: 0 }, limits), 'day');
+  assert.equal(overLimit({ day: 0, month: 10000 - WORST_MICRO }, limits), '');
+  assert.equal(overLimit({ day: 0, month: 10001 - WORST_MICRO }, limits), 'month');
+  assert.deepEqual(limitsFrom({ DAILY_LIMIT: 'たくさん', MONTHLY_USD: '-5' }), { day: 0, monthMicro: 0 });
+  assert.equal(overLimit({ day: 0, month: 0 }, limitsFrom({})), 'day');
+});
+
+test('ログ: 外した行の数・健康が見えたか・止まった理由を残す。時間切れは最大の見込みで数え、知らない道は名前を残さない', async () => {
+  const s = setup();
+  logs.length = 0;
+  s.api.answer = JSON.stringify({ participants: [], health_info_visible: true });
+  await call(s, req('/api/read', { body: { doc: 'mail', text: `${MAIL}\n既往症：ぜんそく` } }));
+  const row = JSON.parse(logs[0]);
+  assert.deepEqual([row.redacted, row.seen, row.stop], [1, true, 'end_turn']);
+  await call(s, req('/api/calendar/ひみつの合言葉.ics', { method: 'GET' }));
+  assert.equal(JSON.parse(logs[1]).route, '/api/other');
+  const before = Number(s.kv.peek('month:2026-10'));
+  s.io.fetch = async (url) => { if (url === 'https://api.anthropic.com/v1/messages') throw new Error('timeout'); return new Response(JSON.stringify({ keys: access.keys })); };
+  assert.equal((await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL } }))).status, 502);
+  assert.equal(Number(s.kv.peek('month:2026-10')) - before, WORST_MICRO);
+});
+
+/* 画面の部品（js/ai-reader.js）を、本物の fetch の代わりに Worker（handle）へつないで流す。両側の決まりが合っているか */
+test('画面と Worker の契約: healthz で本物を選び、読める・上限で見本に戻る・答えの形の誤り・届かない・ログイン切れ', async () => {
+  const s = setup({ DAILY_LIMIT: '1' });
+  let jwt = goodJwt;
+  const mem = () => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k) }; };
+  const saved = { window: globalThis.window, localStorage: globalThis.localStorage, fetch: globalThis.fetch };
+  globalThis.window = globalThis;
+  globalThis.localStorage = mem();
+  globalThis.fetch = async (url, init = {}) => {
+    const headers = { ...(init.headers || {}), 'sec-fetch-site': 'same-origin', ...(jwt ? { 'cf-access-jwt-assertion': jwt } : {}) };
+    return call(s, new Request(ORIGIN + url, { method: init.method || 'GET', headers, body: init.body }));
+  };
+  try {
+    vm.runInThisContext(readFileSync(new URL('../js/ai-reader.js', import.meta.url), 'utf8'));
+    const A = R.aiReader;
+    assert.deepEqual(await A.probe(), { today: 1, monthUsd: 5 });
+    A.setMode('real');
+    s.api.answer = JSON.stringify({ participants: [{ name: '見本 花子' }], booking: { date: '2026-10-24', people: 2 }, health_info_visible: false });
+    const ok = await A.read({ doc: 'mail', text: MAIL });
+    assert.deepEqual([ok.sent.mode, ok.reading.people[0].name, ok.reading.booking.people], ['real', '見本 花子', 2]);
+    await assert.rejects(A.read({ doc: 'mail', text: MAIL }), e => e.kind === 'limit');
+    assert.equal(A.mode(), 'sample', '上限のあとは見本');
+    s.env.DAILY_LIMIT = '100';
+    A.setMode('real');
+    s.api.answer = 'JSON はありません';
+    await assert.rejects(A.read({ doc: 'mail', text: MAIL }), e => e.kind === 'bad');
+    s.api.status = 529;
+    await assert.rejects(A.read({ doc: 'mail', text: MAIL }), e => e.kind === 'offline');
+    s.api.status = 200;
+    jwt = null;
+    await assert.rejects(A.read({ doc: 'mail', text: MAIL }), e => e.kind === 'auth');
+  } finally {
+    Object.assign(globalThis, saved);
   }
 });
 

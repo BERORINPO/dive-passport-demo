@@ -34,7 +34,7 @@
   function relabel() {
     const { L, T, TP } = R;
     document.getElementById('brandSub').textContent = L(T.brandSub);
-    document.getElementById('demoNote').textContent = L(T.demoNote);
+    document.getElementById('demoNote').textContent = L(R.aiReader.mode() === 'real' ? T.demoNoteReal : T.demoNote);
     document.getElementById('lang').textContent = L(T.langBtn);
     tabs.guest.textContent = L(T.tabGuest);
     tabs.pass.textContent = L(TP.tab);
@@ -49,4 +49,7 @@
   document.getElementById('lang').addEventListener('click', () => R.setLang(R.lang === 'ja' ? 'en' : 'ja'));
   R.onLang(relabel);
   relabel();
+  /* 本物の AI は、Worker 版で /api/healthz が通ったときだけ選べる。上の注意書きも、送るかどうかに合わせる */
+  R.aiReader.onChange(() => { document.getElementById('demoNote').textContent = R.L(R.aiReader.mode() === 'real' ? R.T.demoNoteReal : R.T.demoNote); });
+  R.aiReader.probe();
 })();
