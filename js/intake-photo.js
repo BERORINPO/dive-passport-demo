@@ -328,12 +328,16 @@
     const rows = C().reviewRows(p, trip);
     const from = [...new Set(rows.map(r => r.src).filter(src => ['mail', 'paper', 'ccard'].includes(src)))].map(src => SRC_JA[src]);
     const unsure = rows.filter(r => r.unsure);
-    const subOf = (r) => [r.unsure ? '! 自信なし' : '', r.src ? SRC_JA[r.src] : ''].filter(Boolean).join('　');
+    const lacking = rows.filter(r => !r.filled);   // 名簿の項目として足りない（空、または途中まで）。上の数と行の印は同じ条件で決める
+    const subOf = (r) => [r.unsure ? '! 自信なし' : '', !r.filled && r.text ? '・足りない' : '', r.src ? SRC_JA[r.src] : ''].filter(Boolean).join('　');
+    /* 上で数を先に言う（下まで見なくても、確かめる所が残っているか分かる）。確かめる所 = 確かめる（橙）、足りない所だけ = 待つ（青）、どちらも無い = そろった */
+    const tally = unsure.length ? ['flag--warn', '!'] : lacking.length ? ['flag--info', '・'] : ['flag--ok', '✓'];
     return [
       ...ui.head(`${p.name || '名前の分からない人'}さん`, `${from.length ? `${from.join('と')}から読み取りました。` : ''}${ui.md(trip.date)} ${ui.tripLabel(trip)}`),
+      el('p', { class: `flag ${tally[0]}`, text: `${tally[1]} 確かめる所 ${unsure.length} 件・足りない所 ${lacking.length} 件` }),
       el('div', { class: 'sheet' }, rows.map(r => el('div', { class: `rd${r.unsure ? ' rd--unsure' : ''}` },
         el('span', { class: 'rd__k', text: r.label }),
-        el('span', { class: 'rd__v' }, r.text || '（まだ無い）', subOf(r) ? el('span', { class: 'rd__sub', text: subOf(r) }) : null)))),
+        el('span', { class: 'rd__v' }, r.text || '（書いていない）', subOf(r) ? el('span', { class: 'rd__sub', text: subOf(r) }) : null)))),
       unsure.map(r => {
         /* 自信なしの印の理由は 2 つ。AI が自信なしと言った、または、お客さんやパスポートが組の片方だけを入れた */
         const byGuest = ['guest', 'passport'].includes(r.src);
@@ -345,7 +349,7 @@
       el('p', { class: 'note', text: '既往症と健康の質問は、お客さん本人が答えます。AI は読んでいません。' }),
       ui.dock(
         el('p', { class: 'errors', role: 'alert', text: review.error }),
-        el('button', { class: 'btn', type: 'button', text: 'これで合っている', onclick: () => confirmPerson(personId, ui) }),
+        el('button', { class: 'btn', type: 'button', text: '確かめ済みにする', onclick: () => confirmPerson(personId, ui) }),
         el('button', { class: 'btn btn--ghost', type: 'button', text: 'あとで確かめる', onclick: () => ui.go('intake', {}) }))
     ];
   }

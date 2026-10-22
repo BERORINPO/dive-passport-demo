@@ -7,9 +7,12 @@
   const tabs = Object.fromEntries(ORDER.map(k => [k, document.getElementById(`tab-${k}`)]));
   const views = Object.fromEntries(ORDER.map(k => [k, document.getElementById(`view-${k}`)]));
   const renderers = { pass: () => R.renderPassport(), shop: () => R.renderShop(), booking: () => R.renderBooking() };
+  /* 店員画面（浜と船で使う）。暗い画面設定に合わせず、明るいまま（css/app.css と design.md の 2 層） */
+  const STAFF = ['shop', 'booking'];
 
   R.showTab = (name) => {
     document.body.classList.remove('print-roster');   // 名簿の紙を出したまま別の画面に移っても、印刷が白紙にならないように（予約の画面に戻れば付け直す）
+    document.documentElement.dataset.layer = STAFF.includes(name) ? 'staff' : 'guest';
     ORDER.forEach(k => {
       const on = k === name;
       tabs[k].setAttribute('aria-selected', String(on));
