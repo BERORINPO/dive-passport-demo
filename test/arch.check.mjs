@@ -173,6 +173,41 @@ jsFiles.forEach(p => {
 });
 if (!/function readSample\(/.test(read('js/ai-reader.js'))) fail('js/ai-reader.js に見本 (readSample) が無い');
 
+/* 9. Worker（worker/）。全部のファイルが表 1 にあり、外へ出るのは決まったファイルだけ。
+   本物の fetch は index.mjs が io に渡すだけで、外に呼ぶのは access.mjs（Access の鍵）と anthropic.mjs（Claude API）が io.fetch で。
+   外の URL を書いてよいのも、その 2 つと見本（fakes.mjs）だけ。core は adapter を読まない。adapter には見本がある */
+const workerFiles = readdirSync(new URL('worker/', root)).filter(f => f.endsWith('.mjs')).map(f => `worker/${f}`);
+if (!workerFiles.length) fail('worker/ に Worker が無い');
+workerFiles.filter(f => !listed.has(f)).forEach(f => fail(`表 1 に無い Worker のファイル: ${f}`));
+const WORKER_NET = { 'worker/index.mjs': 'live', 'worker/access.mjs': 'io', 'worker/anthropic.mjs': 'io', 'worker/fakes.mjs': 'fake' };
+const BARE_FETCH = [/(^|[^.\w$])fetch\b/, '外への通信 fetch（io.fetch を使う）'];
+const WORKER_TOOLS = NET_TOOLS.filter(([re]) => !/\(\?:https\?\|wss\?\|ftp\)/.test(re.source) && !/\(\?:\\\/\\\/\|/.test(re.source));
+const URL_BAN = [/\b(?:https?|wss?|ftp):[\\/]{2}/i, '外の URL を文字で書いている', true];
+const WORKER_ADAPTERS = (roles.adapter || []).filter(p => p.startsWith('worker/'));
+workerFiles.forEach(p => {
+  const kind = WORKER_NET[p];
+  const line = [...WORKER_TOOLS, ...(kind === 'live' ? [] : [BARE_FETCH]), ...(kind === 'io' || kind === 'fake' ? [] : [URL_BAN])];
+  if (!kind) line.push([/\bio\s*\.\s*fetch\b/, '外への通信 io.fetch（access.mjs と anthropic.mjs だけ）']);
+  violations(read(p), { line, file: [] }).forEach(v => fail(`${p}:${v.line} ${v.what}`));
+});
+(roles.core || []).filter(p => p.startsWith('worker/')).forEach(p => {
+  const names = WORKER_ADAPTERS.concat('worker/handler.mjs', 'worker/index.mjs').map(a => a.split('/').pop().replace('.', '\\.'));
+  const re = new RegExp(`from\\s+['"]\\./(?:${names.join('|')})['"]|import\\s+['"]\\./(?:${names.join('|')})['"]`);
+  if (re.test(read(p))) fail(`${p}: core が adapter か entry を読んでいる`);
+});
+const FAKES = existsSync(new URL('worker/fakes.mjs', root)) ? read('worker/fakes.mjs') : '';
+[['worker/access.mjs', 'fakeAccess'], ['worker/budget.mjs', 'fakeKv'], ['worker/anthropic.mjs', 'fakeAnthropic']].forEach(([a, f]) => {
+  if (WORKER_ADAPTERS.includes(a) && !new RegExp(`export\\s+(?:async\\s+)?function\\s+${f}\\b`).test(FAKES)) fail(`${a} の見本 ${f} が worker/fakes.mjs に無い`);
+});
+const WORKER_PROBES = [['const r = await fetch(u);', 'worker/handler.mjs'], ['const r = await io.fetch(u);', 'worker/budget.mjs'],
+  ["const u = 'https://evil.example.com/x';", 'worker/read-core.mjs'], ['const f = fetch; f(u);', 'worker/anthropic.mjs'], ['const w = new WebSocket(u);', 'worker/access.mjs']];
+WORKER_PROBES.forEach(([code, p]) => {
+  const kind = WORKER_NET[p];
+  const line = [...WORKER_TOOLS, ...(kind === 'live' ? [] : [BARE_FETCH]), ...(kind === 'io' || kind === 'fake' ? [] : [URL_BAN])];
+  if (!kind) line.push([/\bio\s*\.\s*fetch\b/, 'io.fetch']);
+  if (!violations(code, { line, file: [] }).length) fail(`検査が甘い: ${p} の「${code}」を見逃した`);
+});
+
 /* 8. 外から読む先。許可は spec の表「外から読む先」だけから、ファイルごとに読む */
 const ALLOW = allowTable(doc);
 if (!ALLOW || !Object.keys(ALLOW).length) fail('spec/architecture.md に表「外から読む先」が無い（検査が何も見ていない）');

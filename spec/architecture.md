@@ -6,12 +6,13 @@
 | 役割 | パス |
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js |
-| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js |
-| adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js |
-| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js |
+| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js worker/read-core.mjs |
+| adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/fakes.mjs |
+| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js worker/index.mjs worker/handler.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
-- 外へ通信してよいのは js/ai-reader.js だけ。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）
+- Worker（worker/）は画面と同じ 4 役割で分ける。core の worker/read-core.mjs は js/roster-schema.js と js/health-redact.js を読んで、画面と同じ検査をもう一度かける。worker/fakes.mjs は Worker の adapter の見本（テストだけが読み、置く物には入らない）
+- 外へ通信してよいのは、画面では js/ai-reader.js だけ、Worker では worker/access.mjs（Access の鍵）と worker/anthropic.mjs（Claude API）だけ（本物の fetch は worker/index.mjs が渡す。9 番が検査する）。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）
 - 字体（BIZ UD ゴシック）は index.html だけが、repo の fonts/ から自前で配る（css/fonts.css）。外の字体は読まない
   - 日本語の字体は約 50 字ずつのファイルに分けて配られ（unicode-range）、端末は画面に出た字・打った字を含むファイルだけを取りに行く。どのファイルを取ったかで、配っている所に字の一部が分かる
   - Google Fonts から読むと、それが IP・端末の種類・時刻・サイトの origin と一緒に Google に伝わる（字体ファイルの要求には Origin ヘッダが付き、referrer を止めても消えない）。自前で配れば Google には伝わらない。分け方は Google と同じ（取得と作り方は fonts/README.md）
@@ -22,11 +23,16 @@
 |---|---|---|---|---|---|
 | js/ai-reader.js | 同じ場所の Worker `/api/read` → Claude API（Haiku） | `readSample`（同じファイル）+ js/data-samples.js | AI の読み取り試験 2026-10-21 の Haiku の答え（tools/make-samples.mjs が作る） | Cloudflare Access の cookie + 合言葉（`x-redux-code`、sessionStorage）。API キーは Worker の secret だけ（この Worker 専用の 1 本） | なし |
 | js/core.js | localStorage | 無し（ブラウザの中だけ） | — | なし | このブラウザだけ |
+| worker/anthropic.mjs | Claude API（claude-haiku-5-5、/v1/messages） | `fakeAnthropic`（worker/fakes.mjs） | AI の読み取り試験 2026-10-21 の答え（予約の項目は試験していない。置いたあとに確かめる） | `ANTHROPIC_API_KEY`（この Worker 専用の 1 本、並行 1 本。Anthropic のこの Worker 専用ワークスペースで発行し、そこで月の上限） | なし |
+| worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS`・合言葉 `REDUX_CODE` は secret） | なし |
+| worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | 1 日の回数と今月の費用（目安）だけ |
 
 ## 3. Origin・監視
 - 画面のファイルと `/api` は同じ Worker から配る（同じ origin）。CORS と cross-site の Cookie は使わない
-- 入口は 2 重: Cloudflare Access（Worker 全体）と合言葉。Worker は `ctx.access` が無い呼び出しを 403 で断る
-- 監視: Worker は回数と費用だけを KV に数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える
+- 入口は 2 重: Cloudflare Access（Worker 全体）と合言葉。Worker は `Cf-Access-Jwt-Assertion` を自分で確かめ（署名・iss・aud・期限・許したメール）、通らない呼び出しを 403 で断る。`ctx.access` には頼らない
+- /api は `Sec-Fetch-Site: same-origin` と JSON を求め、CORS のヘッダは出さない。画面のファイルは Static Assets が `dist/_headers` の CSP を付けて配る（tools/build-site.mjs が作る）
+- 監視: Worker は回数と費用だけを KV に数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える。ログは 1 要求 1 行で、道・状態・doc・量・時間・理由の短い言葉だけ。Cloudflare の observability は切る
+- 他のお店のスマホで開くパスポート（pass.html）は、GitHub Pages の公開版に置いたまま。Worker 版の画面の QR は公開版の pass.html を指す（Worker は Access の中なので、他のお店は開けない）
 
 ### 外から読む先（test/arch.check.mjs の 8 番はこの表だけを読む）
 `…` で囲んだ先を前方一致で許す。表に書いて使っていない先も FAIL にする。ここに無いファイルからは外を読まない。
@@ -66,5 +72,8 @@
 | 2026-10-21 health-log | 記録（log）に健康の答えの中身を残さない。答えた数・当日の答えの有無・誰が確かめたか・同意の版だけ | 同意を取り消して答えを消しても、記録に 1 年残っていた（ザク SEC-001・ジン）。中身を残す案は前と後が分かるが、消せない要配慮個人情報になるので却下。条例の「書き換えが分かる」は、いつ・誰が・どの項目かで満たす | roster-schema.js の logOk（人の記録の health の形）と test/share.test.mjs |
 | 2026-10-21 held-today | 健康を渡さない他店のお客さんの当日の欄は、そのお店が便の日に「渡す」を押したらそろう | 便の前に「確かめた」と出すと、まだ誰も見ていない体調を確かめた扱いにする（ジン）。いつもそろった扱いにする案は却下 | test/share.test.mjs |
 | 2026-10-22 joint-items | 合同名簿は札・氏名・店・種類・ガイド・緊急時の連絡先・健康の 2 欄だけ。住所・生年月日などは各店の条例の名簿だけ | 船の上の安全に要る物だけを他のお店に見せる（ザク SEC-003、Yosuke の判断）。条例の 13 項目を全部載せる案は、住所・生年月日・家族の電話まで全店に渡すので却下 | test/share.test.mjs（行に 7 項目のほかを持たない） |
+| 2026-10-22 worker-fetch | Worker から Claude API へは SDK を使わず fetch で、ヘッダは x-api-key・anthropic-version・content-type の 3 つだけ | この repo は npm の部品を入れない作りで、送るヘッダを決めた 3 つにしたい（ザクのレビュー 2026-10-21）。SDK はヘッダを足すので却下 | test/worker.test.mjs（ヘッダが 3 つ） |
+| 2026-10-22 worker-guard | Worker の守りの順番: 設定 → 道と method → Sec-Fetch-Site → Access の JWT → 合言葉 → 大きさと形 → 上限（KV、呼ぶ前）→ AI。画面の検査（validateRequest・健康の行を外す・validateReading）を Worker でもう一度かける | 画面は書き換えられる前提（plan/meibo.md の「Worker で守ること」） | test/worker.test.mjs・test/arch.check.mjs（9 番） |
+| 2026-10-22 pass-place | pass.html は GitHub Pages に置いたまま。Worker 版の QR は公開版を指す | Access を Worker 全体にかけると他のお店が開けない。Access に例外の道（Bypass）を足す案は、pass.html が読む 9 ファイル分の設定が要り、外す道を増やすので次点 | なし |
 | 2026-10-21 leave-one-tap | ポイントを離れる前は札ボードで数え、スマホは 1 回押すだけ | 店へのアンケート（2 人のスマホ記録は 8 店中 4 店が難しい、和船はしぶきで触れない）。札を選ぶボタンを並べる案は Yosuke の判断で外した | なし |
 | 2026-10-21 outside-reads | HTML と CSS から外を読むのは、3. の表「外から読む先」にファイルごとに書いた先だけ。外のスクリプトと読み込む link には integrity を付ける。js の通信の道具と外の URL の文字は禁止 | ザクのレビュー（CDN の中身が差し替えられると、画面と同じ権限で localStorage の健康の答えを読める。2024 年の polyfill.io の件）。cdnjs が spec から漏れていたのを検査で捕まえるため。許可は表「外から読む先」だけから読み、ファイルごとに分ける（散文のサイト名を拾うと、書いただけで許可になる） | test/arch.check.mjs（test/outside.mjs） |

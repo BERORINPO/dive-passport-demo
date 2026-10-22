@@ -148,9 +148,15 @@
       el('p', { class: 'note', text: L(t.qrNote) }));
   }
 
+  /* Worker 版はチームしか入れないので、他のお店のスマホが開けるように公開版の pass.html を指す（meta は tools/build-site.mjs が置く物にだけ足す） */
+  const passBase = () => {
+    const m = document.querySelector('meta[name="redux-pass-base"]');
+    return m && m.content ? m.content : undefined;
+  };
+
   async function showQr(p) {
     const code = await R.codec.encode(R.pass.toShare(p, pick));
-    qrUrl = R.codec.passUrl(code);
+    qrUrl = R.codec.passUrl(code, passBase());
     clearTimeout(qrTimer);
     qrTimer = setTimeout(hideQr, QR_MS);
     const area = root.querySelector('#qr-area');
