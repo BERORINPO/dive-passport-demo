@@ -1,6 +1,6 @@
 # 予約と名簿の試作 計画（2026-10-21、周 1。Cloudflare Worker + Access）
 
-置き場所: `C:\dev\dive-passport-demo` の新しいブランチ（main から切る。3D のリドの PR #4 とは別）。merge の前に手元で見せる。
+置き場所: このリポジトリの新しいブランチ `feature/meibo-roster`（main から切る。3D のリドの PR #4 とは別）。merge の前に手元で見せる。
 
 ## 目的
 11/9 の中間発表で、スマホ 1 台で次を通して見せる。
