@@ -7,8 +7,10 @@
 
   const R = (globalThis.REDUX = globalThis.REDUX || {});
 
-  /* 見本の申込書の健康の欄（紙の 1240 × 1754 の中の 60,1150 〜 1180,1560。tools/make-photo-samples.py の元の書式） */
-  const SAMPLE_FORM_HEALTH = Object.freeze({ x0: 60 / 1240, y0: 1150 / 1754, x1: 1180 / 1240, y1: 1560 / 1754 });
+  /* 見本の申込書の健康の欄（紙の 1240 × 1754 の中の 60,1150 〜 1180,1560。tools/make-photo-samples.py の元の書式）を塗る四角。
+     上は 930 まで広げる: 斜めに撮った見本（f3）では欄が上にずれて、1150 からだと見出しと 1 問目がはみ出た（2026-10-22、置いた Worker の確かめ）。
+     930 は身長などの欄の下（約 845）と健康の欄の上の間の白い所。本物の書式では、その書式の欄の位置で決める（spec/meibo.md の本物の前に 9・23） */
+  const SAMPLE_FORM_HEALTH = Object.freeze({ x0: 60 / 1240, y0: 930 / 1754, x1: 1180 / 1240, y1: 1560 / 1754 });
   const MAX_SIDE = 1600;   // 送る写真の長い辺（これより大きい写真は縮める）
 
   const clamp01 = (v) => Math.min(1, Math.max(0, v));
