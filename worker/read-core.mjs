@@ -136,7 +136,7 @@ function jsonObjects(text) {
    参加者の塊と予約の塊が分かれて返ったときは、参加者の塊に予約の項目が無いときだけ足す。
    参加者の塊・予約の塊が 2 つ以上あれば断る（書類に仕込まれた JSON を AI が書き写したとき、どちらが本当か決められない。ザクのレビュー）。
    健康の情報が見えた印は安全な側に倒す: 答えの文のどこかで true と言っていれば true（壊れた答えでも、healthSeen で返す） */
-const SAID_HEALTH = /"health_info_visible"\s*:\s*true\b/;
+const SAID_HEALTH = /"health_info_visible"\s*:\s*"?true\b/i;   // 文字の "true" でも見えた側に倒す
 export function readingFrom(text, doc) {
   if (typeof text !== 'string') return { ok: false, error: 'no-json', healthSeen: false };
   const healthSeen = SAID_HEALTH.test(text);

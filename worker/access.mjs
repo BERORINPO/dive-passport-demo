@@ -7,7 +7,7 @@ const CERTS_TTL_MS = 10 * 60 * 1000;
 const REFRESH_GAP_MS = 60 * 1000;   // 知らない kid での取り直しは 1 分に 1 回まで（kid を変えた JWT で何度も取りに行かせない）
 const SKEW_S = 60;   // 時計のずれを 1 分まで許す
 let cache = { url: '', at: 0, keys: [] };
-let lastTry = -Infinity;   // 最後に取りに行った時刻（取れたかどうかに関係なく。Cloudflare 側が落ちている間も、取りに行く回数を抑える）
+let lastTry = -Infinity;   // 最後に取りに行った時刻（取れたかどうかに関係なく）。知らない kid での取り直しを 1 分に 1 回までに抑える。10 分のためが切れたあとは毎回取りに行く
 
 const b64urlBytes = (s) => {
   const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4));

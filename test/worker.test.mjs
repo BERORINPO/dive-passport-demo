@@ -369,6 +369,7 @@ test('AI の答えの書き損じ（余分なカンマ）は、中の 1 人分�
     assert.equal(r.ok, false, text);
   }
   assert.equal(readingFrom(outer, 'paper').healthSeen, true, '壊れていても「見えた」は true で返す');
+  assert.equal(readingFrom('{"participants":[],"health_info_visible":"true"}', 'paper').reading.healthSeen, true, '文字の "true" でも見えた側に倒す');
   assert.equal(readingFrom('{"name":"見本 花子"}', 'paper').error, 'shape', '参加者の塊が無ければ断る');
   assert.ok(readingFrom('{"booking":{"date":"2026-10-24"}}', 'mail').ok, '予約メールは予約だけの答えでもよい');
 });
