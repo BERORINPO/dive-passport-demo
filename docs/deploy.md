@@ -33,14 +33,17 @@ node tools/build-site.mjs && npx wrangler@4.151.0 deploy
 - `https://dive-passport-demo.<アカウントの名前>.workers.dev` に置かれる。Access を付けるまでの数分は画面が誰でも開ける（中身は GitHub Pages の公開版と同じ見本）。`/api` は鍵も Access も無いので 503 / 403 で断る
 - `preview_urls` は切ってあるので、版ごとの別の URL はできない
 
-## 4. ★ Access を付ける（約 10 分・権限）
-1. Cloudflare の画面 → Workers & Pages → `dive-passport-demo` → Settings → Domains & Routes → `workers.dev` の「Cloudflare Access を有効にする」
-   - Zero Trust の初回の設定で支払い方法を求められたら、そこで止める（お金の境界。Yosuke が決める）
-2. 「Access を管理」から、Access のアプリの Policy を直す
-   - Include: Emails に、チーム 6 人のメールアドレスを 1 つずつ（「@gmail.com」のようなドメインでは通さない）
-   - Session duration: 24 時間
-   - 例外の道（Bypass）は作らない（パスポートの pass.html は GitHub Pages の公開版を使う）
-3. アプリの画面に出る 2 つを控える: チームのドメイン（`<team>.cloudflareaccess.com`）と Application Audience (AUD) Tag
+## 4. ★ Access を付ける（約 10 分・権限とお金の画面。2026-10-22 に実際にやった順）
+1. Cloudflare の画面 → Workers & Pages → `dive-passport-demo` → Access のタブ。Zero Trust が無ければ「Set up Zero Trust」
+   - プランは Zero Trust Free（$0・50 人まで）。**ここで登録済みのカードと、2 つの同意（利用規約・無料の枠を超えた分の請求）を求められる**。お金の境界なので Yosuke が自分で押す（2026-10-22 に Yosuke が有効にした）
+   - チーム名は自動で付く（今は `broken-meadow-9e20`。チームのドメインは `broken-meadow-9e20.cloudflareaccess.com`）
+2. Zero Trust → Access controls → Policies → Add a policy で、許す人のポリシーを先に作る
+   - Include → Emails に、許すメールアドレスを 1 つずつ（「@gmail.com」のようなドメインでは通さない。Worker の画面の選び方にある「Email domain」は使わない）
+   - Policy name `dive-passport-demo team`、Action Allow、Policy session duration 24 hours
+   - 今は Yosuke 1 人だけ。チームの 5 人は通しの確認の前に、このポリシーと ALLOWED_EMAILS の両方に足す
+3. Worker の Access のタブに戻り「Protect this Worker behind Access」→ Scope は **All traffic**（Previews only ではない）→ 2 のポリシーを選んで Apply Access
+4. 同じ画面の「Application values」に出る AUD tag を控える。チームのドメインは JWKS の URL の `https://` と `/cdn-cgi/…` の間
+5. 確かめ: Worker の URL をどこを開いても、Access のログイン画面へ 302 で飛ぶ
 
 ## 5. ★ 鍵と設定を入れる（約 5 分）
 ```bash
