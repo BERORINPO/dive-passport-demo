@@ -26,7 +26,7 @@ export async function callModel(ask, env, io) {
       method: 'POST',
       headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify({ model: MODEL, max_tokens: MAX_TOKENS, messages: [{ role: 'user', content }] }),
-      redirect: 'error',   // 別の所へ転送されても、鍵の付いた要求を付いて行かせない
+      redirect: 'manual',   // 転送には付いて行かない（鍵の付いた要求を別の所へ送らない）。Workers は 'error' を受け付けない。3xx は !res.ok で断る
       signal: AbortSignal.timeout(TIMEOUT_MS)
     });
   } catch (e) {

@@ -7,6 +7,7 @@ const CERTS_TTL_MS = 10 * 60 * 1000;
 const REFRESH_GAP_MS = 60 * 1000;   // 知らない kid での取り直しは 1 分に 1 回まで（kid を変えた JWT で何度も取りに行かせない）
 const SKEW_S = 60;   // 時計のずれを 1 分まで許す
 let cache = { url: '', at: 0, keys: [] };
+let lastTry = -Infinity;   // 最後に取りに行った時刻（取れたかどうかに関係なく。Cloudflare 側が落ちている間も、取りに行く回数を抑える）
 
 const b64urlBytes = (s) => {
   const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4));
@@ -16,7 +17,9 @@ const b64urlJson = (s) => JSON.parse(new TextDecoder().decode(b64urlBytes(s)));
 
 async function certs(url, io, fresh) {
   if (!fresh && cache.url === url && io.now() - cache.at < CERTS_TTL_MS) return cache.keys;
-  const res = await io.fetch(url, { headers: { accept: 'application/json' }, redirect: 'error' });
+  lastTry = io.now();
+  /* 転送には付いて行かない（Workers は redirect: 'error' を受け付けないので manual にし、3xx は !res.ok で断る） */
+  const res = await io.fetch(url, { headers: { accept: 'application/json' }, redirect: 'manual' });
   if (!res.ok) throw new Error(`certs ${res.status}`);
   const body = await res.json();
   const keys = Array.isArray(body && body.keys) ? body.keys : [];
@@ -48,7 +51,7 @@ export async function verifyAccess(request, env, io) {
   let jwk;
   try {
     jwk = (await certs(url, io, false)).find(k => k && k.kid === head.kid);
-    if (!jwk && io.now() - cache.at >= REFRESH_GAP_MS) jwk = (await certs(url, io, true)).find(k => k && k.kid === head.kid);   // 鍵が入れ替わった直後
+    if (!jwk && io.now() - lastTry >= REFRESH_GAP_MS) jwk = (await certs(url, io, true)).find(k => k && k.kid === head.kid);   // 鍵が入れ替わった直後
   } catch (e) {
     return { ok: false, why: 'certs' };
   }
@@ -76,4 +79,4 @@ export async function verifyAccess(request, env, io) {
 }
 
 /* テストで鍵のためを消す */
-export const resetAccessCache = () => { cache = { url: '', at: 0, keys: [] }; };
+export const resetAccessCache = () => { cache = { url: '', at: 0, keys: [] }; lastTry = -Infinity; };

@@ -6,7 +6,6 @@
   'use strict';
 
   const R = window.REDUX;
-  const MODE_KEY = 'redux-ai-mode';
   const TIMEOUT_MS = 30000;
   const PROBE_MS = 5000;
   const SAMPLE_MS = 700;               // 見本でも「読んでいる」間が分かるように少し待つ
@@ -21,18 +20,10 @@
     }
   }
 
-  /* 保存場所を止めているブラウザでは、localStorage という名前に触れるだけで例外になる */
-  const getItem = (store, key, fallback) => {
-    try { return store().getItem(key) || fallback; } catch (e) { return fallback; }
-  };
-  const setItem = (store, key, value) => {
-    try { if (value) store().setItem(key, value); else store().removeItem(key); } catch (e) { /* 保存できなくても、開いている間は動く */ }
-  };
-  const local = () => localStorage;
-
   /* 選んだ読み方（見本 / 本物）。本物になるのは、同じ場所の /api/healthz が通ったときだけ（GitHub Pages 版から本文を外に送らない）。
+     開くたびに見本から始める（前に選んだ本物を残すと、healthz が返る前に描いた「送らない」の画面のまま、返ったあとに送ってしまう。ジンのレビュー）。
      入口は Cloudflare Access だけ（合言葉は 2026-10-22 に外した） */
-  let chosen = getItem(local, MODE_KEY, 'sample') === 'real' ? 'real' : 'sample';
+  let chosen = 'sample';
   let server = null;   // /api/healthz の答え { today, monthUsd }（今日と今月の残りの目安）。null は「本物を選べない」
   const listeners = [];
   const changed = () => listeners.forEach(fn => { try { fn(); } catch (e) { /* 画面の 1 つが失敗しても、ほかは知らせる */ } });
@@ -84,8 +75,10 @@
       if (res.status === 502) {
         /* 502 は 2 通り: AI の答えが形に合わなかった（answer）か、AI に届かなかった（upstream） */
         let why = null;
-        try { why = (await res.json()).error; } catch (e) { why = null; }
-        throw new ReadError(why === 'answer' ? 'bad' : 'offline', '502');
+        let healthSeen = false;
+        try { ({ error: why, healthSeen } = await res.json()); } catch (e) { why = null; }
+        /* 答えは使えないが、AI が「健康の情報が見えた」と答えていたら、送った記録に残す */
+        throw Object.assign(new ReadError(why === 'answer' ? 'bad' : 'offline', '502'), { healthSeen: healthSeen === true });
       }
       if (!res.ok) throw new ReadError('offline', String(res.status));
       let json;
@@ -127,9 +120,9 @@
       return { reading, sent: { ...sent, healthSeen: reading.healthSeen } };
     } catch (e) {
       const err = e instanceof ReadError ? e : new ReadError('bad', e.message);
-      err.sent = sent;
+      err.sent = { ...sent, healthSeen: err.healthSeen === true };
       /* 上限に達したら見本に戻す（続きは見本の読み取りでできる） */
-      if (err.kind === 'limit' && used === 'real') { chosen = 'sample'; setItem(local, MODE_KEY, chosen); changed(); }
+      if (err.kind === 'limit' && used === 'real') { chosen = 'sample'; changed(); }
       throw err;
     }
   }
@@ -148,7 +141,7 @@
     probe,
     available: () => !!server,
     left: () => (server ? { ...server } : null),
-    setMode: (next) => { chosen = next === 'real' ? 'real' : 'sample'; setItem(local, MODE_KEY, chosen); changed(); },
+    setMode: (next) => { chosen = next === 'real' ? 'real' : 'sample'; changed(); },
     onChange: (fn) => { listeners.push(fn); }
   };
 })();

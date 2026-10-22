@@ -51,5 +51,7 @@
   relabel();
   /* 本物の AI は、Worker 版で /api/healthz が通ったときだけ選べる。上の注意書きも、送るかどうかに合わせる */
   R.aiReader.onChange(() => { document.getElementById('demoNote').textContent = R.L(R.aiReader.mode() === 'real' ? R.T.demoNoteReal : R.T.demoNote); });
-  R.aiReader.probe();
+  /* /api/healthz を確かめるのは Worker 版だけ（置く物を作る tools/build-site.mjs が meta を足す）。
+     GitHub Pages では berorinpo.github.io の一番上が同じ場所なので、そこへは聞かない（ザクのレビュー） */
+  if (document.querySelector('meta[name="redux-worker"]')) R.aiReader.probe();
 })();

@@ -7,7 +7,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, extname, normalize, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handle } from '../worker/handler.mjs';
-import { fakeKv, fakeAccess, fakeAnthropic } from '../worker/fakes.mjs';
+import { fakeKv, fakeAccess, fakeAnthropic, checkRedirect } from '../worker/fakes.mjs';
 import '../js/data-samples.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
@@ -47,6 +47,7 @@ const toModel = (r) => ({
 const io = {
   now: () => Date.now(),
   fetch: async (url, init) => {
+    checkRedirect(init);   // Workers と同じく、redirect: 'error' は例外にする
     if (url === access.certsUrl) return new Response(JSON.stringify({ keys: access.keys }));
     const body = JSON.parse(init.body);
     const text = body.messages[0].content.map(c => c.text || '').join('');
@@ -67,7 +68,7 @@ function fileFor(pathname) {
 }
 const HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 
-createServer(async (req, res) => {
+async function serve(req, res) {
   /* 手元だけ。ほかの名前で来た要求（DNS rebinding）は断る */
   if (!HOSTS.has(req.headers.host || '')) { res.writeHead(403); res.end('Forbidden'); return; }
   const url = new URL(req.url, `http://127.0.0.1:${port}`);
@@ -86,4 +87,10 @@ createServer(async (req, res) => {
   if (!file) { res.writeHead(404); res.end('Not found'); return; }
   res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream', ...headersFor(url.pathname) });
   res.end(readFileSync(file));
-}).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています`));
+}
+
+/* 壊れた要求で道具ごと止まらないように、どの失敗も 400 で返す */
+createServer((req, res) => serve(req, res).catch(() => {
+  if (!res.headersSent) res.writeHead(400);
+  res.end('Bad request');
+})).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています`));

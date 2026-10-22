@@ -30,7 +30,8 @@
 ## 3. Origin・監視
 - 画面のファイルと `/api` は同じ Worker から配る（同じ origin）。CORS と cross-site の Cookie は使わない
 - 入口は Cloudflare Access（Worker 全体）だけ。Worker は `Cf-Access-Jwt-Assertion` を自分で確かめ（署名・iss・aud・期限・許したメール）、通らない呼び出しを 403 で断る。`ctx.access` には頼らない。Access の鍵が取れないとき（Cloudflare 側の障害）は 503
-- 画面の「本物」は、同じ場所の `/api/healthz` が通ったときだけ選べる（js/ai-reader.js の probe。GitHub Pages 版から本文を外に送らない）
+- 画面の「本物」は、同じ場所の `/api/healthz` が通ったときだけ選べる（js/ai-reader.js の probe。GitHub Pages 版から本文を外に送らない）。確かめるのは置く物の index.html に `redux-worker` の meta があるときだけ（GitHub Pages では github.io の一番上が同じ場所になるため）。開くたびに見本から始める
+- Worker の外への通信の先は、arch.check の 9 番がファイルごとに完全一致で見る。検査で追えない形（`io.fetch(env.X)`・文字を足して作った URL）は、テストの io.fetch が知らない先で例外を出すことで止める
 - Worker が画面を信じる所: 申込書の写真を塗ったか（`masked: true` は画面の photo-prep.js の申告で、Worker は確かめられない）。spec/meibo.md の「本物の前に」21
 - /api は `Sec-Fetch-Site: same-origin` と JSON を求め、CORS のヘッダは出さない。画面のファイルは Static Assets が `dist/_headers` の CSP を付けて配る（tools/build-site.mjs が作る）
 - 監視: Worker は回数と費用だけを KV に数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える。ログは 1 要求 1 行で、道・状態・doc・量・時間・理由の短い言葉だけ。Cloudflare の observability は切る
@@ -77,7 +78,7 @@
 | 2026-10-22 joint-items | 合同名簿は札・氏名・店・種類・ガイド・緊急時の連絡先・健康の 2 欄だけ。住所・生年月日などは各店の条例の名簿だけ | 船の上の安全に要る物だけを他のお店に見せる（ザク SEC-003、Yosuke の判断）。条例の 13 項目を全部載せる案は、住所・生年月日・家族の電話まで全店に渡すので却下 | test/share.test.mjs（行に 7 項目のほかを持たない） |
 | 2026-10-22 worker-fetch | Worker から Claude API へは SDK を使わず fetch で、ヘッダは x-api-key・anthropic-version・content-type の 3 つだけ | この repo は npm の部品を入れない作りで、送るヘッダを決めた 3 つにしたい（ザクのレビュー 2026-10-21）。SDK はヘッダを足すので却下 | test/worker.test.mjs（ヘッダが 3 つ） |
 | 2026-10-22 worker-guard | Worker の守りの順番: 道と method → Sec-Fetch-Site → 設定 → Access の JWT → 種類・大きさ・形 → 上限（KV、呼ぶ前。判定は core の overLimit）→ AI → 答えの形。画面の検査（validateRequest・健康の行を外す・validateReading）を Worker でもう一度かける | 画面は書き換えられる前提（plan/meibo.md の「Worker で守ること」） | test/worker.test.mjs（順番と各段）・test/arch.check.mjs 9 番（Worker の通信の先） |
-| 2026-10-22 mail-format | 予約メールのプロンプトは形式を 1 つの JSON にまとめ、例の値を null にする。答えは JSON の塊を前から全部取り出し、分かれていたら参加者の塊に予約を足す | ジンのレビュー（別の形を見せると 2 つに分けて返し、最初の { から最後の } までを取る作りでは読めない）。写真のプロンプトは試験と同じ文のまま | test/worker.test.mjs |
+| 2026-10-22 mail-format | 予約メールのプロンプトは形式を 1 つの JSON にまとめ、例の値を null にする。答えは JSON の塊を前から取り出し（閉じたのに JSON でない塊は中に入らない）、参加者の塊に予約の項目が無いときだけ予約の塊を足す。参加者か予約の塊が 2 つあれば断る。健康が見えた印は、答えの文のどこかで true なら true（壊れた答えでも画面に返す） | ジンのレビュー（2 つに分けて返すと読めない・書き損じで中の 1 人分を拾う）とザク（書類に仕込んだ JSON の書き写しで値を差し替えられる）。写真のプロンプトは試験と同じ文のまま | test/worker.test.mjs |
 | 2026-10-22 pass-place | pass.html は GitHub Pages に置いたまま。Worker 版の QR は公開版を指す | Access を Worker 全体にかけると他のお店が開けない。Access に例外の道（Bypass）を足す案は、pass.html が読む 9 ファイル分の設定が要り、外す道を増やすので次点 | なし |
 | 2026-10-21 leave-one-tap | ポイントを離れる前は札ボードで数え、スマホは 1 回押すだけ | 店へのアンケート（2 人のスマホ記録は 8 店中 4 店が難しい、和船はしぶきで触れない）。札を選ぶボタンを並べる案は Yosuke の判断で外した | なし |
 | 2026-10-21 outside-reads | HTML と CSS から外を読むのは、3. の表「外から読む先」にファイルごとに書いた先だけ。外のスクリプトと読み込む link には integrity を付ける。js の通信の道具と外の URL の文字は禁止 | ザクのレビュー（CDN の中身が差し替えられると、画面と同じ権限で localStorage の健康の答えを読める。2024 年の polyfill.io の件）。cdnjs が spec から漏れていたのを検査で捕まえるため。許可は表「外から読む先」だけから読み、ファイルごとに分ける（散文のサイト名を拾うと、書いただけで許可になる） | test/arch.check.mjs（test/outside.mjs） |

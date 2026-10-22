@@ -320,6 +320,7 @@
     } catch (e) {
       if (e.sent) save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
       job.error = ERROR_JA[e.kind] || ERROR_JA.bad;
+      if (e.sent && e.sent.healthSeen) job.error += '。AI が「健康の情報が見えた」と答えました。送った文面を確かめてください';
     } finally {
       job.busy = false;
       if (mail === job) fillMail();

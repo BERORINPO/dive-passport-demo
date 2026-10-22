@@ -22,6 +22,7 @@
     bad: 'AI の答えが形に合わなかったので、使いませんでした。もう一度試してください'
   };
   const SAMPLES = { paper: ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'], ccard: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] };
+  const HEALTH_SEEN = 'AI が「健康の情報が見えた」と答えたので、この読み取りは使いません。撮った書類と、塗った所を確かめてください。';
   const now = () => new Date().toISOString();
 
   let shot = blankShot('');
@@ -114,7 +115,7 @@
       if (reading.healthSeen) {   // 塗り残しか、撮る書類の間違い。読み取りは使わず、塗る画面に戻す（同じ写真をもう一度送らせない）
         job.prepared = null;
         job.confirmed = false;
-        job.error = 'AI が「健康の情報が見えた」と答えたので、この読み取りは使いません。撮った書類と、塗った所を確かめてください。';
+        job.error = HEALTH_SEEN;
         return;
       }
       job.reading = reading;
@@ -124,6 +125,11 @@
     } catch (e) {
       if (e.sent) ui.save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
       job.error = ERROR_JA[e.kind] || ERROR_JA.bad;
+      if (e.sent && e.sent.healthSeen) {   // 答えは壊れていても、健康が見えたと言っていたら、成功のときと同じく塗る画面に戻す
+        job.prepared = null;
+        job.confirmed = false;
+        job.error = HEALTH_SEEN;
+      }
     } finally {
       job.busy = false;
       if (shot === job) ui.rerender();

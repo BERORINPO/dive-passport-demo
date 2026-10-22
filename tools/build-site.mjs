@@ -62,7 +62,9 @@ function build() {
   }
   const index = readFileSync(join(root, 'index.html'), 'utf8');
   if (!index.includes(REFERRER_META)) throw new Error('index.html に referrer の meta が無い（パスポートの置き場所の meta を足す場所）');
-  writeFileSync(join(out, 'index.html'), index.replace(REFERRER_META, `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">`));
+  /* redux-worker: 画面はこの印があるときだけ /api/healthz を確かめる（js/app.js） */
+  writeFileSync(join(out, 'index.html'), index.replace(REFERRER_META,
+    `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-worker" content="1">`));
   writeFileSync(join(out, '_headers'), headers(index));
   console.log(`dist/: ${files.length} files + _headers`);
 }

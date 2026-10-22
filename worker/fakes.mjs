@@ -3,6 +3,11 @@
    - fakeAccess: Access のチームの鍵を作り、JWT を署名し、/cdn-cgi/access/certs を返す
    - fakeAnthropic: Claude API の答え（answer に返したい文、status で失敗） */
 
+/* Cloudflare の fetch と同じく、redirect は follow か manual だけを受け付ける（'error' は Workers で例外になる。ザクのレビュー） */
+export function checkRedirect(init) {
+  if (init && init.redirect !== undefined && !['follow', 'manual'].includes(init.redirect)) throw new TypeError(`Invalid redirect value: ${init.redirect}`);
+}
+
 export function fakeKv() {
   const m = new Map();
   const kv = {
@@ -47,7 +52,8 @@ export function fakeAnthropic() {
     answer: '{"participants": [], "health_info_visible": false}',
     thinkingFirst: true,
     async respond(init) {
-      api.calls.push({ headers: new Headers(init.headers), body: JSON.parse(init.body) });
+      checkRedirect(init);
+      api.calls.push({ headers: new Headers(init.headers), body: JSON.parse(init.body), redirect: init.redirect });
       if (api.status !== 200) return new Response('{"type":"error","error":{"type":"x","message":"secret detail"}}', { status: api.status });
       const content = [...(api.thinkingFirst ? [{ type: 'thinking', thinking: '', signature: 'x' }] : []), { type: 'text', text: api.answer }];
       return new Response(JSON.stringify({ id: 'msg_1', type: 'message', content, stop_reason: api.stopReason, usage: api.usage }), { status: 200 });

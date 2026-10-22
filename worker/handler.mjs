@@ -94,7 +94,11 @@ async function read(request, env, io, note) {
   await spend(env.BUDGET, keys, costMicro(answer.usage)).catch(() => { note.why = 'spend-kv'; });
 
   const reading = readingFrom(answer.text, ask.doc);
-  if (!reading.ok) { note.why = `answer-${reading.error}`.slice(0, 40); return json(502, { error: 'answer' }); }
+  if (!reading.ok) {
+    /* 読み取りは使えないが、健康の情報が見えたと答えていたら画面に知らせる（送った記録に印を残し、同じ写真を送り直させない） */
+    Object.assign(note, { why: `answer-${reading.error}`.slice(0, 40), seen: reading.healthSeen });
+    return json(502, { error: 'answer', healthSeen: reading.healthSeen === true });
+  }
   note.seen = reading.reading.healthSeen;
   return json(200, reading.reading);
 }

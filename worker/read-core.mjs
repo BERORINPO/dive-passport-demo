@@ -97,47 +97,62 @@ export function checkRequest(given, today) {
   return { ok: true, ask: { doc: body.doc, prompt: PHOTO_PROMPT, image: body.image, mediaType, size: body.image.length, redacted: 0 } };
 }
 
-/* 答えの文の中の JSON の塊を、前から順に全部取り出す（文字列の中の括弧は数えない）。前後の説明・```json の囲み・2 つに分かれた答えに耐える */
+/* 答えの文の中の JSON の塊を、前から順に取り出す（文字列の中の括弧は数えない）。前後の説明・```json の囲み・2 つに分かれた答えに耐える。
+   閉じたのに JSON でない塊（書き損じ・説明の括弧）は、中に入らずに後ろへ進む（中の 1 人分の塊を答えと取り違えない）。
+   調べる { は先頭から MAX_STARTS 個まで（Workers の CPU 時間の上限への備え） */
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const MAX_STARTS = 20;
+function closingBrace(text, start) {
+  let depth = 0;
+  let quote = false;
+  for (let j = start; j < text.length; j += 1) {
+    const c = text[j];
+    if (quote) {
+      if (c === '\\') j += 1;
+      else if (c === '"') quote = false;
+    } else if (c === '"') quote = true;
+    else if (c === '{') depth += 1;
+    else if (c === '}') { depth -= 1; if (depth === 0) return j; }
+  }
+  return -1;
+}
 function jsonObjects(text) {
   const found = [];
   let i = text.indexOf('{');
-  while (i !== -1) {
-    let depth = 0;
-    let quote = false;
-    let end = -1;
-    for (let j = i; j < text.length; j += 1) {
-      const c = text[j];
-      if (quote) {
-        if (c === '\\') j += 1;
-        else if (c === '"') quote = false;
-      } else if (c === '"') quote = true;
-      else if (c === '{') depth += 1;
-      else if (c === '}') { depth -= 1; if (depth === 0) { end = j; break; } }
-    }
-    if (end === -1) break;
+  for (let tries = 0; i !== -1 && tries < MAX_STARTS; tries += 1) {
+    const end = closingBrace(text, i);
+    if (end === -1) { i = text.indexOf('{', i + 1); continue; }   // 閉じない {（説明の文など）。次の { から
     try {
       const v = JSON.parse(text.slice(i, end + 1));
-      if (isObj(v)) { found.push(v); i = text.indexOf('{', end + 1); continue; }
-    } catch (e) { /* JSON でない括弧（説明の文など）。次の { から探す */ }
-    i = text.indexOf('{', i + 1);
+      if (isObj(v)) found.push(v);
+    } catch (e) { /* 閉じているのに JSON でない塊。中は見ない */ }
+    i = text.indexOf('{', end + 1);
   }
   return found;
 }
 
 /* AI の答えの文から JSON を取り出し、答えの形に直して検査する。予約は予約メールのときだけ受け取る。
-   参加者の塊と予約の塊が分かれて返ったときは、参加者の塊に予約を足す */
+   参加者の塊と予約の塊が分かれて返ったときは、参加者の塊に予約の項目が無いときだけ足す。
+   参加者の塊・予約の塊が 2 つ以上あれば断る（書類に仕込まれた JSON を AI が書き写したとき、どちらが本当か決められない。ザクのレビュー）。
+   健康の情報が見えた印は安全な側に倒す: 答えの文のどこかで true と言っていれば true（壊れた答えでも、healthSeen で返す） */
+const SAID_HEALTH = /"health_info_visible"\s*:\s*true\b/;
 export function readingFrom(text, doc) {
-  if (typeof text !== 'string') return { ok: false, error: 'no-json' };
+  if (typeof text !== 'string') return { ok: false, error: 'no-json', healthSeen: false };
+  const healthSeen = SAID_HEALTH.test(text);
+  const fail = (error) => ({ ok: false, error, healthSeen });
   const objects = jsonObjects(text);
-  if (!objects.length) return { ok: false, error: text.includes('{') ? 'json' : 'no-json' };
-  const base = objects.find(o => Object.prototype.hasOwnProperty.call(o, 'participants')) || objects[0];
-  const withBooking = isObj(base.booking) ? base : objects.find(o => isObj(o.booking));
-  const raw = { ...base, booking: withBooking ? withBooking.booking : base.booking };
-  if (objects.some(o => o !== base && o.health_info_visible === true)) raw.health_info_visible = true;
+  if (!objects.length) return fail(text.includes('{') ? 'json' : 'no-json');
+  const people = objects.filter(o => has(o, 'participants'));
+  const bookings = objects.filter(o => has(o, 'booking'));
+  if (people.length > 1 || bookings.length > 1) return fail('many');
+  const base = people[0];
+  if (!base && !(doc === 'mail' && bookings.length)) return fail('shape');
+  const raw = { ...(base || {}), booking: bookings.length ? bookings[0].booking : undefined };
+  if (healthSeen) raw.health_info_visible = true;
   const reading = R.roster.fromModel(doc === 'mail' ? raw : { ...raw, booking: undefined });
   const v = R.roster.validateReading(reading);
-  return v.ok ? { ok: true, reading } : { ok: false, error: v.errors.join(',') };
+  return v.ok ? { ok: true, reading } : fail(v.errors.join(','));
 }
 
 /* 上限の判定（数えるのは呼ぶ前）。{ day: 今日呼んだ回数, month: 今月使った額 } と上限から、超えるなら 'day' か 'month' */
