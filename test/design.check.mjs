@@ -87,7 +87,7 @@ const PAPER_45 = [['paper-ink', 'paper-bg'], ['paper-faint', 'paper-bg'], ['pape
 const DISABLED_45 = [['disabled-ink', 'disabled-bg'], ['disabled-ink', 'bg'], ['disabled-ink', 'surface']];
 const DARK_45 = [['ink', 'bg'], ['ink', 'surface'], ['muted', 'bg'], ['muted', 'surface'], ['accent-ink', 'accent'], ['you-ink', 'you-bg'],
   ['warn', 'bg'], ['ok', 'bg'], ['info', 'bg'], ['warn', 'warn-bg'], ['ok', 'ok-bg'], ['info', 'info-bg'], ['accent', 'surface'],
-  ['ink', 'turtle-bg'], ['disabled-ink', 'disabled-bg']];
+  ['ink', 'turtle-bg'], ['ink', 'warn-bg'], ['disabled-ink', 'disabled-bg']];
 const DARK_LINE_3 = [['control', 'surface'], ['control', 'bg']];
 
 export function contrastProblems(set, pairs, min, label, report = []) {

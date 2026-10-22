@@ -96,7 +96,7 @@
   const BACKUP_KEEP_MS = 366 * 24 * 60 * 60 * 1000;   // 退避した名簿も 1 年で消す
   const rosterListeners = [];
   let roster = null;
-  let rosterNote = null;        // recovered（退避して空から始めた）/ unreadable（退避できず元のまま）/ conflict（別のタブと食い違い）
+  let rosterNote = null;        // recovered（退避して空から始めた）/ unreadable（退避できず元のまま）/ conflict（別のタブと食い違い）/ newer（別のタブがこの版の知らない形で保存した）
   let rosterLocked = false;     // 読めない名簿を退避できなかった。元の名簿を上書きしないよう、この端末には書かない
   let rosterUnsaved = false;    // 最後の保存が端末に書けなかった
 
@@ -120,7 +120,8 @@
     if (!o || typeof o !== 'object' || !Array.isArray(o.bookings) || !Array.isArray(o.people)) return text;
     const partner = new Set(o.bookings.filter(b => b && b.source === 'partner').map(b => b.id));
     const answered = (h) => !!h && typeof h === 'object' &&
-      ((Array.isArray(h.answers) && h.answers.some(a => a !== null && a !== undefined)) || (typeof h.today === 'string' && h.today !== ''));
+      ((Array.isArray(h.answers) && h.answers.some(a => a !== null && a !== undefined)) || (typeof h.today === 'string' && h.today !== '') ||
+        (Array.isArray(h.spo2) && h.spo2.some(d => !!d && ((d.pre !== '' && d.pre !== undefined) || (d.post !== '' && d.post !== undefined)))));
     if (!o.people.some(p => p && partner.has(p.bookingId) && answered(p.health))) return text;
     const people = o.people.map(p => {
       if (!p || !partner.has(p.bookingId) || !answered(p.health)) return p;
@@ -204,6 +205,16 @@
       if (e.key !== ROSTER_KEY || rosterLocked) return;
       if (rosterUnsaved) {   // この画面に保存できていない予約がある。読み直すと消えるので、知らせるだけにする
         rosterNote = 'conflict';
+        rosterListeners.forEach(fn => fn(roster));
+        return;
+      }
+      /* 別のタブ（新しい版の画面）が、この版の知らない形（足した欄など）で保存した。読み直すと形の検査に落ちて空の名簿で上書きするので、
+         読み直さず、この画面からは書かない（新しい方の名簿を消さない） */
+      let incoming = null;
+      try { incoming = e.newValue ? JSON.parse(e.newValue) : null; } catch (err) { incoming = null; }
+      if (e.newValue && !(incoming && typeof incoming === 'object' && R.roster.validateState(R.rosterCore.scrubLog(incoming)).ok)) {
+        rosterLocked = true;
+        rosterNote = 'newer';
         rosterListeners.forEach(fn => fn(roster));
         return;
       }

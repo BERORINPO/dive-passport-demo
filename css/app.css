@@ -437,6 +437,37 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tagcard b { font-family: var(--font-figure); font-size: 26px; line-height: 1; }
 .tagcard span { font-size: 13px; }
 .tagcard small { font-size: 10px; color: var(--paper-rule); }
+/* 血中酸素（県警の体調チェック表）: 年齢の印・高リスクの数・1 人ずつの欄・手当ての案内。お客さんの症状の案内 */
+.age { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px solid var(--info); border-radius: 4px; color: var(--info); font-family: var(--font-figure); font-size: 14px; font-weight: 700; line-height: 1.5; vertical-align: 1px; white-space: nowrap; }
+.sum .sum__hi { color: var(--warn); font-weight: 700; }
+.sp { padding: 10px 14px 12px; border-top: 1px solid var(--line); }
+.sp:first-child { border-top: 0; }
+.sp__head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 700; overflow-wrap: anywhere; }
+.sp__name { min-width: 0; }
+.sp__grid { display: grid; grid-template-columns: 56px repeat(2, minmax(0, 1fr)); gap: 8px; align-items: center; max-width: 420px; margin-top: 8px; }
+.sp__h { font-size: 14px; color: var(--muted); text-align: center; }
+.sp__n { font-size: 14px; color: var(--muted); }
+.sp__in { min-width: 0; text-align: center; font-family: var(--font-figure); font-size: 18px; }
+.sp__in--hi { border-color: var(--warn); outline: 2px solid var(--warn); outline-offset: -3px; color: var(--warn); font-weight: 700; }
+.sp__why { margin: 8px 0 0; font-size: 14px; color: var(--warn); font-weight: 700; }
+.sp__in[aria-invalid="true"] { border-color: var(--warn); outline: 2px dashed var(--warn); outline-offset: -3px; }
+.sp__bad { margin: 8px 0 0; font-size: 14px; color: var(--warn); font-weight: 700; }
+.sp__note { margin: 4px 0 0; font-size: 14px; color: var(--muted); }
+.act { margin: 16px 0 0; padding: 12px 14px; background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius); font-size: 15px; }
+.act p { margin: 0 0 6px; }
+.act ul { margin: 0; padding-left: 20px; }
+.act__title { color: var(--warn); font-weight: 700; }
+.act--plain { margin: 0; border: 0; border-radius: 0 0 var(--radius) var(--radius); }
+.sym { margin-top: 16px; padding: 14px 16px; background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius); }
+.sym__title { margin: 0 0 6px; font-size: 16px; }
+.sym__list { margin: 0; padding-left: 20px; font-weight: 700; }
+.sym__note { margin: 8px 0 0; font-size: 14px; }   /* 地が --warn-bg なので字は --ink（--muted は測った組に無い） */
+.sym__more { margin-top: 10px; font-size: 14px; }
+.sym__more summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; }
+.sym__ln { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--warn-line); }
+.sym__ln p { margin: 0; }
+.sym__lang { font-size: 14px; }
+.sym__words { font-weight: 700; }
 @media (min-width: 720px) {
   .board__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .tagsheet { grid-template-columns: repeat(5, minmax(0, 1fr)); }

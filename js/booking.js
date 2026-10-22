@@ -25,11 +25,12 @@
   const STORE_NOTE_JA = {
     recovered: '保存されていた名簿が読めなかったので、この端末の別の場所に残して、空の名簿から始めました。',
     unreadable: '保存されていた名簿が読めませんでした。消さずに元のまま残しています。この画面で入れた予約は保存されず、閉じると消えます。',
-    conflict: '別のタブで名簿が変わりました。この画面には、保存できていない予約があります。'
+    conflict: '別のタブで名簿が変わりました。この画面には、保存できていない予約があります。',
+    newer: '別のタブで、この画面より新しい版の名簿が保存されました。消さないよう、この画面からは保存しません。ページを読み込み直してください。'
   };
 
   let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
-                            // day（今日の名簿）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
+                            // day（今日の名簿）/ spo2（血中酸素）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
                             // share（乗り合い）/ partner（他のお店役）/ joint（合同名簿）/ jointprint / board（札ボード）/ leave（離れる前）は share-roster.js
   let intakeTrip = '';
   let reviewPerson = '';
@@ -461,7 +462,7 @@
   /* ---------- 描く ---------- */
   /* 名簿の取り込みと確かめる画面（intake-photo.js）に渡す道具 */
   const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back, dock };
-  const DAY_MODES = { day: 'renderDay', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
+  const DAY_MODES = { day: 'renderDay', spo2: 'renderSpo2', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
   const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', joint: 'renderJoint', jointprint: 'renderJointPrint', board: 'renderBoard', leave: 'renderLeave' };
   const PRINT_MODES = ['print', 'jointprint', 'board'];
 

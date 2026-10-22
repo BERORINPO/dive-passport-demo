@@ -1,10 +1,11 @@
-/* お店の画面: 今日の名簿・条例の名簿の印刷・CSV・カレンダー（.ics）・記録。予約の画面（booking.js）から開く。
-   決まりは js/roster-day.js と roster-core.js（rosterRows・toCsv・editTrip・logOutput） */
+/* お店の画面: 今日の名簿・血中酸素（県警の体調チェック表）・条例の名簿の印刷・CSV・カレンダー（.ics）・記録。予約の画面（booking.js）から開く。
+   決まりは js/roster-day.js と roster-core.js（rosterRows・toCsv・editTrip・logOutput）、表の数値と言葉は js/data-sipe.js */
 (() => {
   'use strict';
 
   const R = window.REDUX;
   const { el } = R;
+  const S = () => R.roster;
   const C = () => R.rosterCore;
   const D = () => R.rosterDay;
   const healthShort = () => R.HEALTH.map(q => q.short);
@@ -61,6 +62,14 @@
       !trip.start ? el('p', { class: 'sheet__note', text: '潜水日時: 便の時刻がまだです。' }) : null);
   }
 
+  /* 名前の横に、50 歳以上の人だけ年齢を出す（県警のまとめで、SIPE が疑われた人の多くが 50〜70 代） */
+  const SIPE = () => R.SIPE;
+  function ageChip(person, trip) {
+    const age = D().ageOn(person.birthDate, trip.date);
+    return age !== null && age >= SIPE().OLDER ? el('span', { class: 'age', text: `${age} 歳` }) : null;
+  }
+  const nameOf = (person, trip) => el('span', { class: 'bk__name' }, person.name || '名前の分からない人', ageChip(person, trip));
+
   function checkLine(x, g, ui) {
     const p = x.person;
     const why = [
@@ -69,7 +78,7 @@
     ].filter(Boolean);
     const st = x.unsure.length ? ['check', '! 確かめる'] : ['wait', `・まだ ${x.guest.length}`];
     return el('li', { class: 'bk' },
-      el('span', { class: 'bk__name', text: p.name || '名前の分からない人' }),
+      nameOf(p, g.trip),
       el('span', { class: `st st--${st[0]}`, text: st[1] }),
       el('span', { class: 'bk__meta', text: why.join('　') }),
       x.unsure.length ? button('確かめる', () => ui.go('review', { personId: p.id }))
@@ -97,6 +106,7 @@
       ...ui.head('今日の名簿', `${ui.md(trip.date)} ${ui.tripLabel(trip)}　${g.count} 人`),
       trip.partners.length ? el('p', { class: 'note', text: '乗り合いの他のお店のお客さんは、この名簿に入れません（条例の名簿はお店ごと）。船の全員は「乗り合い・札」の合同名簿で見ます。' }) : null,
       tripFields(g, ui),
+      sipeSheet(trip.id, ui),
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, '見てほしい人', el('small', { text: `${g.check.length} 人` })),
         g.check.length ? el('ul', { class: 'bks bks--sheet' }, g.check.map(x => checkLine(x, g, ui)))
@@ -104,12 +114,12 @@
       g.morning.length ? el('details', { class: 'sheet known' },
         el('summary', { text: `当日の朝に体調を答える人　${g.morning.length} 人` }),
         el('ul', { class: 'bks bks--sheet' }, g.morning.map(x => el('li', { class: 'bk' },
-          el('span', { class: 'bk__name', text: x.person.name || '名前の分からない人' }),
+          nameOf(x.person, trip),
           el('span', { class: 'st st--wait', text: '・当日の朝' }))))) : null,
       g.ready.length ? el('details', { class: 'sheet known' },
         el('summary', { text: `そろった人　${g.ready.length} 人` }),
         el('ul', { class: 'bks bks--sheet' }, g.ready.map(x => el('li', { class: 'bk' },
-          el('span', { class: 'bk__name', text: x.person.name || '名前の分からない人' }),
+          nameOf(x.person, trip),
           el('span', { class: 'st st--ok', text: x.done ? '✓ そろった' : '✓ お客さんの分' }))))) : null,
       el('p', { class: 'reset' }, button('カレンダーに入れる（.ics）', () => ui.go('ics', { tripId })), '　',
         button('記録を見る', () => ui.go('log', { tripId }), 'linkbtn linkbtn--muted')),
@@ -120,6 +130,104 @@
       ui.dock(
         el('button', { class: 'btn', type: 'button', text: '名簿を印刷', onclick: () => ui.go('print', { tripId }) }),
         el('button', { class: 'btn btn--ghost', type: 'button', text: 'CSV に書き出す', onclick: () => exportCsv(trip, ui) }))
+    ];
+  }
+
+  /* ---------- 血中酸素（県警の体調チェック表。判定は roster-day.js、数値と言葉は data-sipe.js） ---------- */
+  function sipeSheet(tripId, ui) {
+    const g = D().sipeRows(R.rosterStore.get(), tripId);
+    if (!g || !g.rows.length) return null;
+    return el('div', { class: 'sheet' },
+      el('p', { class: 'sheet__title' }, '血中酸素', el('small', { text: '県警の体調チェック表' })),
+      el('div', { class: 'sum' },
+        el('span', { text: '測った人' }), el('b', { text: `${g.measured} / ${g.rows.length}` }),
+        g.high.length ? [el('span', { class: 'sum__hi', text: '! 高リスクの目安' }), el('b', { class: 'sum__hi', text: `${g.high.length} 人` })] : null,
+        el('span', { text: `${SIPE().OLDER} 歳以上` }), el('b', { text: `${g.older} 人` })),
+      el('p', { class: 'sheet__note' }, button('血中酸素を入れる', () => ui.go('spo2', { tripId }))));
+  }
+
+  let thirdTrip = '';   // 3 本目の欄を開いた便
+  const unitOf = (trip) => (trip.kind === 'snorkel' ? '回' : '本');
+  const sideJa = (trip) => (trip.kind === 'snorkel' ? { pre: '入る前', post: '上がった後' } : { pre: '潜る前', post: '潜った後' });
+
+  function whyText(w, unit) {
+    return w.kind === 'notBack' ? `${w.dive} ${unit}目の前（${w.value}）が、${w.dive - 1} ${unit}目の後（${w.ref}）に戻っていない`
+      : `${w.dive} ${unit}目の${w.side === 'pre' ? '前' : '後'}が ${w.value}（${SIPE().LOW} 以下）`;
+  }
+
+  /* 入れた数値を残す。残したあと描き直すので、次に押した欄（Tab や次の欄を押した先）にフォーカスを戻す。
+     幅の外の数や数でない文字は、描き直さずに入れた文字を残し、その人の行の下に知らせてその欄に戻す（描き直すと前の値に戻り、打ち間違いに気付けない） */
+  function saveSpo2(input, { id, dive, side, trip, ui }) {
+    const text = input.value.normalize('NFKC').trim();
+    const value = text === '' ? '' : /^\d{1,3}$/.test(text) ? Number(text) : NaN;
+    if (value !== '' && !(Number.isInteger(value) && value >= S().SPO2_MIN && value <= S().SPO2_MAX)) {
+      input.setAttribute('aria-invalid', 'true');
+      const row = input.closest('.sp');
+      const msg = row && (row.querySelector('.sp__bad') || row.appendChild(el('p', { class: 'sp__bad', role: 'alert' })));
+      if (msg) msg.textContent = `${S().SPO2_MIN}〜${S().SPO2_MAX} の数で入れてください（入れたのは「${text.slice(0, 10)}」）。まだ残していません`;
+      setTimeout(() => { input.focus(); input.select(); }, 0);
+      return;
+    }
+    setTimeout(() => {
+      const next = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.spo2 : '';
+      const r = ui.save(st => D().setSpo2(st, { id, dive, side, value, at: nowIso() }));
+      ui.go('spo2', r.error ? { tripId: trip.id, warn: '入れられませんでした。もう一度入れてください' } : { tripId: trip.id, saved: r.saved });
+      const again = next ? document.querySelector(`[data-spo2="${CSS.escape(next)}"]`) : null;
+      if (again) again.focus();
+    }, 0);
+  }
+
+  function spo2Row(r, { trip, dives, ui }) {
+    const unit = unitOf(trip);
+    const side = sideJa(trip);
+    const name = r.person.name || '名前の分からない人';
+    /* 3 つ目の目安を比べられない本があれば「目安に当たらない」とは出さない */
+    const st = r.risk.high ? ['check', '! 高リスク'] : r.risk.pending.length ? ['wait', `・${r.risk.pending[0] - 1} ${unit}目の後がまだ`]
+      : r.risk.measured ? ['ok', '目安に当たらない'] : ['wait', '・まだ'];
+    /* 血中酸素を残すことは、お客さんのページの同意の文（今の版）に入っている。前の版の同意か、まだ答えていない人は、測る前に口頭で確かめる */
+    const agreed = r.person.health.consentVer === R.rosterGuest.CONSENT_VER;
+    const cell = (dive, s) => {
+      const v = r.spo2[dive - 1][s];
+      const hit = r.risk.why.some(w => w.dive === dive && w.side === s);
+      return el('input', { class: hit ? 'input sp__in sp__in--hi' : 'input sp__in', type: 'text', inputmode: 'numeric', maxlength: 3,
+        autocomplete: 'off', value: v === '' ? '' : String(v), 'data-spo2': `${r.person.id}:${dive}:${s}`,
+        'aria-label': `${name} ${dive} ${unit}目 ${side[s]}${hit ? '（高リスクの目安）' : ''}`,
+        onchange: (e) => saveSpo2(e.target, { id: r.person.id, dive, side: s, trip, ui }) });
+    };
+    return el('div', { class: 'sp' },
+      el('div', { class: 'sp__head' }, el('span', { class: 'sp__name' }, name, ageChip(r.person, trip)), el('span', { class: `st st--${st[0]}`, text: st[1] })),
+      agreed ? null : el('p', { class: 'sp__note', text: '血中酸素を残す同意がまだです（同意の文が前の版か、まだ答えていない）。入れる前に口頭で確かめてください' }),
+      el('div', { class: 'sp__grid', role: 'group', 'aria-label': name },
+        el('span'), el('span', { class: 'sp__h', text: side.pre }), el('span', { class: 'sp__h', text: side.post }),
+        dives.map(d => [el('span', { class: 'sp__n', text: `${d} ${unit}目` }), cell(d, 'pre'), cell(d, 'post')])),
+      r.risk.why.length ? el('p', { class: 'sp__why', text: r.risk.why.map(w => whyText(w, unit)).join('。') }) : null);
+  }
+
+  function renderSpo2({ tripId, ui }) {
+    const g = D().sipeRows(R.rosterStore.get(), tripId);
+    if (!g) return [...ui.head('血中酸素'), el('p', { class: 'errors', text: 'この便が見つかりません。' }), ui.back()];
+    const { trip } = g;
+    if (g.shown >= S().SPO2_DIVES) thirdTrip = tripId;   // 3 本目の数値を消しても、入力の途中で欄ごと消さない
+    const count = Math.max(g.shown, thirdTrip === tripId ? S().SPO2_DIVES : 0);
+    const dives = Array.from({ length: count }, (_, i) => i + 1);
+    const unit = unitOf(trip);
+    const care = [el('p', { text: SIPE().emergency }), el('ul', {}, SIPE().care.map(c => el('li', { text: c })))];
+    return [
+      ...ui.head('血中酸素', `${ui.md(trip.date)} ${ui.tripLabel(trip)}。指先の機器（パルスオキシメーター）で測った数値を入れます`),
+      g.high.length ? el('div', { class: 'act' },
+        el('p', { class: 'act__title', text: `! 高リスクの目安の人がいます（${g.high.map(r => r.person.name || '名前の分からない人').join('・')}）` }),
+        el('p', { text: SIPE().stop }), care)
+        : el('details', { class: 'sheet known' }, el('summary', { text: `症状があって ${SIPE().LOW} 以下になったら` }), el('div', { class: 'act act--plain' }, care)),
+      g.rows.length ? el('div', { class: 'sheet' }, g.rows.map(r => spo2Row(r, { trip, dives, ui })))
+        : el('p', { class: 'note', text: 'この便には、このお店のお客さんがまだいません。' }),
+      count < S().SPO2_DIVES && g.rows.length
+        ? el('p', { class: 'reset' }, button(`${count + 1} ${unit}目の欄を出す`, () => { thirdTrip = tripId; ui.rerender(); })) : null,
+      el('p', { class: 'note', text: `目安（県警の表）: 1 ${unit}目の前が ${SIPE().LOW} 以下、後が ${SIPE().LOW} 以下、次の前が直前の後より低い、のどれかで高リスク。参加できるかはお店が決めます。` }),
+      el('p', { class: 'note', text: trip.partners.length
+        ? '数値は健康の欄と同じで、このお店だけが見ます。乗り合いの他のお店のお客さんは、そのお店のガイドが測ります（この店には来ません）。'
+        : '数値は健康の欄と同じで、このお店だけが見ます。' }),
+      el('p', { class: 'note', text: `出典: ${SIPE().source}` }),
+      ui.dock(el('button', { class: 'btn', type: 'button', text: '今日の名簿に戻る', onclick: () => ui.go('day', { tripId }) }))
     ];
   }
 
@@ -242,5 +350,5 @@
     }
   });
 
-  R.dayRoster = { LAW, renderDay, renderPrint, renderIcs, renderLog };
+  R.dayRoster = { LAW, renderDay, renderSpo2, renderPrint, renderIcs, renderLog };
 })();

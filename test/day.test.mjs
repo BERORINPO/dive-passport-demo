@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const load = (path) => vm.runInThisContext(readFileSync(new URL(path, import.meta.url), 'utf8'));
+load('../js/data-sipe.js');
 load('../js/roster-schema.js');
 load('../js/pass-schema.js');
 load('../js/roster-core.js');
@@ -174,6 +175,100 @@ test('記録: その便に関わる物（便・予約・人）を新しい順に
   assert.ok(entries.every(e => e.act !== 'ai'));
   assert.equal(ai.length, 1);
   assert.equal(D.tripLog(st, 't0').entries.length, 0, '別の便の記録は出さない');
+});
+
+/* ---------- 血中酸素と年齢の印（県警の体調チェック表） ---------- */
+const sp = (...pairs) => [0, 1, 2].map(i => ({ pre: pairs[i] ? pairs[i][0] : '', post: pairs[i] ? pairs[i][1] : '' }));
+
+test('血中酸素の目安: 1 本目の前か潜った後が 95 以下、次の前が直前の後より低いと高リスク（表の 3 つだけ）', () => {
+  assert.deepEqual(D.spo2Risk(sp()), { measured: false, high: false, why: [], pending: [] });
+  assert.equal(D.spo2Risk(sp([96, 96], [96, ''])).high, false, '96 と、戻った 96 は目安の範囲');
+  assert.deepEqual(D.spo2Risk(sp([95, ''])).why, [{ dive: 1, side: 'pre', kind: 'low', value: 95 }], '95 は「95 以下」に入る');
+  assert.deepEqual(D.spo2Risk(sp([98, 94])).why, [{ dive: 1, side: 'post', kind: 'low', value: 94 }]);
+  assert.deepEqual(D.spo2Risk(sp([97, 98], [97, ''])).why, [{ dive: 2, side: 'pre', kind: 'notBack', value: 97, ref: 98 }]);
+  assert.equal(D.spo2Risk(sp([97, ''], [96, ''])).high, false, '直前の「潜った後」が無ければ比べない（表に無い判定は足さない）');
+  assert.equal(D.spo2Risk(sp([97, 97], [97, 97], [96, ''])).why[0].dive, 3);
+  assert.equal(D.spo2Risk(sp(['', 97])).measured, true);
+  assert.deepEqual(D.spo2Risk(sp([97, ''], [88, ''])).pending, [2], '直前の後が空で比べられない本は pending（目安に当たらない、とは言わない）');
+  assert.deepEqual(D.spo2Risk(sp([97, 96], [96, ''])).pending, []);
+});
+
+test('血中酸素は、条例の名簿の行と CSV（健康の欄あり）に出さない。健康の欄の出どころも変えない', () => {
+  const st = D.setSpo2(fillAll(base, hanako.id), { id: hanako.id, dive: 1, side: 'pre', value: 87, at: AT });
+  const p = st.people.find(x => x.id === hanako.id);
+  assert.equal(p.src.health, 'guest', 'お客さんが答えた出どころのまま');
+  const table = C.rosterRows(st, 't1', HEALTH_SHORT, { own: true });
+  assert.ok(!JSON.stringify(table.rows.map(r => r.cells)).includes('87'));
+  assert.ok(!C.toCsv(table).includes('87'));
+});
+
+test('年齢: その日の満年齢。年だけ・年月だけは 1 月 1 日として数え、分からなければ null', () => {
+  assert.equal(D.ageOn('1976-10-24', '2026-10-24'), 50, '誕生日の当日');
+  assert.equal(D.ageOn('1976-10-25', '2026-10-24'), 49);
+  assert.equal(D.ageOn('1976-10', '2026-10-24'), 50);
+  assert.equal(D.ageOn('1976', '2026-01-01'), 50);
+  assert.equal(D.ageOn('', '2026-10-24'), null);
+  assert.equal(D.ageOn('1976-10-24', ''), null);
+  assert.equal(D.ageOn('2027-01-01', '2026-10-24'), null, '便より後の生年月日');
+});
+
+test('血中酸素を入れる: 健康の欄として残し、記録には数値を残さない。幅の外・他のお店の人は断る', () => {
+  const id = taro.id;
+  let st = D.setSpo2(base, { id, dive: 1, side: 'pre', value: 97, at: AT });
+  st = D.setSpo2(st, { id, dive: 1, side: 'post', value: 94, at: AT });
+  const p = st.people.find(x => x.id === id);
+  assert.deepEqual(p.health.spo2[0], { pre: 97, post: 94 });
+  assert.equal(p.health.spo2.length, S.SPO2_DIVES);
+  assert.deepEqual(p.health.answers, taro.health.answers, 'ほかの健康の欄は変えない');
+  assert.ok(S.validateState(st).ok);
+  const e = st.log[st.log.length - 1];
+  assert.deepEqual([e.who, e.act, e.fields], ['staff', 'edit', ['health']]);
+  assert.ok(!JSON.stringify(e).includes('94') && !JSON.stringify(e).includes('spo2'), '記録に数値を残さない');
+  st = D.setSpo2(st, { id, dive: 1, side: 'post', value: '', at: AT });
+  assert.equal(st.people.find(x => x.id === id).health.spo2[0].post, '', '消せる');
+  [49, 101, 97.5, '97', null].forEach(v => assert.throws(() => D.setSpo2(base, { id, dive: 1, side: 'pre', value: v, at: AT }), undefined, String(v)));
+  assert.throws(() => D.setSpo2(base, { id, dive: 4, side: 'pre', value: 97, at: AT }));
+  assert.throws(() => D.setSpo2(base, { id, dive: 1, side: 'during', value: 97, at: AT }));
+  assert.throws(() => D.setSpo2(base, { id: 'nobody', dive: 1, side: 'pre', value: 97, at: AT }));
+});
+
+test('血中酸素の形: 前の版（spo2 なし）も通る。本数が違う・他のお店の人に数値がある形は通さない', () => {
+  const h = taro.health;
+  const ok = (health) => S.validatePerson({ ...taro, health }).ok;
+  assert.ok(ok(h));
+  assert.ok(ok({ ...h, spo2: sp([97, 96]) }));
+  assert.ok(!ok({ ...h, spo2: sp([97, 96]).slice(0, 2) }));
+  assert.ok(!ok({ ...h, spo2: sp([97, 'x']) }));
+  assert.ok(!ok({ ...h, spo2: sp().map((d, i) => (i === 0 ? { ...d, note: '' } : d)) }), '決まった名前だけ');
+  const held = { historyAt: '', answers: [null, null, null, null, null], todayAt: '', today: '', heldBy: 'C ダイブ' };
+  assert.ok(ok({ ...held, spo2: sp() }));
+  assert.ok(!ok({ ...held, spo2: sp([97, '']) }), '他のお店の人の数値は持たない');
+  const partnerBase = { ...base, bookings: [...base.bookings, { ...S.blankBooking(), id: 'bp', tripId: 't1', source: 'partner', shop: 'C ダイブ', people: 1, createdAt: AT }],
+    people: [...base.people, { ...S.blankPerson(), id: 'pp', bookingId: 'bp', name: '見本 他店', health: held }] };
+  assert.ok(S.validateState(partnerBase).ok);
+  assert.throws(() => D.setSpo2(partnerBase, { id: 'pp', dive: 1, side: 'pre', value: 97, at: AT }), /他のお店/);
+});
+
+test('血中酸素の一覧: この店のお客さんだけ。50 歳以上の数、高リスクの人、出す本数（3 本目に数値があれば 3）', () => {
+  let st = C.editPerson(base, { id: hanako.id, patch: { birthDate: '1970-05-05' }, who: 'staff', at: AT });
+  st = C.editPerson(st, { id: taro.id, patch: { birthDate: '1990-05-05' }, who: 'staff', at: AT });
+  st = { ...st, bookings: [...st.bookings, { ...S.blankBooking(), id: 'bp', tripId: 't1', source: 'partner', shop: 'C ダイブ', people: 1, createdAt: AT }],
+    people: [...st.people, { ...S.blankPerson(), id: 'pp', bookingId: 'bp', name: '見本 他店', birthDate: '1950-01-01',
+      health: { historyAt: '', answers: [null, null, null, null, null], todayAt: '', today: '', heldBy: 'C ダイブ' } }] };
+  let g = D.sipeRows(st, 't1');
+  assert.deepEqual(g.rows.map(r => r.person.id), [hanako.id, taro.id], '乗り合いの他のお店のお客さんは入れない');
+  assert.deepEqual(g.rows.map(r => r.age), [56, 36]);
+  assert.equal(g.older, 1);
+  assert.equal(g.shown, 2);
+  assert.equal(g.measured, 0);
+  st = D.setSpo2(st, { id: taro.id, dive: 3, side: 'pre', value: 95, at: AT });
+  g = D.sipeRows(st, 't1');
+  assert.equal(g.shown, 3);
+  assert.equal(g.measured, 1);
+  assert.deepEqual(g.high.map(r => r.person.id), [], '3 本目の前は、直前の後と比べるだけ（95 でも 1 本目の前ではない）');
+  st = D.setSpo2(st, { id: taro.id, dive: 1, side: 'pre', value: 93, at: AT });
+  assert.deepEqual(D.sipeRows(st, 't1').high.map(r => r.person.id), [taro.id]);
+  assert.equal(D.sipeRows(st, 'nope'), null);
 });
 
 let failed = 0;

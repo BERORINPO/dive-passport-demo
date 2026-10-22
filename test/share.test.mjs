@@ -163,6 +163,22 @@ test('前の版で船に渡した他のお店のお客さんの健康の答え�
   assert.equal(X.holdPartnerHealth(base, { at: AT }), base, '乗り合いが無ければ同じ state');
 });
 
+test('他のお店のお客さんに血中酸素が残っていたら、読み込むときに消す。この店のお客さんの数値は合同名簿に出ない', () => {
+  const r = X.addPartnerPeople(withPartner, { tripId: 't1', shop: PARTNER, people: [ICHIRO], guide: '見本 三郎', at: AT, newId });
+  const id = r.ids[0];
+  const spo2 = [{ pre: 87, post: 88 }, { pre: '', post: '' }, { pre: '', post: '' }];
+  const old = C.editPerson(r.state, { id, who: 'staff', src: 'partner', at: AT, patch: { health: { heldBy: '', spo2 } } });
+  assert.ok(S.validateState(old).ok, 'heldBy の無い前の版の形');
+  assert.throws(() => D.setSpo2(old, { id, dive: 1, side: 'pre', value: 97, at: AT }), /他のお店/, 'heldBy が無くても、他のお店の予約の人には入れない');
+  const held = X.holdPartnerHealth(old, { at: AT });
+  const p = held.people.find(x => x.id === id);
+  assert.deepEqual([p.health.heldBy, p.health.spo2.every(d => d.pre === '' && d.post === '')], [PARTNER, true]);
+  assert.ok(S.validateState(held).ok);
+  const mine = C.peopleOf(held, 't1', { own: true })[0];
+  const withMine = D.setSpo2(held, { id: mine.id, dive: 1, side: 'pre', value: 87, at: AT });
+  assert.ok(!JSON.stringify(X.jointRows(withMine, 't1')).includes('87'), '合同名簿の行に数値が出ない');
+});
+
 test('健康を渡さない人には、この店の側で健康の答えを入れない（お客さんの入力・当日の体調・パスポート）', () => {
   const r = addTwo(withPartner);
   const id = r.ids[0];

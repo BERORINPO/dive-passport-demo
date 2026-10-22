@@ -15,6 +15,9 @@
   const TODAY = ['', 'ok', 'unwell'];
   const DOCS = ['mail', 'paper', 'ccard'];
   const HEALTH_QUESTIONS = 5;                                  // data.js の R.HEALTH と同じ数
+  const SPO2_DIVES = 3;                                        // 血中酸素を入れる本数（県警の体調チェック表は 3 本目まで）
+  const SPO2_MIN = 50;                                         // 指先の機器の数値（%）として受け付ける幅
+  const SPO2_MAX = 100;
   const MAX_TEXT = 20000;                                      // 予約メールの本文の上限（文字）
   const MAX_IMAGE = 4000000;                                   // 写真の上限（base64 の文字数、約 3 MB）
   const MAX_PEOPLE = 30;
@@ -149,14 +152,20 @@
 
   /* consentAt・consentVer は、お客さんが健康の答えに同意した日と同意の文の版（P3 で足した。無くてもよい）。
      heldBy は、乗り合いの他のお店のお客さんで、健康はそのお店が確かめる（答えはこの店に来ない）ときの、そのお店の名前（P5。無くてもよい）。
-     heldBy のある人は答えを持たない。todayAt は、そのお店が便の日に当日の体調を確かめた日 */
+     heldBy のある人は答えを持たない。todayAt は、そのお店が便の日に当日の体調を確かめた日。
+     spo2 は、お店が便の日に測った血中酸素（1 本目から順に、潜る前 pre と潜った後 post。入れていない所は ''。無くてもよい）。
+     健康の欄と同じ扱いで、そのお店だけが持つ。heldBy のある人には入れない */
+  const isSpo2 = (v) => v === '' || (Number.isInteger(v) && v >= SPO2_MIN && v <= SPO2_MAX);
+  const spo2Ok = (list) => list === undefined || (isList(list, SPO2_DIVES, d => onlyKeys(d, ['pre', 'post']) && isSpo2(d.pre) && isSpo2(d.post)) &&
+    list.length === SPO2_DIVES);
+  const spo2Empty = (list) => list === undefined || list.every(d => d.pre === '' && d.post === '');
   function healthOk(h) {
-    return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer', 'heldBy']) && isDay(h.historyAt) &&
+    return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer', 'heldBy', 'spo2']) && isDay(h.historyAt) &&
       isList(h.answers, HEALTH_QUESTIONS, isAnswer) && h.answers.length === HEALTH_QUESTIONS &&
       isDay(h.todayAt) && TODAY.includes(h.today) &&
       (h.consentAt === undefined || isDay(h.consentAt)) && (h.consentVer === undefined || isStr(h.consentVer, 20)) &&
-      (h.heldBy === undefined || isStr(h.heldBy, 60)) &&
-      (!h.heldBy || (h.answers.every(a => a === null) && h.today === '' && h.historyAt === ''));
+      (h.heldBy === undefined || isStr(h.heldBy, 60)) && spo2Ok(h.spo2) &&
+      (!h.heldBy || (h.answers.every(a => a === null) && h.today === '' && h.historyAt === '' && spo2Empty(h.spo2)));
   }
 
   /* 人の項目（AI の答えと名簿の人で同じ検査）。入れ子の中も決まった名前だけ */
@@ -319,7 +328,7 @@
   }
 
   R.roster = {
-    VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, HEALTH_QUESTIONS, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
+    VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
     ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
     validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody,
     validateReading, fromModel

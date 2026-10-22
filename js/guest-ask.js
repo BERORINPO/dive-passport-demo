@@ -34,8 +34,8 @@
     dives: { ja: '潜った本数', en: 'Logged dives' },
     lastDive: { ja: '最後に潜った月（0 本なら空のまま）', en: 'Month of your last dive (leave empty if none)' },
     history: { ja: '健康の質問（当てはまる物に「はい」）', en: 'Health questions (answer "Yes" if it applies)' },
-    consent: { ja: '健康の答え（既往症・当日の体調）は、県の条例の名簿としてお店が 1 年残します。見るのはこのお店の人だけで、乗り合いの便でも同じ船の他のお店には渡しません。AI には送りません。これに同意して答えます。',
-      en: 'The shop keeps your health answers (medical history and how you feel on the day) for one year in the participant list required by Okinawa rules. Only staff at this shop see them; they are not passed to other shops, even on shared boats. They are never sent to an AI. I agree and will answer.' },
+    consent: { ja: '健康の答え（既往症・当日の体調）は県の条例の名簿として、お店が潜る前と後に測る血中酸素の数値はお店の記録として、お店が 1 年残します。見るのはこのお店の人だけで、乗り合いの便でも同じ船の他のお店には渡しません。AI には送りません。これに同意して答えます。',
+      en: 'The shop keeps your health answers (medical history and how you feel on the day) in the participant list required by Okinawa rules, and the blood oxygen readings it takes before and after each dive as its own record, for one year. Only staff at this shop see them; they are not passed to other shops, even on shared boats. They are never sent to an AI. I agree and will answer.' },
     yes: { ja: 'はい', en: 'Yes' },
     no: { ja: 'いいえ', en: 'No' },
     todayLater: { ja: '当日の健康状態は、当日の朝にこのページで答えます。', en: 'You will answer how you feel on the morning of the tour, on this page.' },
@@ -47,6 +47,10 @@
     todayNote: { ja: '参加できるかは、お店が決めます。この答えは名簿としてお店が 1 年残します。乗り合いの便でも、同じ船の他のお店には渡しません。', en: 'The shop decides whether you can join. The shop keeps this answer for one year in the participant list. It is not passed to other shops, even on shared boats.' },
     todayWait: { ja: '当日の朝に、このページで体調を答えます', en: 'On the morning of the tour, answer here how you feel' },
     todayDemo: { ja: '（デモ）当日として答える', en: '(Demo) Answer as if it were the day' },
+    symTitle: { ja: '水に入ってから、こうなったらすぐガイドに', en: 'In the water, tell your guide right away if you feel:' },
+    symNote: { ja: 'お店は海に入る前と後に、指先の機器で血中の酸素を測ることがあります。測った数値は、このお店だけが名簿と一緒に 1 年残し、他のお店や AI には渡しません。',
+      en: 'The shop may check your blood oxygen with a fingertip sensor before and after each dive. Only this shop keeps the readings, for one year with the participant list; they are not passed to other shops or to an AI.' },
+    symSource: { ja: '沖縄県警察「ダイビング・スノーケリング前後の体調チェック表」（暫定版・多言語版）より', en: 'From the Okinawa Prefectural Police health check sheet for diving and snorkelling (provisional, multilingual).' },
     send: { ja: '送る', en: 'Send' },
     sent: { ja: '送りました', en: 'Sent' },
     fix: { ja: '確かめてください', en: 'Please check' },
@@ -153,6 +157,23 @@
         el('input', { type: 'radio', name: `ask-h${i}`, checked: d.answers[i] === a, disabled: !d.consent,
           onchange: () => { d.answers = d.answers.map((x, j) => (j === i ? a : x)); } }),
         el('span', { text: L(T[a]) }))))));
+  }
+
+  /* 水に入ってからの症状（県警の体調チェック表の「注意」）。症状と注意の文は data-sipe.js（表のまま）。見出しと測ることの知らせは、この画面の言葉。
+     画面の言葉（日本語・英語）で出し、ほかの言語は開いて見る */
+  function symptomCard() {
+    const X = R.SIPE;
+    const cur = R.lang === 'en' ? 'en' : 'ja';
+    const others = X.langs.filter(l => l.id !== cur);
+    return el('section', { class: 'sym' },
+      el('h3', { class: 'sym__title', text: L(T.symTitle) }),
+      el('ul', { class: 'sym__list' }, X.symptoms[cur].map(s => el('li', { text: s }))),
+      el('p', { class: 'sym__note', text: X.tell[cur] }),
+      el('p', { class: 'sym__note', text: L(T.symNote) }),
+      el('details', { class: 'sym__more' }, el('summary', { text: others.map(l => l.label).join('・') }),
+        others.map(l => el('div', { class: 'sym__ln', lang: l.id },
+          el('p', { class: 'sym__lang', text: l.label }), el('p', { text: X.tell[l.id] }), el('p', { class: 'sym__words', text: X.symptoms[l.id].join(' / ') })))),
+      el('p', { class: 'sym__note', text: L(T.symSource) }));
   }
 
   /* 当日の体調。当日でなければ、デモのときだけ「当日として」答えられる */
@@ -287,6 +308,7 @@
       entry.ask.length ? el('div', { class: 'form ask__form' }, formFields(entry, d, items)) : null,
       entry.needsToday && entry.ask.length ? el('p', { class: 'note', text: L(T.todayLater) }) : null,
       entry.needsToday && !entry.ask.length ? todayPart(trip, d, entry) : null,
+      symptomCard(),
       canSend ? R.dock(
         el('p', { class: 'errors', role: 'alert', text: problemText() }),
         el('button', { class: 'btn', type: 'button', text: L(T.send), onclick: () => send(entry, trip) })) : null,

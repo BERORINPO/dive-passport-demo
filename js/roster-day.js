@@ -1,4 +1,4 @@
-/* 今日の名簿・カレンダー（.ics）・記録の読み方（純ロジック）。保存・通信・画面・時計は知らない。
+/* 今日の名簿・血中酸素と年齢の印・カレンダー（.ics）・記録の読み方（純ロジック）。保存・通信・画面・時計は知らない。
    条例の名簿の行と CSV は roster-core.js の rosterRows・toCsv、便を直すのは editTrip */
 (() => {
   'use strict';
@@ -44,6 +44,67 @@
     const count = C().bookingsOf(state, tripId).filter(b => !C().isPartnerBooking(b)).reduce((n, b) => n + b.people, 0);
     return { trip, items, tripMissing, check: people.filter(needs), morning: people.filter(onlyMorning),
       ready: people.filter(x => !needs(x) && !onlyMorning(x)), count };
+  }
+
+  /* ---------- 血中酸素と年齢の印（県警の体調チェック表。数値と言葉は data-sipe.js） ---------- */
+  const SIPE = () => R.SIPE;
+  const blankSpo2 = () => Array.from({ length: S().SPO2_DIVES }, () => ({ pre: '', post: '' }));
+  const spo2Of = (p) => (Array.isArray(p.health.spo2) ? p.health.spo2 : blankSpo2());
+  const hasValue = (d) => d.pre !== '' || d.post !== '';
+
+  /* 表の目安だけで決める（表に無い判定は足さない）。1 本目の前が LOW 以下 / 潜った後が LOW 以下 / 2 本目からの前が、直前の「潜った後」より低い。
+     pending: 2 本目からの前はあるのに直前の「潜った後」が空で、3 つ目の目安を比べられない本（目安に当たらない、とは言えない） */
+  function spo2Risk(spo2) {
+    const low = SIPE().LOW;
+    const why = spo2.flatMap((d, i) => [
+      i === 0 && d.pre !== '' && d.pre <= low ? { dive: 1, side: 'pre', kind: 'low', value: d.pre } : null,
+      i > 0 && d.pre !== '' && spo2[i - 1].post !== '' && d.pre < spo2[i - 1].post
+        ? { dive: i + 1, side: 'pre', kind: 'notBack', value: d.pre, ref: spo2[i - 1].post } : null,
+      d.post !== '' && d.post <= low ? { dive: i + 1, side: 'post', kind: 'low', value: d.post } : null
+    ].filter(Boolean));
+    const pending = spo2.map((d, i) => (i > 0 && d.pre !== '' && spo2[i - 1].post === '' ? i + 1 : 0)).filter(Boolean);
+    return { measured: spo2.some(hasValue), high: why.length > 0, why, pending };
+  }
+
+  /* その日の満年齢（時計を使わず文字で数える）。生年月日が年だけ・年月だけなら、足りない所を 1 月・1 日として数える（多めに出る側）。分からなければ null */
+  function ageOn(birthDate, day) {
+    const b = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(birthDate || '');
+    const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || '');
+    if (!b || !d) return null;
+    const md = (m, dd) => Number(m) * 100 + Number(dd);
+    const age = Number(d[1]) - Number(b[1]) - (md(d[2], d[3]) < md(b[2] || '01', b[3] || '01') ? 1 : 0);
+    return age >= 0 ? age : null;
+  }
+
+  /* この店のお客さん（乗り合いの他のお店のお客さんは、そのお店のガイドが測るので入れない）の血中酸素と年齢。
+     shown: 画面に出す本数（2 本。3 本目に数値があれば 3 本） */
+  function sipeRows(state, tripId) {
+    const trip = state.trips.find(t => t.id === tripId);
+    if (!trip) return null;
+    const rows = C().peopleOf(state, tripId, { own: true }).map(person => {
+      const age = ageOn(person.birthDate, trip.date);
+      const spo2 = spo2Of(person);
+      return { person, age, older: age !== null && age >= SIPE().OLDER, spo2, risk: spo2Risk(spo2) };
+    });
+    const last = Math.max(0, ...rows.map(r => r.spo2.reduce((n, d, i) => (hasValue(d) ? i + 1 : n), 0)));
+    return { trip, rows, shown: Math.max(2, last),
+      measured: rows.filter(r => r.risk.measured).length, high: rows.filter(r => r.risk.high), older: rows.filter(r => r.older).length };
+  }
+
+  /* お店が測った数値を入れる（value は 50〜100 の整数か、消すときは ''）。健康の欄として editPerson で残す（記録には中身を残さない）。
+     健康の欄の出どころ（お客さんが答えた・パスポートから など）は書き換えない。した人（staff）は記録に残る */
+  function setSpo2(state, { id, dive, side, value, at }) {
+    const p = state.people.find(x => x.id === id);
+    if (!p) throw new Error(`setSpo2: 人が見つからない (${id})`);
+    const booking = state.bookings.find(b => b.id === p.bookingId);
+    if (p.health.heldBy || !booking || C().isPartnerBooking(booking)) throw new Error('setSpo2: 乗り合いの他のお店のお客さんの数値は、この店に入れない');
+    if (!Number.isInteger(dive) || dive < 1 || dive > S().SPO2_DIVES) throw new Error(`setSpo2: dive は 1〜${S().SPO2_DIVES} (${dive})`);
+    if (!['pre', 'post'].includes(side)) throw new Error(`setSpo2: side は pre / post (${side})`);
+    if (!(value === '' || (Number.isInteger(value) && value >= S().SPO2_MIN && value <= S().SPO2_MAX))) {
+      throw new Error(`setSpo2: 数値は ${S().SPO2_MIN}〜${S().SPO2_MAX} の整数 (${value})`);
+    }
+    const spo2 = spo2Of(p).map((d, i) => (i === dive - 1 ? { ...d, [side]: value } : d));
+    return C().editPerson(state, { id, patch: { health: { spo2 } }, who: 'staff', src: p.src.health || 'staff', at });
   }
 
   /* ---------- カレンダー（.ics） ---------- */
@@ -113,5 +174,5 @@
     };
   }
 
-  R.rosterDay = { previousSite, usedSites, usedGuides, dayGroups, icsTrips, toIcs, tripLog };
+  R.rosterDay = { previousSite, usedSites, usedGuides, dayGroups, spo2Risk, ageOn, sipeRows, setSpo2, icsTrips, toIcs, tripLog };
 })();

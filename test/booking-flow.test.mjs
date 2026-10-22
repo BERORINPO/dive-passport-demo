@@ -117,6 +117,26 @@ test('前の版で船に渡した他のお店のお客さんの健康の答え�
   assert.equal(JSON.parse(local.getItem(backupKey)).v, 'broken', '退避のほかの中身はそのまま');
 });
 
+test('他のお店のお客さんの血中酸素は、開いたときに名簿からも退避からも消える', () => {
+  const local = memory();
+  const R = boot(local);
+  const C = R.rosterCore;
+  const X = R.rosterShare;
+  R.rosterStore.update(s => C.addTrip(s, { trip: { date: '2099-01-10', start: '08:30', kind: 'dive' }, at: AT, newId: R.newId }).state);
+  const tripId = R.rosterStore.get().trips[0].id;
+  R.rosterStore.update(s => X.addPartner(s, { tripId, name: 'C ダイブ（見本）', at: AT }).state);
+  R.rosterStore.update(s => X.addPartnerPeople(s, { tripId, shop: 'C ダイブ（見本）', people: [{ name: '見本 一郎' }], guide: '見本 三郎', at: AT, newId: R.newId }).state);
+  const id = R.rosterStore.get().people.find(p => p.name === '見本 一郎').id;
+  const old = C.editPerson(R.rosterStore.get(), { id, who: 'staff', src: 'partner', at: AT, patch: { health: {
+    heldBy: '', spo2: [{ pre: 87, post: 86 }, { pre: '', post: '' }, { pre: '', post: '' }] } } });
+  const backupKey = `redux-roster-v1-broken-${Date.now()}`;
+  local.setItem('redux-roster-v1', JSON.stringify(old));
+  local.setItem(backupKey, JSON.stringify({ ...old, v: 'broken' }));
+  const again = boot(local).rosterStore.get();
+  assert.equal(again.people.find(x => x.id === id).health.heldBy, 'C ダイブ（見本）');
+  for (const key of ['redux-roster-v1', backupKey]) assert.ok(!local.getItem(key).includes('"pre":87'), `${key} に数値が残っていない`);
+});
+
 test('他のお店の健康を消す決まり（roster-share.js）を読まずに名簿を開こうとしたら止まる', () => {
   const ctx = vm.createContext({ localStorage: memory(), sessionStorage: memory(), setTimeout, clearTimeout, TextEncoder, btoa, console, addEventListener: () => {} });
   ctx.window = ctx;

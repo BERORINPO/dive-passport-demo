@@ -5,7 +5,7 @@
 ## 1. 役割対応表
 | 役割 | パス |
 |---|---|
-| shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js |
+| shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js |
 | core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js worker/read-core.mjs |
 | adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/fakes.mjs |
 | entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js worker/index.mjs worker/handler.mjs |
@@ -77,6 +77,7 @@
 | 2026-10-21 held-today | 健康を渡さない他店のお客さんの当日の欄は、そのお店が便の日に「渡す」を押したらそろう | 便の前に「確かめた」と出すと、まだ誰も見ていない体調を確かめた扱いにする（ジン）。いつもそろった扱いにする案は却下 | test/share.test.mjs |
 | 2026-10-22 joint-items | （健康の 2 欄は 2026-10-22 no-health-to-boat で外した）合同名簿は札・氏名・店・種類・ガイド・緊急時の連絡先・健康の 2 欄だけ。住所・生年月日などは各店の条例の名簿だけ | 船の上の安全に要る物だけを他のお店に見せる（ザク SEC-003、Yosuke の判断）。条例の 13 項目を全部載せる案は、住所・生年月日・家族の電話まで全店に渡すので却下 | test/share.test.mjs（行に 7 項目のほかを持たない） |
 | 2026-10-22 no-health-to-boat | 健康の 2 欄（既往症・当日の健康状態）は、船にも他のお店にも渡さない。そのお客さんのお店だけが確かめ、ここには「確かめた」印（heldBy）だけを持つ。合同名簿は札・氏名・店・種類・ガイド・緊急時の連絡先の 5 項目（この店のお客さんの健康も載せない）。前の版で受け取った答えは、読み込むときに消す（holdPartnerHealth） | 店から船へ渡すのは本人の同意が要る第三者提供で、船の全員の一覧に健康を載せる理由が無い（報告「乗り合い便の名簿と横断の勝ち筋」の個人情報の節、Yosuke の判断 2026-10-22）。同意つきで渡す前の形は、同意の確かめ方が店の自己申告で弱い。船の上で既往症が分からない点は、そのお店のガイドが自分の客を見る形で補う | test/share.test.mjs（答えを入れない・5 項目・前の版の答えを消す） |
+| 2026-10-22 sipe-spo2 | 県警の「ダイビング・スノーケリング前後の体調チェック表【暫定版】」に合わせ、お店が測った血中酸素を 1 本ごとに潜る前・後で入れる（person.health.spo2、3 本まで、50〜100 の整数）。高リスクは表の目安の 3 つだけ（1 本目の前が 95 以下・潜った後が 95 以下・次の前が直前の後より低い）。数値は健康の欄と同じ扱いで、この店だけが持つ（他のお店のお客さんには入れない、記録・CSV・印刷・合同名簿に出さない）。表の数値と言葉は js/data-sipe.js の 1 か所に置き、言葉は表のまま写す。お客さんには水に入った後の 3 つの症状を表の 5 言語で出す。50 歳以上は名前の横に年齢 | Yosuke の指示（2026-10-22、報告「県警の体調チェック表とパスポートの比較」）。表は質問票ではなく潜る前後の記録表で、パスポートの病歴の質問とは重ならない。表に無い判定（3 本目の前が 95 以下など）を足す案は、県警の表と違う結論を出すので却下。研究への同意の□と研究への提供は、県警・大学と話がつくまで作らない。「県警が認めた」とは書かない | test/day.test.mjs（目安の 3 つ・年齢・入れ方と断り方・形・一覧） |
 | 2026-10-22 worker-fetch | Worker から Claude API へは SDK を使わず fetch で、ヘッダは x-api-key・anthropic-version・content-type の 3 つだけ | この repo は npm の部品を入れない作りで、送るヘッダを決めた 3 つにしたい（ザクのレビュー 2026-10-21）。SDK はヘッダを足すので却下 | test/worker.test.mjs（ヘッダが 3 つ） |
 | 2026-10-22 worker-guard | Worker の守りの順番: 道と method → Sec-Fetch-Site → 設定 → Access の JWT → 種類・大きさ・形 → 上限（KV、呼ぶ前。判定は core の overLimit）→ AI → 答えの形。画面の検査（validateRequest・健康の行を外す・validateReading）を Worker でもう一度かける | 画面は書き換えられる前提（plan/meibo.md の「Worker で守ること」） | test/worker.test.mjs（順番と各段）・test/arch.check.mjs 9 番（Worker の通信の先） |
 | 2026-10-22 mail-format | 予約メールのプロンプトは形式を 1 つの JSON にまとめ、例の値を null にする。答えは JSON の塊を前から取り出し（閉じたのに JSON でない塊は中に入らない）、参加者の塊に予約の項目が無いときだけ予約の塊を足す。参加者か予約の塊が 2 つあれば断る。健康が見えた印は、答えの文のどこかで true なら true（壊れた答えでも画面に返す） | ジンのレビュー（2 つに分けて返すと読めない・書き損じで中の 1 人分を拾う）とザク（書類に仕込んだ JSON の書き写しで値を差し替えられる）。写真のプロンプトは試験と同じ文のまま | test/worker.test.mjs |

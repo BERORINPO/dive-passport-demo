@@ -130,7 +130,9 @@
       const trip = tripById(st, b.tripId);
       return st.people.filter(p => p.bookingId === b.id && !p.health.heldBy).reduce((s, p) => {
         const onTheDay = !!trip && p.health.todayAt === trip.date;
-        return C().editPerson(s, { id: p.id, patch: { health: { ...heldHealth(b.shop), todayAt: onTheDay ? trip.date : '' } }, who: 'system', src: 'partner', at });
+        /* 血中酸素（roster-day.js の setSpo2）も、そのお店が測るので持たない。入れ子は前の値に重なるので、空の欄で上書きする */
+        const spo2 = Array.isArray(p.health.spo2) ? { spo2: p.health.spo2.map(() => ({ pre: '', post: '' })) } : {};
+        return C().editPerson(s, { id: p.id, patch: { health: { ...heldHealth(b.shop), todayAt: onTheDay ? trip.date : '', ...spo2 } }, who: 'system', src: 'partner', at });
       }, st);
     }, state);
   }
