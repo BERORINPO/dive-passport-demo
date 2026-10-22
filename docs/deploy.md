@@ -63,6 +63,8 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 - パスポートの QR を、別のスマホ（Access に入っていない物）で読んで開けるか。QR は GitHub Pages の公開版の pass.html を指すので、公開版が古いと開けない
 
 ## 置いたあとの確かめ（harness.yaml の contract）
+- 2026-10-22: 置いた Worker で、本物の AI が見本のメール 1（予約サイトの通知・2 人）を読み、予約サイト・番号・日時・人数・代表者・名前が全部合った。KV の数は day 1・month 659（約 $0.00066）。残りは下の 1〜5
+- チームの 5 人を足す前に、Zero Trust → Integrations → Identity providers に One-time PIN（メールに届くコードでログイン）を足す。今のログイン方法は「Cloudflare のアカウント」だけで、Cloudflare のアカウントを持たない人は入れない
 1. 本物にして、見本 16 件（予約メール 4・C カード 6・申込書 6）を読む。答えを、見本の読み取り（js/data-samples.js、試験の Haiku の答え）と見比べる。予約の項目（日時・人数・代表者）は試験していないので、ここで初めて確かめる
 2. 上限の止まり方: `npx wrangler@4.151.0 deploy --var DAILY_LIMIT:3` で一時的に 3 回にし、4 回目が「今日か今月の上限に達しました」になり、見本の読み取りに戻るのを見る。月の上限も `--var MONTHLY_USD:0.01` で同じように見る。終わったら `node tools/build-site.mjs && npx wrangler@4.151.0 deploy` で戻す
 3. 費用の数え方: 16 件を読んだあと、Claude Console のワークスペースの使用額と、画面の「今月あと」の減り方（KV の month）を 1 回見比べる。大きくずれていたら worker/read-core.mjs の単価を直す
