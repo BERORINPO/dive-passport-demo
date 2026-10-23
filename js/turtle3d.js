@@ -128,7 +128,7 @@ function soundButton() {
   btn.className = 'lido-sound';
   const label = () => {
     const text = R.L(state.soundOn ? TXT.soundOff : TXT.soundOn);
-    btn.innerHTML = state.soundOn ? ICON_ON : ICON_OFF;
+    btn.innerHTML = state.soundOn ? ICON_ON : ICON_OFF; // arch-allow: 固定のアイコン
     btn.setAttribute('aria-label', text);
     btn.title = text;
     btn.setAttribute('aria-pressed', String(state.soundOn));

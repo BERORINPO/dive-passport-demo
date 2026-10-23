@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>REDUX 受付 試作</title>
 <meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -13,32 +16,41 @@
 <header class="bar">
   <div class="brand">
     <span class="brand__logo" id="logo" aria-hidden="true"></span>
-    <span class="brand__name">REDUX <small id="brandSub">受付（試作）</small></span>
+    <span class="brand__name"><span id="brandName">REDUX</span> <small id="brandSub"></small></span>
   </div>
   <nav class="tabs" role="tablist" aria-label="画面の切り替え">
     <button class="tab" role="tab" id="tab-guest" aria-controls="view-guest" aria-selected="true" type="button"></button>
     <button class="tab" role="tab" id="tab-pass" aria-controls="view-pass" aria-selected="false" type="button" tabindex="-1"></button>
     <button class="tab" role="tab" id="tab-shop" aria-controls="view-shop" aria-selected="false" type="button" tabindex="-1"></button>
+    <button class="tab" role="tab" id="tab-booking" aria-controls="view-booking" aria-selected="false" type="button" tabindex="-1"></button>
   </nav>
-  <button class="lang" id="lang" type="button"></button>
+  <div class="bar__end">
+    <button class="demo-switch" id="demoSwitch" type="button" aria-expanded="false" aria-controls="demoNote"></button>
+    <button class="lang" id="lang" type="button"></button>
+  </div>
 </header>
 
 <p class="demo-note" id="demoNote"></p>
 
 <main class="wrap">
   <section class="view view--guest" id="view-guest" role="tabpanel" aria-labelledby="tab-guest">
-    <div class="card card--chat" id="chat"></div>
-    <div class="card" id="intake"></div>
+    <div id="tour"></div>
+    <section class="guest-sec" id="chat"></section>
+    <div class="guest-sec" id="intake"></div>
+    <div id="ask" hidden></div>
   </section>
   <section class="view view--pass" id="view-pass" role="tabpanel" aria-labelledby="tab-pass" hidden>
     <div id="passport"></div>
   </section>
-  <section class="view" id="view-shop" role="tabpanel" aria-labelledby="tab-shop" hidden>
+  <section class="view view--desk" id="view-shop" role="tabpanel" aria-labelledby="tab-shop" hidden>
     <div id="shop"></div>
+  </section>
+  <section class="view view--desk" id="view-booking" role="tabpanel" aria-labelledby="tab-booking" hidden>
+    <div id="booking"></div>
   </section>
 </main>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" integrity="sha512-ZDSPMa/JM1D+7kdg2x3BsruQ6T/JpJo3jWDWkCZsP+5yVyp1KfESqLI+7RqB5k24F7p2cV7i2YHh/890y6P6Sw==" crossorigin="anonymous"></script>
 <script src="js/core.js"></script>
 <script src="js/data.js"></script>
 <script src="js/data-pass.js"></script>
@@ -46,6 +58,18 @@
 <script src="js/pass-codec.js"></script>
 <script src="js/pass-view.js"></script>
 <script src="js/qr.js"></script>
+<script src="js/data-sipe.js"></script>
+<script src="js/roster-schema.js"></script>
+<script src="js/health-redact.js"></script>
+<script src="js/roster-core.js"></script>
+<script src="js/roster-guest.js"></script>
+<script src="js/roster-day.js"></script>
+<script src="js/roster-share.js"></script>
+<script src="js/data-samples.js"></script>
+<script src="js/data-big-sample.js"></script>
+<script src="js/photo-mask.js"></script>
+<script src="js/photo-prep.js"></script>
+<script src="js/ai-reader.js"></script>
 <script src="js/rules.js"></script>
 <script src="js/data-match.js"></script>
 <script src="js/match.js"></script>
@@ -53,11 +77,21 @@
 <script src="js/intake.js"></script>
 <script src="js/passport.js"></script>
 <script src="js/shop.js"></script>
+<script src="js/intake-photo.js"></script>
+<script src="js/day-roster.js"></script>
+<script src="js/share-roster.js"></script>
+<script src="js/booking.js"></script>
 <script src="js/app.js"></script>
+<script src="js/guest-ask.js"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+},
+  "integrity": {
+  "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js": "sha256-dt6oFRvJNSrvNSi0Ji4kmyYE9iVDgoMo25eNBg1hpJU=",
+  "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js": "sha256-0HO0OOagfhNZdB3V1sdslTQgzA1P2E6xvd6UMVVA5qM=",
+  "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js": "sha256-m+BB6WMId10A4mlcxgdkW5qbZP18DnWd2PfACo2Svss="
 } }
 </script>
 <script type="module" src="js/turtle3d.js"></script>

@@ -7,6 +7,7 @@
   const { el, L } = R;
   const T = () => R.T;
   const root = document.getElementById('intake');
+  const tourRoot = document.getElementById('tour');   // 画面の題・ツアー・このツアーのこと（入力の form の外。選んだツアーは draft に持つ）
 
   function blank() {
     const day = R.ymd(R.addDays(new Date(), 2));
@@ -75,18 +76,31 @@
   }
 
   function choices(name, options, isOn, onPick, type) {
-    return el('div', { class: 'choices' }, options.map(o =>
+    return el('div', { class: R.choiceClass(options.map(L)) }, options.map(o =>
       el('label', { class: 'choice' },
         el('input', { type: type || 'radio', name, value: o.id, checked: isOn(o.id), onchange: (e) => onPick(o.id, e.target.checked) }),
         el('span', { text: L(o) }))));
   }
 
+  /* このツアーのこと: 罫線の表（色の箱にしない）。時間と料金は数字の書体 */
   function factsBox() {
     const tour = R.TOURS.find(t => t.id === draft.tour);
-    return el('div', { class: 'facts', id: 'facts' },
-      el('p', { class: 'facts__title', text: L(T().factsTitle) }),
-      el('ul', { class: 'facts__list' }, tour.facts.map(f => el('li', { text: L(f) }))),
-      el('p', { class: 'facts__meta', text: `${tour.start}〜${tour.end} ・ ${tour.price} ${R.lang === 'en' ? 'yen' : '円'}` }));
+    const row = (k, v) => el('div', { class: 'facts__row' }, el('span', { class: 'facts__k', text: k }), el('p', { class: 'facts__v' }, v));
+    return el('div', { class: 'facts', id: 'facts', 'aria-label': L(T().factsTitle) },
+      row(L(T().factTime), el('span', { class: 'facts__fig', text: `${tour.start}–${tour.end}` })),
+      tour.facts.map(f => row('', L(f))),
+      row(L(T().factPrice), [el('span', { class: 'facts__price', text: tour.price }), R.lang === 'en' ? ' yen' : ' 円']));
+  }
+
+  function renderTour() {
+    const t = T();
+    R.fill(tourRoot,
+      el('h1', { class: 'page__h1', text: L(t.intakeTitle) }),
+      el('section', { class: 'guest-sec' },
+        el('h2', { class: 'h2', text: L(t.fTour) }),
+        choices('tour', R.TOURS.map(x => ({ id: x.id, ...x.name })), (id) => draft.tour === id,
+          (id) => { set({ tour: id }); swap('facts', factsBox()); }),
+        factsBox()));
   }
 
   function healthGroup() {
@@ -111,17 +125,12 @@
       field(L(T().fFlightDate), date, 'f-fdate'), field(L(T().fFlightTime), time, 'f-ftime'));
   }
 
-  const swap = (id, node) => { const old = root.querySelector(`#${id}`); if (old) old.replaceWith(node); };
+  const swap = (id, node) => { const old = root.querySelector(`#${id}`) || tourRoot.querySelector(`#${id}`); if (old) old.replaceWith(node); };
 
   /* ---------- 入力の画面 ---------- */
   function renderForm() {
     const t = T();
     const errors = el('p', { class: 'errors', id: 'errors', role: 'alert' });
-
-    const tour = group(L(t.fTour),
-      choices('tour', R.TOURS.map(x => ({ id: x.id, ...x.name })), (id) => draft.tour === id,
-        (id) => { set({ tour: id }); swap('facts', factsBox()); }),
-      factsBox());
 
     const basics = el('div', { class: 'row' },
       field(L(t.fDate), el('input', { class: 'input', type: 'date', id: 'f-date', value: draft.date, onchange: (e) => set({ date: e.target.value }) }), 'f-date'),
@@ -153,15 +162,12 @@
       flightInputs());
 
     const form = el('form', { class: 'form', novalidate: true },
-      tour, basics, who, swim, exp, worries, health, flight, errors,
+      basics, who, swim, exp, worries, health, flight, errors,
       el('button', { class: 'btn btn--big', type: 'submit', text: L(t.submit) }));
     form.addEventListener('submit', (e) => { e.preventDefault(); submit(errors); });
 
-    R.fill(root,
-      el('h2', { class: 'h2', text: L(t.intakeTitle) }),
-      el('p', { class: 'lead', text: L(t.intakeLead) }),
-      passBanner(),
-      form);
+    renderTour();
+    R.fill(root, passBanner(), form);
   }
 
   function submit(errorsNode) {
@@ -214,6 +220,7 @@
     }
     const { flags } = R.assess(intake, s);
     const msgs = R.guestMessages(intake, flags);
+    tourRoot.replaceChildren();
     root.replaceChildren(
       el('div', { class: 'done' },
         el('h2', { class: 'h2', text: L(t.doneTitle) }),

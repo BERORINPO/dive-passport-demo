@@ -1,2 +1,5 @@
 PLAN*.md
 *.local.*
+.dev.vars*
+.wrangler/
+dist/

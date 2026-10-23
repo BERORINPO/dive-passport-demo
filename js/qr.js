@@ -23,7 +23,7 @@
       }
       const box = document.createElement('div');
       box.className = 'qr__img';
-      box.innerHTML = `<svg viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges" role="img" aria-label="QR code">` +
+      box.innerHTML = `<svg viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges" role="img" aria-label="QR code">` + // arch-allow: 数字だけで作った SVG
         `<rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
       return box;
     } catch (e) {
