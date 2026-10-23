@@ -76,6 +76,27 @@
     return { state: C().editTrip(state, { tripId, patch: { host: h }, at }), problem: null };
   }
 
+  /* ---------- 見本の乗り合い便（11/9 の見せ場。中身は js/data-big-sample.js） ---------- */
+  /* day の便を 1 つ作り、この店のお客さんを 1 つの予約に、他のお店を 3 店足して、札も付ける */
+  function addBigSample(state, { day, at, newId, sample = R.BIG_SAMPLE }) {
+    const made = C().addTrip(state, { trip: { date: day, ...sample.trip }, at, newId });
+    const tripId = made.trip.id;
+    let st = C().editTrip(made.state, { tripId, patch: { guides: [sample.guide] }, at });
+    st = C().addBooking(st, { trip: tripById(st, tripId), booking: { source: 'phone', people: sample.own.length, leadName: sample.own[0].name, leadPhone: sample.leadPhone }, src: 'staff', at, newId });
+    const booking = st.bookings[st.bookings.length - 1];
+    st.people.filter(x => x.bookingId === booking.id).forEach((x, i) => {
+      st = C().editPerson(st, { id: x.id, patch: sample.own[i], who: 'staff', at });
+    });
+    sample.partners.forEach(p => {
+      const shop = addPartner(st, { tripId, name: p.shop, at });
+      if (shop.problem) throw new Error(`addBigSample: お店を足せない (${p.shop}: ${shop.problem})`);
+      const people = addPartnerPeople(shop.state, { tripId, shop: p.shop, people: p.people, guide: p.guide, demo: true, at, newId });
+      if (people.problem) throw new Error(`addBigSample: お客さんを足せない (${p.shop}: ${people.problem})`);
+      st = people.state;
+    });
+    return { state: assignTags(st, { tripId, at }), tripId };
+  }
+
   /* ---------- 他のお店のお客さん ---------- */
   const partnerGuide = (state, tripId, shop) => (shopPeople(state, tripId, shop).find(p => p.guide) || { guide: '' }).guide;
 
@@ -253,7 +274,7 @@
 
   R.rosterShare = {
     MAX_PARTNERS, JOINT_KEYS, boatOwner, shopsOf, shopPeople, shopProblem, addPartner, removePartner, setHost,
-    partnerGuide, addPartnerPeople, setPartnerGuide, holdPartnerHealth, handOver,
+    partnerGuide, addPartnerPeople, setPartnerGuide, holdPartnerHealth, handOver, addBigSample,
     kindLabel, boatGroups, assignTags, jointRows, recordLeave, leaveChecks, leaveRepeat
   };
 })();

@@ -213,6 +213,67 @@ test('写真の読み取りを名簿に入れ、確かめると自信なしが�
   assert.equal(C.toCheck(R.rosterStore.get(), tripId).length, 0);
 });
 
+/* 別のタブの保存（storage イベント）を、ブラウザの代わりに手で起こす */
+function bootWithTabs(local) {
+  const heard = [];
+  const ctx = vm.createContext({ localStorage: local, sessionStorage: memory(), setTimeout, clearTimeout, TextEncoder, btoa, console,
+    addEventListener: (type, fn) => heard.push({ type, fn }) });
+  ctx.window = ctx;
+  SCRIPTS.forEach(f => vm.runInContext(readFileSync(new URL(`../js/${f}`, import.meta.url), 'utf8'), ctx, { filename: f }));
+  const otherTab = (newValue) => heard.filter(h => h.type === 'storage').forEach(h => h.fn({ key: 'redux-roster-v1', newValue }));
+  return { R: ctx.REDUX, otherTab };
+}
+
+test('別のタブ（新しい版）がこの版の知らない形で保存したら、読み直さず、この画面からは書かない', async () => {
+  const local = memory();
+  const { R, otherTab } = bootWithTabs(local);
+  await importMail(R, 'e1');
+  const before = R.rosterStore.get();
+  const newer = JSON.parse(local.getItem('redux-roster-v1'));
+  newer.trips[0].addedLater = { x: 1 };   // 新しい版で便に足した欄
+  local.setItem('redux-roster-v1', JSON.stringify(newer));
+  otherTab(JSON.stringify(newer));
+  assert.equal(R.rosterStore.note(), 'newer');
+  assert.equal(R.rosterStore.get(), before, '名簿は読み直さない');
+  const saved = R.rosterStore.update(s => R.rosterCore.editTrip(s, { tripId: s.trips[0].id, patch: { site: '砂辺' }, at: AT }));
+  assert.equal(saved, false, '保存しない');
+  assert.ok(local.getItem('redux-roster-v1').includes('addedLater'), '新しい版の名簿は消えない');
+});
+
+test('保存できていない予約があっても、新しい版の形が来たら書かない側に倒す', async () => {
+  const local = memory();
+  const { R, otherTab } = bootWithTabs(local);
+  await importMail(R, 'e1');
+  const setItem = local.setItem;
+  local.setItem = () => { throw new Error('quota'); };
+  assert.equal(R.rosterStore.update(s => R.rosterCore.editTrip(s, { tripId: s.trips[0].id, patch: { site: '砂辺' }, at: AT })), false);
+  local.setItem = setItem;
+  otherTab(JSON.stringify({ addedLater: true }));
+  assert.equal(R.rosterStore.note(), 'newer', '「食い違い」の知らせだけにすると、次の保存で新しい方を上書きする');
+  assert.equal(R.rosterStore.update(s => s), false);
+});
+
+test('別のタブが同じ形で保存したら、読み直す', async () => {
+  const local = memory();
+  const { R, otherTab } = bootWithTabs(local);
+  await importMail(R, 'e1');
+  const st = JSON.parse(local.getItem('redux-roster-v1'));
+  st.trips[0].site = '別のタブで直した';
+  local.setItem('redux-roster-v1', JSON.stringify(st));
+  otherTab(JSON.stringify(st));
+  assert.equal(R.rosterStore.note(), null);
+  assert.equal(R.rosterStore.get().trips[0].site, '別のタブで直した');
+});
+
+test('選択肢の形: 横につなげるのは短い名前だけ（2 つなら 8 字・3 つなら 5 字まで）', () => {
+  const R = boot(memory());
+  assert.equal(R.choiceClass(['12345678', 'はい']), 'choices');
+  assert.equal(R.choiceClass(['123456789', 'はい']), 'choices choices--rows');
+  assert.equal(R.choiceClass(['12345', 'いいえ', 'はい']), 'choices');
+  assert.equal(R.choiceClass(['123456', 'いいえ', 'はい']), 'choices choices--rows');
+  assert.equal(R.choiceClass(['a', 'b', 'c', 'd']), 'choices choices--rows', '4 つ以上は行');
+});
+
 test('形の合わない state は保存しない', () => {
   const R = boot(memory());
   assert.throws(() => R.rosterStore.update(s => ({ ...s, trips: 'x' })), /形が合わない/);

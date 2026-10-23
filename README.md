@@ -48,6 +48,8 @@ A booking list and the dive roster required by Okinawa's water-safety ordinance 
 
 - What and why: `spec/meibo.md`. The plan and what comes after the 11/9 presentation: `plan/meibo.md`. Roles, boundaries and decisions: `spec/architecture.md`
 - Screens: `js/booking.js` (bookings), `js/intake-photo.js` (form and C-card photos), `js/day-roster.js` (today's roster), `js/share-roster.js` (joint boats), `js/guest-ask.js` (asking the guest)
+- Joint boats, 2026-10-23: the boat's shop can cancel a trip once for everyone (reason, who gets told, the message), each partner shop sees it and answers "checked", and the guest page shows that the tour is off. The boat's shop can hand each partner shop its own roster with the dive time, site and that shop's guide filled in; the two health columns stay for that shop to fill. For the 11/9 demo, "見本の乗り合い便を作る（4 店・30 人）" on the booking list fills one boat with four shops
+- After a redeploy, reload every open tab (see `docs/deploy.md`)
 - Logic (pure): `js/roster-schema.js` (shapes and checks), `js/roster-core.js`, `js/health-redact.js`, `js/photo-mask.js`. The AI reader and its sample stand-in: `js/ai-reader.js`
 - Worker: `worker/handler.mjs` (order of checks), `worker/access.mjs` (verifies the Cloudflare Access JWT itself), `worker/budget.mjs` (limits in KV), `worker/anthropic.mjs` (Claude API), `worker/read-core.mjs` (prompts and answer parsing, pure)
 

@@ -203,18 +203,19 @@
   if (typeof window.addEventListener === 'function') {
     window.addEventListener('storage', (e) => {
       if (e.key !== ROSTER_KEY || rosterLocked) return;
-      if (rosterUnsaved) {   // この画面に保存できていない予約がある。読み直すと消えるので、知らせるだけにする
-        rosterNote = 'conflict';
-        rosterListeners.forEach(fn => fn(roster));
-        return;
-      }
       /* 別のタブ（新しい版の画面）が、この版の知らない形（足した欄など）で保存した。読み直すと形の検査に落ちて空の名簿で上書きするので、
-         読み直さず、この画面からは書かない（新しい方の名簿を消さない） */
+         読み直さず、この画面からは書かない（新しい方の名簿を消さない）。保存できていない予約があっても、こちらを先に見る
+         （「知らせるだけ」にすると、次の保存で新しい方を古い形で上書きしてしまう） */
       let incoming = null;
       try { incoming = e.newValue ? JSON.parse(e.newValue) : null; } catch (err) { incoming = null; }
       if (e.newValue && !(incoming && typeof incoming === 'object' && R.roster.validateState(R.rosterCore.scrubLog(incoming)).ok)) {
         rosterLocked = true;
         rosterNote = 'newer';
+        rosterListeners.forEach(fn => fn(roster));
+        return;
+      }
+      if (rosterUnsaved) {   // この画面に保存できていない予約がある。読み直すと消えるので、知らせるだけにする
+        rosterNote = 'conflict';
         rosterListeners.forEach(fn => fn(roster));
         return;
       }
@@ -234,6 +235,9 @@
       langListeners.forEach(fn => fn());
     },
     el,
+    /* 1 つ選ぶ選択肢の形（design.md の部品）。横につなげるのは、320 幅でも 1 行に収まる短い名前のときだけ。
+       2 つなら 8 字まで、3 つなら 5 字まで。長い物（ツアー名・英語）は、2 行に折れないよう罫線の行にする */
+    choiceClass: (labels) => (labels.length <= 3 && labels.every(t => String(t).length <= (labels.length <= 2 ? 8 : 5)) ? 'choices' : 'choices choices--rows'),
     /* replaceChildren は null を "null" という文字にしてしまうので、空のものを除いてから入れ替える */
     fill: (node, ...kids) => node.replaceChildren(...kids.flat(Infinity).filter(k => k != null && k !== false)),
     /* 文字のファイルをこの端末に保存する（名簿の CSV・カレンダーの .ics）。ブラウザの「ダウンロード」になる */

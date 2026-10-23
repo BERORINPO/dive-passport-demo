@@ -12,7 +12,8 @@ load('../js/roster-guest.js');
 load('../js/roster-day.js');
 load('../js/roster-share.js');
 load('../js/data-samples.js');
-const { roster: S, rosterCore: C, rosterGuest: G, rosterDay: D, rosterShare: X, SAMPLE_READINGS } = globalThis.REDUX;
+load('../js/data-big-sample.js');
+const { roster: S, rosterCore: C, rosterGuest: G, rosterDay: D, rosterShare: X, SAMPLE_READINGS, BIG_SAMPLE } = globalThis.REDUX;
 
 const AT = '2026-10-21T09:00:00.000Z';
 const TODAY = '2026-10-21';
@@ -41,7 +42,7 @@ const withPartner = freeze(X.addPartner(base, { tripId: 't1', name: ` ${PARTNER}
 const tripOf = (st) => st.trips.find(t => t.id === 't1');
 
 /* 他のお店の見本の 2 人（架空）。健康の答えと当日の体調つき（入れても、この店には入らないことを確かめる） */
-const ICHIRO = { name: '見本 一郎', birthDate: '1985-09-09', address: '大阪府大阪市見本区 4-4', emergency: { name: '見本 京子', relation: '妻', phone: '090-5555-6666' },
+const ICHIRO = { name: '見本 一郎', birthDate: '1985-09-09', address: '大阪府大阪市見本区 4-4', emergency: { name: '見本 京子', relation: '妻', phone: '090-0000-5566' },
   cert: { course: 'AOW', date: '2015-08' }, dives: 120, lastDive: '2026-09', health: { answers: NO5, today: 'ok' } };
 const SAKURA = { name: '見本 さくら', birthDate: '2001-03-03', emergency: { name: '見本 陸', relation: '兄', phone: '090-7777-8888' },
   cert: { course: 'NONE', date: '' }, dives: 0, lastDive: '', health: { answers: NO5, today: 'ok' } };
@@ -333,7 +334,7 @@ test('合同名簿: お店ごとに、札の番号と船の上で要る 5 項目
   const ichiro = j.groups[1].rows[0].cells;
   assert.deepEqual(Object.keys(ichiro), X.JOINT_KEYS, '載せる項目のほかは、行にも持たない');
   assert.deepEqual([ichiro.name, ichiro.shop, ichiro.kind, ichiro.guide, ichiro.emergency],
-    ['見本 一郎', PARTNER, 'ファン', '見本 三郎', '見本 京子（妻） 090-5555-6666']);
+    ['見本 一郎', PARTNER, 'ファン', '見本 三郎', '見本 京子（妻） 090-0000-5566']);
   assert.equal(j.groups[1].rows[0].blank, 0);
   const own = j.groups[0].rows.map(r => r.cells);
   assert.ok(own.every(c => !('history' in c) && !('today' in c)), 'この店のお客さんの健康も載せない');
@@ -355,6 +356,77 @@ test('印刷の記録に、合同名簿か札ボードかを残す', () => {
   assert.deepEqual(st.log[st.log.length - 1].after, { people: 4, health: false, paper: 'board' });
   const plain = C.logOutput(withPartner, { tripId: 't1', act: 'print', people: 4, paper: 'other', at: AT });
   assert.deepEqual(plain.log[plain.log.length - 1].after, { people: 4, health: true });
+});
+
+/* ---------- 便の中止と、相乗りのお店に返す名簿 ---------- */
+test('中止: 理由を残し、取り消せる。相乗りのお店は確かめた印を付けられる。どれも記録に残る', () => {
+  let st = C.cancelTrip(withPartner, { tripId: 't1', reason: 'wind', at: AT });
+  const t = st.trips.find(x => x.id === 't1');
+  assert.deepEqual(t.cancel, { at: AT, reason: 'wind', acked: [] });
+  assert.ok(S.validateState(st).ok);
+  assert.equal(C.cancelTrip(st, { tripId: 't1', reason: 'boat', at: AT }), st, '中止の便をもう一度中止にしない');
+  st = C.ackCancel(st, { tripId: 't1', shop: PARTNER, at: AT });
+  assert.deepEqual(st.trips.find(x => x.id === 't1').cancel.acked, [PARTNER]);
+  assert.equal(C.ackCancel(st, { tripId: 't1', shop: PARTNER, at: AT }), st, '2 回押しても 1 つ');
+  assert.equal(C.ackCancel(st, { tripId: 't1', shop: '知らないお店', at: AT }), st, '乗り合いに入っていないお店は付けない');
+  assert.throws(() => C.cancelTrip(withPartner, { tripId: 't1', reason: 'typhoon', at: AT }), /便の形/);
+  const back = C.reopenTrip(st, { tripId: 't1', at: AT });
+  assert.ok(!('cancel' in back.trips.find(x => x.id === 't1')), '取り消したら欄ごと消す（中止していない便と同じ形）');
+  assert.deepEqual(back.log.slice(-3).map(e => e.act), ['cancel', 'ack', 'reopen']);
+  assert.ok(S.validateState(back).ok);
+  const again = C.cancelTrip(back, { tripId: 't1', reason: 'storm', at: AT });
+  assert.deepEqual(again.trips.find(x => x.id === 't1').cancel.acked, [], 'もう一度中止にしたら、確かめはやり直し');
+});
+
+test('中止の欄は中止した便にだけ付く。前の版の便（欄なし）も読め、中止できる', () => {
+  assert.ok(!('cancel' in S.blankTrip()), '新しい便には付けない（前の版の画面が、中止していない便まで読めなくならないように）');
+  const old = { ...S.blankTrip(), id: 'old', date: '2026-10-24', createdAt: AT };
+  assert.ok(S.validateTrip(old).ok);
+  const st = C.cancelTrip({ ...S.blankState(OWN), trips: [old] }, { tripId: 'old', reason: 'wind', at: AT });
+  assert.ok(S.validateState(st).ok);
+  assert.equal(S.validateTrip({ ...old, cancel: { at: 'きのう', reason: 'wind', acked: [] } }).ok, false, '時刻の形でない');
+  assert.equal(S.validateTrip({ ...old, cancel: null }).ok, false, '空の中止は付けない');
+});
+
+test('中止中に相乗りのお店を外したら、そのお店の「確かめた」も外す（足し直しても確かめ済みで始めない）', () => {
+  let st = C.cancelTrip(withPartner, { tripId: 't1', reason: 'wind', at: AT });
+  st = C.ackCancel(st, { tripId: 't1', shop: PARTNER, at: AT });
+  st = X.removePartner(st, { tripId: 't1', name: PARTNER, at: AT }).state;
+  assert.deepEqual(tripOf(st).cancel.acked, []);
+  st = X.addPartner(st, { tripId: 't1', name: PARTNER, at: AT }).state;
+  assert.deepEqual(tripOf(st).cancel.acked, []);
+  assert.ok(S.validateState(st).ok);
+});
+
+test('見本の乗り合い便: 1 隻に 4 店・30 人、ガイド 4 人に札、形も合う', () => {
+  const r = X.addBigSample(S.blankState(OWN), { day: TODAY, at: AT, newId });
+  const t = r.state.trips.find(x => x.id === r.tripId);
+  assert.ok(S.validateState(r.state).ok);
+  assert.equal(r.state.people.length, 30);
+  assert.deepEqual(t.partners, BIG_SAMPLE.partners.map(p => p.shop));
+  assert.equal(t.tags.length, 34, 'お客さん 30 人とガイド 4 人');
+  assert.equal(C.rosterRows(r.state, r.tripId, HEALTH_SHORT, { own: true }).rows.length, 9);
+  for (const p of BIG_SAMPLE.partners) assert.equal(C.rosterRows(r.state, r.tripId, HEALTH_SHORT, { shop: p.shop }).rows.length, 7, p.shop);
+  assert.ok(r.state.people.every(p => p.health.historyAt === '' && p.health.answers.every(a => a === null)), '健康の答えは入れない');
+  const full = { ...BIG_SAMPLE, partners: [...BIG_SAMPLE.partners, ...Array.from({ length: 8 }, (_, i) => ({ shop: `見本 ${i}`, guide: '見本 ガイド', people: [] }))] };
+  assert.throws(() => X.addBigSample(S.blankState(OWN), { day: TODAY, at: AT, newId, sample: full }), /お店を足せない/, '半分だけの便を作らない');
+});
+
+test('相乗りのお店に返す名簿: そのお店のお客さんだけ、潜水日時と場所はこの便の物、健康の 2 欄は「お店が記入」', () => {
+  const r = X.addPartnerPeople(withPartner, { tripId: 't1', shop: PARTNER, people: [ICHIRO], guide: '見本 三郎', at: AT, newId });
+  const st = C.editTrip(r.state, { tripId: 't1', patch: { site: '砂辺' }, at: AT });
+  const table = C.rosterRows(st, 't1', HEALTH_SHORT, { shop: PARTNER });
+  assert.equal(table.rows.length, 1);
+  const c = table.rows[0].cells;
+  assert.deepEqual([c.name, c.site, c.guide, c.history, c.today], ['見本 一郎', '砂辺', '見本 三郎', 'お店が記入', 'お店が記入']);
+  const person = st.people.find(p => p.name === '見本 一郎');
+  const trip = st.trips.find(t => t.id === 't1');
+  assert.deepEqual(C.status(person, trip).missing, ['today'], '健康以外はそろい、当日の体調はまだ');
+  assert.equal(table.rows[0].done, true, '健康の 2 欄はそのお店が書くので、そろったかの数に入れない');
+  assert.equal(C.rosterRows(st, 't1', HEALTH_SHORT, { shop: '知らないお店' }).rows.length, 0);
+  assert.equal(C.rosterRows(st, 't1', HEALTH_SHORT, { shop: '' }).rows.length, 0, 'お店の名前が空なら、便の全員に落とさない');
+  const mine = C.rosterRows(st, 't1', HEALTH_SHORT, { own: true });
+  assert.ok(mine.rows.every(x => x.cells.name !== '見本 一郎'), 'この店の名簿には入らない');
 });
 
 let failed = 0;

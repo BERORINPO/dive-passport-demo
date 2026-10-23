@@ -11,7 +11,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'dist');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
-const KEEP = [/^index\.html$/, /^pass\.html$/, /^robots\.txt$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
+const KEEP = [/^index\.html$/, /^pass\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
   /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.glb$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/, /^audio\/[^/]+\.mp3$/];
 
 export function siteFiles() {

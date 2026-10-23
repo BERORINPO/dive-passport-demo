@@ -130,16 +130,16 @@
   function tripCard(s, trip) {
     const rows = C().bookingRows(s, trip.id);
     return el('section', { class: 'trip', 'aria-label': tripLabel(trip) },
-      el('div', { class: 'trip__time' }, trip.start ? clock(trip.start) : '—', el('small', { text: runLabel(trip) })),
+      el('div', { class: trip.cancel ? 'trip__time trip__time--off' : 'trip__time' }, trip.start ? clock(trip.start) : '—',
+        el('small', { text: trip.cancel ? '中止' : runLabel(trip) })),
       el('div', {},
         el('div', { class: 'trip__head' },
           el('h3', { class: 'trip__title', text: trip.tour || KIND_JA[trip.kind] }),
           el('span', { class: 'trip__count' }, el('b', { text: String(C().tripSummary(s, trip.id).booked) }), ' 人')),
         rows.length ? el('ul', { class: 'bks' }, rows.map(bookingLine)) : el('p', { class: 'note', text: 'この便の予約はまだありません' }),
+        /* 便ごとの操作は 1 つ（design.md の部品）。乗り合い・名簿の取り込みは今日の名簿の画面から */
         rows.length ? el('p', { class: 'trip__links' },
-          el('button', { class: 'linkbtn', type: 'button', text: '今日の名簿', onclick: () => go('day', { tripId: trip.id }) }),
-          el('button', { class: 'linkbtn', type: 'button', text: '乗り合い・札', onclick: () => go('share', { tripId: trip.id }) }),
-          el('button', { class: 'linkbtn', type: 'button', text: '名簿の取り込み（申込書・C カード）', onclick: () => go('intake', { tripId: trip.id }) })) : null));
+          el('button', { class: 'linkbtn', type: 'button', text: '今日の名簿', onclick: () => go('day', { tripId: trip.id }) })) : null));
   }
 
   function resetButton() {
@@ -184,7 +184,7 @@
     const dates = [...new Set(trips.map(t => t.date))];
     day = pickDay(dates);
     return [
-      ...head('予約', '便ごとの予約と、名簿のそろい具合'),
+      ...head('予約'),
       aiRow(),
       R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
@@ -194,6 +194,12 @@
       dates.length
         ? trips.filter(t => t.date === day).map(t => tripCard(s, t))
         : el('p', { class: 'empty', text: 'まだ予約がありません。「メールを貼る」で、見本のメールから試せます。' }),
+      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本の乗り合い便を作る（4 店・30 人）',
+        onclick: () => {
+          const r = save(st => R.rosterShare.addBigSample(st, { day: day || R.today(), at: new Date().toISOString(), newId: R.newId }).state);
+          notice = r.error ? { kind: 'warn', text: '見本の便を作れませんでした' } : { kind: 'ok', text: '見本の乗り合い便を作りました（13:00、4 店・お客さん 30 人）' };
+          render();
+        } })),
       s.trips.length ? resetButton() : null,
       dock(
         el('button', { class: 'btn', type: 'button', text: 'メールを貼る', onclick: () => go('mail') }),
@@ -388,7 +394,7 @@
     phonePick = el('div', { class: 'phone__pick' });
     fillPhonePick();
     return [
-      ...head('電話の予約', '電話や窓口で受けた予約を、手で入れます'),
+      ...head('電話の予約'),
       el('form', { class: 'card form', novalidate: true, onsubmit: (e) => { e.preventDefault(); commitPhone(errorsNode); } },
         el('div', { class: 'row' },
           field('日付', el('input', { class: 'input', type: 'date', required: true, value: phone.date, oninput: set('date', true) })),
@@ -462,9 +468,9 @@
   /* ---------- 描く ---------- */
   /* 名簿の取り込みと確かめる画面（intake-photo.js）に渡す道具 */
   const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back, dock };
-  const DAY_MODES = { day: 'renderDay', spo2: 'renderSpo2', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
-  const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', joint: 'renderJoint', jointprint: 'renderJointPrint', board: 'renderBoard', leave: 'renderLeave' };
-  const PRINT_MODES = ['print', 'jointprint', 'board'];
+  const DAY_MODES = { day: 'renderDay', spo2: 'renderSpo2', cancel: 'renderCancel', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
+  const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', partnerpaper: 'renderPartnerPaper', joint: 'renderJoint', jointprint: 'renderJointPrint', board: 'renderBoard', leave: 'renderLeave' };
+  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint', 'board'];
 
   function render() {
     mailOut = null;

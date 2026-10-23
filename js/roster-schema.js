@@ -10,7 +10,15 @@
   const SOURCES = ['mail', 'form', 'phone', 'partner'];        // 予約の出どころ: 予約サイトのメール / 自社のフォーム / 電話など / 乗り合いの他店
   const FIELD_SRC = ['mail', 'paper', 'ccard', 'guest', 'staff', 'passport', 'partner'];   // その項目を入れたもの
   const LOG_WHO = ['staff', 'guest', 'ai', 'system'];          // 記録に残す「した人」
-  const LOG_ACT = ['add', 'edit', 'ai', 'check', 'print', 'csv', 'remove', 'handover', 'tags', 'aboard'];   // handover: 乗り合いの他店から受け取った / tags: 札の番号 / aboard: 札で全員そろった
+  const LOG_ACT = ['add', 'edit', 'ai', 'check', 'print', 'csv', 'remove', 'handover', 'tags', 'aboard', 'cancel', 'reopen', 'ack'];   // handover: 乗り合いの他店から受け取った / tags: 札の番号 / aboard: 札で全員そろった / cancel・reopen: 便の中止と取り消し / ack: 相乗りのお店が中止を確かめた
+  const CANCEL_REASONS = ['wind', 'storm', 'boat', 'other'];   // 便の中止の理由: 波・風 / 雷・大雨 / 船の故障 / その他
+  /* 理由の言葉。ja: 画面の名前 / why: 届く文とお客さんのページの「〜中止です」/ en: お客さんのページ（英語） */
+  const CANCEL_TEXT = Object.freeze({
+    wind: { ja: '波・風が強い', why: '波・風が強いため', en: 'Strong wind and waves' },
+    storm: { ja: '雷・大雨', why: '雷・大雨のため', en: 'Thunder or heavy rain' },
+    boat: { ja: '船の故障', why: '船の故障のため', en: 'Boat trouble' },
+    other: { ja: 'その他', why: '都合により', en: '' }
+  });
   const COURSES = ['', 'OW', 'AOW', 'RESCUE', 'JOW', 'DM', 'OTHER', 'NONE'];               // NONE = C カードなし（体験）
   const TODAY = ['', 'ok', 'unwell'];
   const DOCS = ['mail', 'paper', 'ccard'];
@@ -115,7 +123,8 @@
   }
 
   /* ---------- 検査 ---------- */
-  const TRIP_SHAPE = Object.keys(blankTrip());
+  /* cancel は中止した便にだけ付く（blankTrip には入れない。前の版の画面が、中止していない便まで読めなくならないように） */
+  const TRIP_SHAPE = [...Object.keys(blankTrip()), 'cancel'];
   const BOOKING_SHAPE = Object.keys(blankBooking());
 
   /* 札（乗り合いの札ボード）。お客さんは personId、ガイドは名前とお店（shop が空ならこの店）。番号は便の中で重ならない */
@@ -135,8 +144,14 @@
       !isList(t.checks, 50, x => onlyKeys(x, ['at', 'stage', 'missing', 'tags']) && isStr(x.at, 40) &&
         ['leave', 'return'].includes(x.stage) && isList(x.missing, MAX_PEOPLE * 4, isId) &&
         (x.tags === undefined || (Number.isInteger(x.tags) && x.tags >= 0 && x.tags <= MAX_PEOPLE * 4))) && 'checks',
+      !(t.cancel === undefined || cancelOk(t.cancel)) && 'cancel',
       !isStr(t.createdAt, 40) && 'createdAt'
     ]);
+  }
+  /* 便の中止。いつ・理由・中止を確かめた相乗りのお店（乗り合いの便だけ）。中止していない便には欄ごと無い */
+  function cancelOk(c) {
+    return onlyKeys(c, ['at', 'reason', 'acked']) && isStr(c.at, 40) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(c.at) && CANCEL_REASONS.includes(c.reason) &&
+      isList(c.acked, 10, x => isStr(x, 60) && x !== '') && new Set(c.acked).size === c.acked.length;
   }
 
   function validateBooking(b) {
@@ -328,7 +343,7 @@
   }
 
   R.roster = {
-    VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
+    VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, CANCEL_REASONS, CANCEL_TEXT, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
     ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
     validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody,
     validateReading, fromModel

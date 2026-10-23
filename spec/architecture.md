@@ -5,7 +5,7 @@
 ## 1. 役割対応表
 | 役割 | パス |
 |---|---|
-| shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js |
+| shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
 | core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js worker/read-core.mjs |
 | adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/fakes.mjs |
 | entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js worker/index.mjs worker/handler.mjs |
@@ -59,6 +59,12 @@
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
 |---|---|---|---|
+| 2026-10-23 ui-less-ai | 画面の形を直す: 白い面のカードを重ねない（罫線と余白だけ）・説明の小見出しを付けない・便の画面は時刻を大きく出す見出し・お客さんの画面はタブの無い 1 本の流れ・デモの説明は「デモの画面」を開いたときだけ。決まりは design.md の「形」と「部品」 | 点検（reports/UIのAIっぽさ点検.md）の重い 2 件と中の主な物。デザイナーへ頼む案は、11/9 までに自分で直せる所を直す方を取った | design.check（色の組）。形は目で見る |
+| 2026-10-23 choice-shape | 1 つ選ぶ選択肢は、名前が短いときだけ横につなげる（`R.choiceClass`: 2 つなら 8 字・3 つなら 5 字まで）。長い物は罫線の行 | 320 幅でツアー名と英語が 2 行に折れた。画面ごとに決める案は、言葉を変えるたびに崩れる | なし（幅 4 つで確かめる） |
+| 2026-10-23 trip-cancel | 便の中止は、船を出す店が 1 回押すと、便に中止（理由・時刻・確かめたお店）が付き、相乗りのお店の画面とお客さんのページに出る。相乗りのお店は「確かめた」を返す。取り消せる。記録に cancel・ack・reopen を残す | 天気で中止は乗り合いの店どうしの電話・LINE の手間が一番大きい所。試作では送らず画面に出す（本物の送り先は後）。お客さんの連絡先は各店が持つので、船の店からは相乗りのお客さんへ直接送らない | 形は roster-schema.js の検査（理由は 4 つ・確かめたお店は 10 まで） |
+| 2026-10-23 partner-return | 船を出す店は、相乗りのお店ごとに、そのお店のお客さんだけの条例の名簿を作って返せる（潜水日時・場所はこの便の物、ガイドはそのお店の人、健康の 2 欄は「お店が記入」）。印刷と CSV。記録は paper: partner | 相乗りのお店も自分の名簿（作成者は各店）が要るが、日時・場所は船の店しか持たない。健康の 2 欄を船の店が埋める案は、no-health-to-boat と食い違う | share.test（そのお店の人だけ・健康は「お店が記入」・そろいの数に健康を入れない） |
+| 2026-10-23 big-sample | 11/9 の見せ場用に、見本の乗り合い便（4 店・30 人・ガイド 4 人）を 1 回で作るボタンを予約の一覧に置く | 手で 30 人入れると発表の前に時間がかかり、入れ間違える。名前と連絡先はすべて見本 | なし |
+| 2026-10-23 newer-first | 別のタブの保存を受けたら、この版の知らない形かを先に見て、そうなら書かなくする（保存できていない予約があっても） | 「食い違い」の知らせだけだと、次の保存で新しい版の名簿を古い形で上書きする（ザクの指摘） | booking-flow.test（storage の 3 本） |
 | 2026-10-21 ai-place | AI は Cloudflare Worker から呼ぶ | Yosuke 指定。手元のサーバー案は会場の Wi-Fi 頼みになる | なし |
 | 2026-10-21 access | Access と合言葉の 2 重 | Yosuke 指定。合言葉だけだと、漏れたら誰でも使える | なし |
 | 2026-10-22 access-only | 合言葉を外し、入口は Access だけ（2026-10-21 access を置き換える） | Yosuke の判断。Worker が Access の JWT を自分で確かめるので、合言葉が足す守りは小さい（ザク同意）。共有の言葉は 1 人だけ止められず、漏れやすく、発表の場で打つ手間がある。1 人を止めるときは Access の Policy と ALLOWED_EMAILS から消す。2 つ目の鍵が要るなら、合言葉ではなく Access のログインを 2 段階にする | test/worker.test.mjs |

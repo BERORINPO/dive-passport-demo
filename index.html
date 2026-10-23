@@ -6,6 +6,7 @@
 <title>REDUX 受付 試作</title>
 <meta name="robots" content="noindex">
 <meta name="referrer" content="no-referrer">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
@@ -15,7 +16,7 @@
 <header class="bar">
   <div class="brand">
     <span class="brand__logo" id="logo" aria-hidden="true"></span>
-    <span class="brand__name">REDUX <small id="brandSub">受付（試作）</small></span>
+    <span class="brand__name"><span id="brandName">REDUX</span> <small id="brandSub"></small></span>
   </div>
   <nav class="tabs" role="tablist" aria-label="画面の切り替え">
     <button class="tab" role="tab" id="tab-guest" aria-controls="view-guest" aria-selected="true" type="button"></button>
@@ -23,15 +24,19 @@
     <button class="tab" role="tab" id="tab-shop" aria-controls="view-shop" aria-selected="false" type="button" tabindex="-1"></button>
     <button class="tab" role="tab" id="tab-booking" aria-controls="view-booking" aria-selected="false" type="button" tabindex="-1"></button>
   </nav>
-  <button class="lang" id="lang" type="button"></button>
+  <div class="bar__end">
+    <button class="demo-switch" id="demoSwitch" type="button" aria-expanded="false" aria-controls="demoNote"></button>
+    <button class="lang" id="lang" type="button"></button>
+  </div>
 </header>
 
 <p class="demo-note" id="demoNote"></p>
 
 <main class="wrap">
   <section class="view view--guest" id="view-guest" role="tabpanel" aria-labelledby="tab-guest">
-    <div class="card card--chat" id="chat"></div>
-    <div class="card" id="intake"></div>
+    <div id="tour"></div>
+    <section class="guest-sec" id="chat"></section>
+    <div class="guest-sec" id="intake"></div>
     <div id="ask" hidden></div>
   </section>
   <section class="view view--pass" id="view-pass" role="tabpanel" aria-labelledby="tab-pass" hidden>
@@ -61,6 +66,7 @@
 <script src="js/roster-day.js"></script>
 <script src="js/roster-share.js"></script>
 <script src="js/data-samples.js"></script>
+<script src="js/data-big-sample.js"></script>
 <script src="js/photo-mask.js"></script>
 <script src="js/photo-prep.js"></script>
 <script src="js/ai-reader.js"></script>

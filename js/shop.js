@@ -121,7 +121,6 @@
     const undated = s.intakes.filter(x => !valid(x.date)).sort(order);
     root.replaceChildren(
       el('h2', { class: 'page__title', text: '受付' }),
-      el('p', { class: 'page__sub', text: 'お客さまが送った受付。参加できるかはお店が決めます。印は、見落としに気づくためのものです。' }),
       counters(s),
       blocks.length || undated.length
         ? el('div', { class: 'timetable' },

@@ -372,7 +372,10 @@
     if (!before) throw new Error(`editTrip: 便が見つからない (${tripId})`);
     const clean = Object.fromEntries(Object.keys(patch).filter(k => TRIP_EDITABLE.includes(k)).map(k => [k,
       TRIP_TEXT.includes(k) ? String(patch[k]).trim() : (Array.isArray(patch[k]) ? patch[k] : []).map(g => String(g).trim()).filter(Boolean)]));
-    const after = { ...before, ...clean };
+    const merged = { ...before, ...clean };
+    /* 中止を確かめたお店は、今の相乗りのお店だけ（外したお店の「確かめた」を残さない） */
+    const after = merged.cancel && clean.partners
+      ? { ...merged, cancel: { ...merged.cancel, acked: merged.cancel.acked.filter(s => merged.partners.includes(s)) } } : merged;
     const keys = Object.keys(clean).filter(k => !same(after[k], before[k]));
     if (!keys.length) return state;
     const v = S().validateTrip(after);
@@ -389,7 +392,7 @@
   function logOutput(state, { tripId, act, people, health, paper, at }) {
     if (!['print', 'csv'].includes(act)) throw new Error(`logOutput: act は print / csv (${act})`);
     if (!state.trips.some(t => t.id === tripId)) throw new Error(`logOutput: 便が見つからない (${tripId})`);
-    const kind = ['joint', 'board'].includes(paper) ? { paper } : {};
+    const kind = ['joint', 'board', 'partner'].includes(paper) ? { paper } : {};
     return withLog(state, entry(at, 'staff', act, 'trip', tripId, { after: { people: Number(people) || 0, health: health !== false, ...kind } }));
   }
 
@@ -404,6 +407,30 @@
     const v = S().validateTrip(after);
     if (!v.ok) throw new Error(`${who}: 便の形が合わない (${v.errors.join(',')})`);
     return after;
+  }
+
+  /* ---------- 便の中止 ----------
+     乗り合いの便では、相乗りのお店の画面とお客さんのページに出す（試作は端末の中だけ。本物の送り先はメールか LINE で後から）。
+     中止は取り消せる（reopenTrip）。前と後を記録に残す */
+  function cancelTrip(state, { tripId, reason, at }) {
+    const before = tripOrThrow(state, tripId, 'cancelTrip');
+    if (before.cancel) return state;
+    const after = checkedTrip({ ...before, cancel: { at, reason, acked: [] } }, 'cancelTrip');
+    return withLog(replaceTrip(state, after), entry(at, 'staff', 'cancel', 'trip', tripId, { after: { reason } }));
+  }
+  function reopenTrip(state, { tripId, at }) {
+    const before = tripOrThrow(state, tripId, 'reopenTrip');
+    if (!before.cancel) return state;
+    const { cancel, ...open } = before;   // 欄ごと消す（中止していない便と同じ形に戻す）
+    const after = checkedTrip(open, 'reopenTrip');
+    return withLog(replaceTrip(state, after), entry(at, 'staff', 'reopen', 'trip', tripId, { before: { reason: before.cancel.reason } }));
+  }
+  /* 相乗りのお店が中止の知らせを確かめた（自分のお客さんへの連絡はそのお店がする） */
+  function ackCancel(state, { tripId, shop, at }) {
+    const before = tripOrThrow(state, tripId, 'ackCancel');
+    if (!before.cancel || !before.partners.includes(shop) || before.cancel.acked.includes(shop)) return state;
+    const after = checkedTrip({ ...before, cancel: { ...before.cancel, acked: [...before.cancel.acked, shop] } }, 'ackCancel');
+    return withLog(replaceTrip(state, after), entry(at, 'staff', 'ack', 'trip', tripId, { after: { shop } }));
   }
 
   /* 予約に 1 人足す（空の行）。人数が足りなくなれば、予約の人数も増やす */
@@ -496,14 +523,22 @@
     }
   }
 
-  /* own: 自分の店のお客さんだけ（条例の名簿）。乗り合いの合同名簿は roster-share.js の jointRows */
-  function rosterRows(state, tripId, healthShort, { own } = {}) {
+  /* own: 自分の店のお客さんだけ（条例の名簿）。乗り合いの合同名簿は roster-share.js の jointRows。
+     shop: 乗り合いの相乗りのお店に返す、そのお店のお客さんだけの名簿。潜水日時・場所は船を出すこの店が持つ物を入れ、
+     健康の 2 欄はこの店が持たない（そのお店が確かめる）ので「お店が記入」と出す */
+  const SHOP_FILLS = 'お店が記入';
+  function rosterRows(state, tripId, healthShort, { own, shop } = {}) {
     const trip = state.trips.find(t => t.id === tripId);
     if (!trip) return { items: [], rows: [] };
     const items = S().ITEMS[trip.kind];
-    const rows = peopleOf(state, tripId, { own }).map(p => ({
-      personId: p.id, done: status(p, trip).done,
-      cells: Object.fromEntries(items.map(i => [i.key, cellText(p, trip, i.key, healthShort)]))
+    if (shop !== undefined && !shop) return { items, rows: [] };   // お店の名前が空なら、便の全員に落とさない
+    const ids = shop ? new Set(bookingsOf(state, tripId).filter(b => isPartnerBooking(b) && b.shop === shop).map(b => b.id)) : null;
+    const people = shop ? state.people.filter(p => ids.has(p.bookingId)) : peopleOf(state, tripId, { own });
+    const healthKey = new Set(items.filter(i => i.health).map(i => i.key));
+    const doneOf = (p) => { const st = status(p, trip); return shop ? st.unsure.length === 0 && st.missing.every(k => healthKey.has(k)) : st.done; };
+    const rows = people.map(p => ({
+      personId: p.id, done: doneOf(p),
+      cells: Object.fromEntries(items.map(i => [i.key, shop && i.health ? SHOP_FILLS : cellText(p, trip, i.key, healthShort)]))
     }));
     return { items, rows };
   }
@@ -551,7 +586,7 @@
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
-    addPerson, addTags, renameGuideTag, addCheck, logHandover,
+    addPerson, addTags, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
   };
 })();

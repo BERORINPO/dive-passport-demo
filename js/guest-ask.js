@@ -9,7 +9,7 @@
   const G = () => R.rosterGuest;
   const C = () => R.rosterCore;
   const root = document.getElementById('ask');
-  const guestParts = ['chat', 'intake'].map(id => document.getElementById(id));
+  const guestParts = ['tour', 'chat', 'intake'].map(id => document.getElementById(id));
 
   const T = {
     from: { ja: 'からのお願い', en: ' — a request' },
@@ -17,6 +17,8 @@
     titleSnorkel: { ja: 'スノーケリングの前に、あと少し教えてください', en: 'A few details before your snorkel tour' },
     law: { ja: '県の条例で、お店が名簿を作って 1 年残します', en: 'Okinawa rules require the shop to keep a list of participants for one year' },
     noBooking: { ja: 'このリンクは使えません。お店に聞いてください。', en: 'This link does not work. Please ask the shop.' },
+    cancelTitle: { ja: 'このツアーは中止になりました', en: 'This tour is cancelled' },
+    cancelText: { ja: '料金と次の予定は、お店から連絡があります。港には行かないでください。', en: 'The shop will contact you about the fee and other dates. Please do not go to the harbour.' },
     back: { ja: 'いつもの画面に戻る', en: 'Back to the usual screen' },
     passHere: { ja: 'この端末にパスポートがあります', en: 'This phone has a passport' },
     fromPass: { ja: 'パスポートから入れる', en: 'Fill from passport' },
@@ -277,6 +279,20 @@
   }
 
   /* ---------- 描く ---------- */
+  /* 便が中止になったら、入力は聞かずに知らせだけを出す（見落とすと港に来てしまうので、注意の帯） */
+  function renderCancelled(v) {
+    const { trip } = v;
+    const t = R.roster.CANCEL_TEXT[trip.cancel.reason] || { why: '', en: '' };
+    const why = trip.cancel.reason === 'other' ? '' : R.lang === 'en' ? t.en : t.why;   // 「その他」は理由を書かない
+    return [
+      el('p', { class: 'note', text: `${v.shop}${L(T.from)}` }),
+      el('h2', { class: 'page__title', text: [md(trip.date), trip.start, trip.tour].filter(Boolean).join(' ') }),
+      el('div', { class: 'band band--warn', role: 'alert' }, el('p', { class: 'band__title', text: `! ${L(T.cancelTitle)}` }),
+        el('p', { class: 'band__text', text: [why, L(T.cancelText)].filter(Boolean).join(R.lang === 'en' ? '. ' : '。') })),
+      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: L(T.back), onclick: close }))
+    ];
+  }
+
   function renderForm(v) {
     const { trip, items } = v;
     const entry = v.people.find(x => x.person.id === personId) || v.people[0];
@@ -329,7 +345,7 @@
     const booking = s.bookings.find(b => b.id === bookingId);
     v.shop = booking && C().isPartnerBooking(booking) ? booking.shop : s.shop.name;   // 乗り合いの他のお店のお客さんには、そのお店の名前を出す
     const entry = v.people.find(x => x.person.id === personId) || v.people[0];
-    R.fill(root, view === 'passport' ? renderPassport(v, entry) : renderForm(v));
+    R.fill(root, v.trip.cancel ? renderCancelled(v) : view === 'passport' ? renderPassport(v, entry) : renderForm(v));
   }
 
   /* ---------- 開く・閉じる ---------- */

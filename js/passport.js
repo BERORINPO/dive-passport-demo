@@ -35,7 +35,7 @@
   }
 
   function radios(name, options, current, onPick) {
-    return el('div', { class: 'choices' }, options.map(o =>
+    return el('div', { class: R.choiceClass(options.map(L)) }, options.map(o =>
       el('label', { class: 'choice' },
         el('input', { type: 'radio', name, value: o.id, checked: current === o.id, onchange: () => onPick(o.id) }),
         el('span', { text: L(o) }))));

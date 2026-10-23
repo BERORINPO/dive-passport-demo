@@ -16,13 +16,13 @@
   const SAMPLE_GUIDE = '見本 三郎';
   /* 見本の他のお店のお客さん（架空）。「見本の 4 人で試す」で入れる。見本 さくら は住所がまだ。健康の答えは、そのお店だけが持つので入れない */
   const PARTNER_SAMPLE = [
-    { name: '見本 一郎', birthDate: '1985-09-09', address: '大阪府大阪市見本区 4-4', emergency: { name: '見本 京子', relation: '妻', phone: '090-5555-6666' },
+    { name: '見本 一郎', birthDate: '1985-09-09', address: '大阪府大阪市見本区 4-4', emergency: { name: '見本 京子', relation: '妻', phone: '090-0000-5566' },
       cert: { course: 'AOW', date: '2015-08' }, dives: 120, lastDive: '2026-09' },
     { name: 'Lena Fischer', birthDate: '1997-06-21', address: 'Musterstr. 5, Berlin', emergency: { name: 'Sample Fischer', relation: 'father', phone: '+49-170-0000000' },
       cert: { course: 'OW', date: '2023-02' }, dives: 22, lastDive: '2026-05' },
-    { name: '見本 さくら', birthDate: '2001-03-03', emergency: { name: '見本 陸', relation: '兄', phone: '090-7777-8888' },
+    { name: '見本 さくら', birthDate: '2001-03-03', emergency: { name: '見本 陸', relation: '兄', phone: '090-0000-7788' },
       cert: { course: 'NONE', date: '' }, dives: 0, lastDive: '' },
-    { name: '見本 陸', birthDate: '1998-11-11', address: '大阪府大阪市見本区 4-5', emergency: { name: '見本 さくら', relation: '妹', phone: '090-7777-9999' },
+    { name: '見本 陸', birthDate: '1998-11-11', address: '大阪府大阪市見本区 4-5', emergency: { name: '見本 さくら', relation: '妹', phone: '090-0000-7799' },
       cert: { course: 'NONE', date: '' }, dives: 0, lastDive: '' }
   ];
   const PRINT_ARM_MS = 700;       // 印刷のボタンが出てすぐの押し（前の画面のボタンを続けて押した物）は受け付けない間
@@ -78,7 +78,9 @@
     const done = people.filter(m => m.status.done).length;
     const s = R.rosterStore.get();
     const guide = X().partnerGuide(s, tripId, group.name);
-    const st = !people.length ? ['wait', '・まだ 0 人'] : done === people.length ? ['ok', '✓ そろった'] : ['wait', `・名簿 ${done}/${people.length}`];
+    const cancel = g.trip.cancel;   // 中止したら、そのお店が確かめたかを出す（名簿のそろい具合より先に知りたいこと）
+    const st = cancel ? (cancel.acked.includes(group.name) ? ['ok', '✓ 中止を確かめた'] : ['check', '! 中止をまだ見ていない'])
+      : !people.length ? ['wait', '・まだ 0 人'] : done === people.length ? ['ok', '✓ そろった'] : ['wait', `・名簿 ${done}/${people.length}`];
     const health = people.length ? `健康の 2 欄は${group.name}が確かめる` : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name', text: group.name }),
@@ -207,13 +209,63 @@
       ui.go('share', { tripId, saved: r.saved, notice: `${shop}から ${people.length} 人を受け取りました（健康の 2 欄は${shop}が確かめる）` });
     };
     const [, ...head] = ui.head(owner === shop ? '自分の船に乗せる人' : `${owner}の船に乗せる人`, `${when(ui, trip)}　${trip.boat || ''}`.trim());
+    const acked = !!trip.cancel && trip.cancel.acked.includes(shop);
+    const ack = () => {
+      const r = ui.save(st => C().ackCancel(st, { tripId, shop, at: nowIso() }));
+      const took = !r.error && (R.rosterStore.get().trips.find(t => t.id === tripId).cancel || { acked: [] }).acked.includes(shop);
+      ui.go('partner', took ? { tripId, shop, saved: r.saved, notice: `${owner}に「確かめた」と返しました` }
+        : { tripId, shop, warn: r.error ? '記録できませんでした。もう一度押してください' : 'このお店は乗り合いから外れているので、確かめを返せません' });
+    };
     return [
-      el('p', { class: 'flag flag--info roleflag' }, el('span', { text: `${shop}役で入れています` }),
-        button('戻る', () => ui.go('share', { tripId }))),
+      roleFlag(shop, () => ui.go('share', { tripId })),
       ...head,
+      cancelAlert(trip, owner, people.length, acked),
       partnerPeopleSheet(v, ui),
       partnerHealthSheet(v, others),
-      ui.dock(el('button', { class: 'btn', type: 'button', disabled: !people.length, text: `${s.shop.name}に渡す（${people.length} 人）`, onclick: handOver }))
+      people.length ? el('p', { class: 'reset' }, button('名簿を受け取る（潜水日時・場所入り）', () => ui.go('partnerpaper', { tripId, shop }))) : null,
+      trip.cancel && !acked
+        ? ui.dock(el('button', { class: 'btn', type: 'button', text: '知らせた（確かめ済み）', onclick: ack }))
+        : trip.cancel ? null
+          : ui.dock(el('button', { class: 'btn', type: 'button', disabled: !people.length, text: `${s.shop.name}に渡す（${people.length} 人）`, onclick: handOver }))
+    ];
+  }
+
+  const roleFlag = (shop, back) => el('p', { class: 'flag flag--info roleflag' }, el('span', { text: `${shop}役で入れています` }), button('戻る', back));
+
+  /* 船を出す店が中止にしたら、相乗りのお店の画面の上に出す。お客さんへの連絡はそのお店から（連絡先はそのお店が持つ） */
+  function cancelAlert(trip, owner, n, acked) {
+    if (!trip.cancel) return null;
+    return el('div', { class: 'act' },
+      el('p', { class: 'act__title', text: `! 中止になりました（${(R.roster.CANCEL_TEXT[trip.cancel.reason] || { ja: '' }).ja}）` }),
+      el('p', { text: `${shortTime(trip.cancel.at)} に ${owner}から。お客さん ${n} 人への連絡は、このお店からお願いします。お客さんのページにも中止と出ます。` }),
+      acked ? el('p', { class: 'act__done', text: '✓ 確かめたと返しました' }) : null);
+  }
+
+  /* ---------- 相乗りのお店に名簿を返す ---------- */
+  const fileSafe = (name) => String(name).replace(/[\\/:*?"<>|\p{Cc}\u202A-\u202E\u2066-\u2069]/gu, '_');
+  /* 船を出す店が持つ潜水日時・潜水場所と、そのお店のガイドを入れた、そのお店のお客さんだけの名簿。
+     健康の 2 欄は船を出す店が持たないので「お店が記入」で返す（決定ログ partner-return） */
+  function renderPartnerPaper({ tripId, shop, ui }) {
+    const s = R.rosterStore.get();
+    const trip = s.trips.find(t => t.id === tripId);
+    if (!trip) return notFound(ui, '名簿を返す');
+    if (!X().shopsOf(s, trip).some(x => !x.own && x.key === shop)) {
+      return [...ui.head('名簿を返す'), el('p', { class: 'errors', text: 'このお店は乗り合いに入っていません。' }), ui.back()];
+    }
+    const table = C().rosterRows(s, tripId, [], { shop });   // 健康の 2 欄は「お店が記入」になるので、短い言い方は使わない
+    const guide = X().partnerGuide(s, tripId, shop);
+    const csv = () => {
+      R.saveFile(`meibo-${fileSafe(shop)}-${trip.date}${trip.start ? `-${trip.start.replace(':', '')}` : ''}.csv`, C().toCsv(table), 'text/csv;charset=utf-8');
+      const r = ui.save(st => C().logOutput(st, { tripId, act: 'csv', people: table.rows.length, health: false, paper: 'partner', at: nowIso() }));
+      ui.go('partnerpaper', { tripId, shop, saved: r.saved, notice: `CSV に書き出しました（${table.rows.length} 人）。${shop}に渡したら消してください` });
+    };
+    return [
+      roleFlag(shop, () => ui.go('partner', { tripId, shop })),
+      ...ui.head(`${shop}の名簿`, `${when(ui, trip)}　${X().boatOwner(s, trip)}の${trip.boat || '船'}`).slice(1),
+      el('p', { class: 'note', text: `船を出す店が持つ潜水日時・潜水場所と、${shop}のガイドを入れた、${shop}のお客さんだけの名簿です。健康の 2 欄は${shop}が自分で確かめて書きます。` }),
+      R.dayRoster.paper(s, trip, table, { shop, guide, paper: 'partner' }),
+      ui.dock(el('button', { class: 'btn', type: 'button', text: '名簿を印刷', onclick: () => window.print() }),
+        el('button', { class: 'btn btn--ghost', type: 'button', text: 'CSV', onclick: csv }))
     ];
   }
 
@@ -382,5 +434,5 @@
     ];
   }
 
-  R.shareRoster = { renderShare, renderPartner, renderJoint, renderJointPrint, renderBoard, renderLeave };
+  R.shareRoster = { renderShare, renderPartner, renderPartnerPaper, renderJoint, renderJointPrint, renderBoard, renderLeave };
 })();
