@@ -10,7 +10,7 @@
    /api/ask もお客さんのリンク（ask.html）から Access の外で呼ぶ。守りの順番: 道と method → Sec-Fetch-Site → 設定 → 種類 → 1 つの IP の回数 → 大きさ → 形 → 鍵
    （鍵の回数は ask-route.mjs）。/api/ask-link はお店がリンクを作る道で、/api/roster と同じく Access の内。中身は ask-route.mjs、計画は plan/meibo.md */
 import { checkRequest, periods, limitsFrom, MAX_BODY, MODEL } from './read-core.mjs';
-import { checkPut, readStored, MAX_PUT_BODY, SHOP_DEFAULT } from './sync-core.mjs';
+import { checkPut, readStored, MAX_PUT_BODY } from './sync-core.mjs';
 import { verifyAccess } from './access.mjs';
 import { remaining } from './budget.mjs';
 import { askModel } from './ask.mjs';
@@ -20,6 +20,8 @@ import { MAX_BOOKING_BODY } from './auto-core.mjs';
 import { getRoster, putRoster } from './roster-db.mjs';
 import { takeAsk, makeAskLink } from './ask-route.mjs';
 import { MAX_ASK_BODY } from './ask-core.mjs';
+import { listShops } from './shop-db.mjs';
+import { shopForEmail, shopForOrigin, sitesOf, nameOf, withShopName } from './shop-core.mjs';
 
 /* どれか欠けたら置き方の誤り。欠けた名前はログにだけ出す。直し方は docs/deploy.md */
 const REQUIRED_SECRETS = ['ANTHROPIC_API_KEY', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS'];
@@ -91,12 +93,17 @@ async function read(request, env, io, note) {
   return json(got.status, got.error === 'answer' ? { error: 'answer', healthSeen: got.healthSeen } : { error: got.error });
 }
 
-/* お店の名簿（plan/server.md）。GET は今の名簿、PUT は版を確かめて書く。版が違えば最新を返す（画面が当て直して送り直す） */
-async function roster(request, env, io, note) {
+/* お店の名簿（plan/server.md）。GET は今の名簿、PUT は版を確かめて書く。版が違えば最新を返す（画面が当て直して送り直す）。
+   どのお店の名簿かは、Access でログインしたメールをお店の一覧（D1 の shops）で引いて決める。一覧が空なら 1 店（default） */
+async function roster(request, env, io, note, who) {
   const now = io.now();
   const at = new Date(now).toISOString();
   const today = periods(now).day;
-  const shop = SHOP_DEFAULT;
+  let shops;
+  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
+  const shop = shopForEmail(shops, who.email);
+  if (!shop) { note.why = 'no-shop'; return json(403, { error: 'shop' }); }
+  note.shop = shop;
   const current = async () => {
     const got = await getRoster(env.DB, shop);
     return { version: got.version, state: got.text === null ? null : readStored(got.text, { today, at }) };
@@ -120,10 +127,13 @@ async function roster(request, env, io, note) {
     note.why = checked.error.slice(0, 40);
     return checked.error === 'size' ? json(413, { error: 'size' }) : json(400, { error: 'input' });
   }
-  note.size = checked.text.length;
+  /* 一覧に名前があるお店は、名簿のお店の名前をその名前にそろえる */
+  const state = withShopName(checked.state, nameOf(shops, shop, ''));
+  const text = state === checked.state ? checked.text : JSON.stringify(state);
+  note.size = text.length;
   try {
-    const put = await putRoster(env.DB, shop, checked.base, checked.text, at);
-    if (put.ok) { note.version = put.version; return json(200, { version: put.version, state: checked.state }); }
+    const put = await putRoster(env.DB, shop, checked.base, text, at);
+    if (put.ok) { note.version = put.version; return json(200, { version: put.version, state }); }
     const latest = await current();
     if (latest.version !== 0 && !latest.state) { note.why = 'stored'; return json(500, { error: 'stored' }); }
     note.why = 'conflict';
@@ -136,21 +146,25 @@ async function roster(request, env, io, note) {
 }
 
 /* サイトの予約フォーム（Access の外）。許すのは SITE_ORIGINS に書いた origin だけで、その origin にだけ CORS のヘッダを返す */
-const BOOKING_NEEDS = ['SITE_ORIGINS', 'TURNSTILE_SECRET'];
+const BOOKING_NEEDS = ['TURNSTILE_SECRET'];
 function corsFor(origin) {
   return { 'access-control-allow-origin': origin, vary: 'Origin', 'cross-origin-resource-policy': 'cross-origin' };
 }
+/* どのお店の予約かは、送ってきたサイト（origin）をお店の一覧で引いて決める。一覧が空なら SITE_ORIGINS のサイトだけを 1 店へ */
 async function bookings(request, env, io, note) {
   const origin = request.headers.get('origin') || '';
-  const allowed = String(env.SITE_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!origin || !allowed.includes(origin)) { note.why = 'origin'; return json(403, { error: 'origin' }); }
+  if (!(env.DB && typeof env.DB.prepare === 'function')) { note.why = 'config:DB'; return json(503, { error: 'config' }); }
+  let shops;
+  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
+  const shop = shopForOrigin(shops, origin, env.SITE_ORIGINS);
+  if (!shop) { note.why = 'origin'; return json(403, { error: 'origin' }); }
+  note.shop = shop;
   const cors = corsFor(origin);
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: { ...cors, 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'content-type, cf-turnstile-response',
       'access-control-max-age': '600', 'cache-control': 'no-store' } });
   }
   const miss = BOOKING_NEEDS.filter(k => typeof env[k] !== 'string' || env[k].trim() === '');
-  if (!(env.DB && typeof env.DB.prepare === 'function')) miss.push('DB');
   if (!(env.BOOKING_LIMIT && typeof env.BOOKING_LIMIT.limit === 'function')) miss.push('BOOKING_LIMIT');
   if (!(env.BUDGET && typeof env.BUDGET.get === 'function')) miss.push('BUDGET');
   if (miss.length) { note.why = `config:${miss.join('+')}`; return json(503, { error: 'config' }, cors); }
@@ -161,10 +175,10 @@ async function bookings(request, env, io, note) {
   if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }, cors); }
   let given;
   try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }, cors); }
-  const hosts = allowed.map(o => { try { return new URL(o).hostname.toLowerCase(); } catch (e) { return ''; } }).filter(Boolean);
+  const hosts = sitesOf(shops, shop, env.SITE_ORIGINS).map(o => { try { return new URL(o).hostname.toLowerCase(); } catch (e) { return ''; } }).filter(Boolean);
   const human = await verifyTurnstile(env, request.headers.get('cf-turnstile-response'), ip, io, hosts);
   if (!human.ok) { note.why = human.why; return json(403, { error: 'turnstile' }, cors); }
-  const got = await takeSiteBooking(given, env, io, note);
+  const got = await takeSiteBooking(given, env, io, note, shop, nameOf(shops, shop, ''));
   return json(got.status, got.body, cors);
 }
 
@@ -184,15 +198,19 @@ async function ask(request, env, io, url, note) {
   return json(got.status, got.body);
 }
 
-/* お店が予約のリンクを作る（Access の後） */
-async function askLink(request, env, io, url, note) {
+/* お店が予約のリンクを作る（Access の後）。作れるのは、ログインしたスタッフのお店の予約だけ */
+async function askLink(request, env, io, url, note, who) {
+  let shops;
+  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
+  const shop = shopForEmail(shops, who.email);
+  if (!shop) { note.why = 'no-shop'; return json(403, { error: 'shop' }); }
   if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
   const raw = await readCapped(request, 1024);
   if (raw === null) return json(413, { error: 'size' });
   let given;
   try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
   /* 置いた形では、お客さんのリンクは Access の無い別の Worker（ASK_ORIGIN）で開く。手元（serve-dist）は同じ場所 */
-  const got = await makeAskLink(given, env, io, note, env.ASK_ORIGIN || url.origin);
+  const got = await makeAskLink(given, env, io, note, env.ASK_ORIGIN || url.origin, shop);
   return json(got.status, got.body);
 }
 
@@ -216,8 +234,8 @@ async function route(request, env, io, url, note) {
     return who.why === 'certs' ? json(503, { error: 'access-keys' }) : json(403, { error: 'access' });
   }
 
-  if (url.pathname === '/api/roster') return roster(request, env, io, note);
-  if (url.pathname === '/api/ask-link') return askLink(request, env, io, url, note);
+  if (url.pathname === '/api/roster') return roster(request, env, io, note, who);
+  if (url.pathname === '/api/ask-link') return askLink(request, env, io, url, note, who);
   return url.pathname === '/api/healthz' ? healthz(env, io) : read(request, env, io, note);
 }
 

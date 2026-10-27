@@ -56,6 +56,24 @@ CREATE TABLE rosters (
    - お客さんのリンクは作った（2026-10-27、feature/auto-docs。worker/ask-*.mjs・ask.html・migrations/0002_ask_links.sql・test/ask-link.test.mjs）。一緒に乗るお店のリンクはまだ
    - その前に、記録の before / after の中身も決まった項目だけにする（今は名簿・お店・記録の 1 件の項目と、id の重なりだけをサーバーで止めている。ザクのレビュー 2026-10-27）
 
+## お店ごと（2026-10-27）
+
+1 つの仕組みで何店でも扱う。D1 の `shops`（worker/migrations/0003_shops.sql）が、お店の一覧（id・名前・スタッフのメール・予約フォームのサイト・予約メールの受け口のアドレス）。
+- スタッフ: Access でログインしたメールを一覧で引き、そのお店の名簿（rosters.shop = id）だけを読み書きする。どのお店にもいなければ 403。名簿のお店の名前は一覧の名前にそろえる
+- サイトの予約: 送ってきたサイト（origin）でお店を決める。Turnstile もそのお店のサイトの hostname だけを通す。1 日の件数はお店ごと
+- 届いたメール: 宛先（封筒の To）でお店を決める（ドメインを置いたあと）
+- お客さんのリンク: 鍵と一緒に置いたお店（ask_links.shop）の名簿を読む
+- Cron: 名簿があるお店を全部回る（1 店が失敗してもほかは止めない）
+- 一覧が空（表が無い D1 も）のあいだは、今までどおり 1 店（default）で動く
+- 判定は worker/shop-core.mjs（core）、読み出しは worker/shop-db.mjs。テストは test/shops.test.mjs
+
+お店を足す（今は D1 のコンソールで。画面は後で）:
+```sql
+INSERT INTO shops (id, name, members, sites, inbox) VALUES ('shop-a', 'A ダイブ', '["staff@example.com"]', '["https://shop-a.example.com"]', '');
+```
+- 1 店目を足した時点で、一覧が空でなくなるので、今の見本（default）の名簿はどのスタッフからも見えなくなる。見本を残すなら、見本のお店の行も足し、id を default にする
+- スタッフは Access の Policy と ALLOWED_EMAILS にも足す（入口は Access のまま）
+
 ## まだ決めていないこと
 
 - **名簿が 1 MB を超えたときの分け方（便ごと・月ごと）。** 手元で測ると、見本の乗り合い便（30 人）で 54 KB だった。1 MB は約 550 人分で、1 年に数千人を案内する店には足りない。本物の店で使う前（段階 1 の終わりまで）に、便ごとに分けて持つ形へ直す

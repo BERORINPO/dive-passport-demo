@@ -18,10 +18,11 @@ export const SHOP_DEFAULT = 'default';
 
 const bytes = (text) => new TextEncoder().encode(text).byteLength;
 
-/* 置く前に直す: 記録の中身を消し、保存期間を過ぎた便を消し、他のお店のお客さんの健康の答えを外す（画面の loadRoster と同じ順） */
+/* 置く前に直す: 記録の中身を消し、保存期間を過ぎた便を消し、他のお店のお客さんの健康の答えを外す（画面の loadRoster と同じ順）。
+   終わって 1 週間を過ぎた便の、済んだ予定と送った連絡の本文も外す（js/roster-auto.js の compactPast） */
 function tidy(state, { today, at }) {
   const kept = R.rosterCore.purgeExpired(state, { today, at });
-  return R.rosterShare.holdPartnerHealth(kept, { at });
+  return R.rosterAuto.compactPast(R.rosterShare.holdPartnerHealth(kept, { at }), { today });
 }
 
 /* 画面の形の検査（validateState）より厳しく見る所。サーバーに置く物だけにかける（端末にある名簿は今の検査のまま読める）。
