@@ -305,7 +305,7 @@
     if (!isObj(s) || s.v !== VERSION) return result(['version']);
     const all = (list, fn) => Array.isArray(list) && list.every(x => fn(x).ok);
     return result([
-      !(isObj(s.shop) && isStr(s.shop.name, 60)) && 'shop',
+      !(isObj(s.shop) && isStr(s.shop.name, 60) && (s.shop.health === undefined || s.shop.health === 'paper')) && 'shop',   // health: 'paper' は健康の質問を紙で聞く
       !all(s.trips, validateTrip) && 'trips', !all(s.bookings, validateBooking) && 'bookings',
       !all(s.people, validatePerson) && 'people', !(Array.isArray(s.log) && s.log.every(logOk)) && 'log',
       !(s.jobs === undefined || isList(s.jobs, MAX_JOBS, jobOk)) && 'jobs', !(s.outbox === undefined || isList(s.outbox, MAX_OUTBOX, outOk)) && 'outbox'

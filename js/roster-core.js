@@ -60,7 +60,14 @@
   }
 
   /* ---------- そろっているか ---------- */
-  function filled(p, trip, key) {
+  /* お店が健康の質問を紙の申込書で聞く（試用の形。state.shop.health === 'paper'）。健康の 2 項目（既往症・当日の健康状態）は
+     「紙でそろう」として、お客さんにもアプリでは聞かず、名簿のそろい具合でも待たない。名簿の紙には「紙の申込書」と出す */
+  const paperOf = (state) => !!(state && state.shop && state.shop.health === 'paper');
+  const PAPER_TEXT = '紙の申込書';
+  const PAPER_KEYS = ['history', 'today'];
+
+  function filled(p, trip, key, opt = {}) {
+    if (opt.paper && PAPER_KEYS.includes(key)) return true;
     switch (key) {
       case 'name': return p.name.trim() !== '';
       case 'birthDate': return /^\d{4}-\d{2}-\d{2}$/.test(p.birthDate);
@@ -81,19 +88,19 @@
   }
 
   /* missing: 空の項目。unsure: AI が自信なしと言い、まだ誰も確かめていない項目 */
-  function status(p, trip) {
+  function status(p, trip, opt = {}) {
     const items = S().ITEMS[trip ? trip.kind : 'dive'];
-    const missing = items.filter(i => !filled(p, trip, i.key)).map(i => i.key);
-    const unsure = items.filter(i => !i.trip && !i.health && filled(p, trip, i.key) &&
+    const missing = items.filter(i => !filled(p, trip, i.key, opt)).map(i => i.key);
+    const unsure = items.filter(i => !i.trip && !i.health && filled(p, trip, i.key, opt) &&
       p.unsure.includes(FIELD_OF[i.key] || i.key)).map(i => i.key);
     return { missing, unsure, done: missing.length === 0 && unsure.length === 0 };
   }
 
   /* お客さんに聞く項目（便とお店が決める項目は除く） */
-  function askGuest(p, trip) {
+  function askGuest(p, trip, opt = {}) {
     const items = S().ITEMS[trip ? trip.kind : 'dive'];
     const heldKey = (k) => isHeld(p) && (k === 'history' || k === 'today');   // 健康は他のお店が確かめる人には聞かない
-    return status(p, trip).missing.filter(k => !items.find(i => i.key === k).trip && !heldKey(k));
+    return status(p, trip, opt).missing.filter(k => !items.find(i => i.key === k).trip && !heldKey(k));
   }
 
   function tripSummary(state, tripId) {
@@ -102,7 +109,7 @@
     return {
       booked: bookingsOf(state, tripId).reduce((n, b) => n + b.people, 0),
       listed: people.length,
-      done: people.filter(p => status(p, trip).done).length
+      done: people.filter(p => status(p, trip, { paper: paperOf(state) }).done).length
     };
   }
 
@@ -110,6 +117,15 @@
   const entry = (at, who, act, kind, id, extra) => ({ at, who, act, kind, id, fields: [], before: {}, after: {}, sent: null, ...extra });
   const withLog = (state, ...entries) => ({ ...state, log: [...state.log, ...entries] });
   const pick = (obj, keys) => Object.fromEntries(keys.map(k => [k, obj[k]]));
+
+  /* 健康の質問をどこで聞くか（paper: 紙の申込書で聞く。false: アプリで聞く）。変えたら記録に残す */
+  function setHealthPaper(state, { paper, at }) {
+    if (paperOf(state) === !!paper) return state;
+    const { health, ...rest } = state.shop;
+    const shop = paper ? { ...rest, health: 'paper' } : rest;
+    const mode = (on) => (on ? 'paper' : 'app');
+    return withLog({ ...state, shop }, entry(at, 'staff', 'edit', 'state', '', { fields: ['health'], before: { health: mode(!paper) }, after: { health: mode(paper) } }));
+  }
 
   /* AI に送った記録。量と、塗った印と、健康の情報が見えたかだけで、中身は残さない */
   function logAi(state, { at, sent }) {
@@ -292,10 +308,11 @@
      heldToday: 当日の体調を他のお店が便の日に確かめるのを待っている（お客さんにも便の項目にも足りない物は無い） */
   function bookingRows(state, tripId) {
     const trip = state.trips.find(t => t.id === tripId) || null;
+    const opt = { paper: paperOf(state) };
     return bookingsOf(state, tripId).map(b => {
       const people = state.people.filter(p => p.bookingId === b.id).map(p => {
-        const st = status(p, trip);
-        return { id: p.id, name: p.name, ...st, ask: askGuest(p, trip), heldToday: isHeld(p) && st.missing.includes('today') };
+        const st = status(p, trip, opt);
+        return { id: p.id, name: p.name, ...st, ask: askGuest(p, trip, opt), heldToday: isHeld(p) && st.missing.includes('today') };
       });
       return { booking: b, people, done: people.filter(p => p.done).length };
     });
@@ -558,10 +575,12 @@
     const ids = shop ? new Set(bookingsOf(state, tripId).filter(b => isPartnerBooking(b) && b.shop === shop).map(b => b.id)) : null;
     const people = shop ? state.people.filter(p => ids.has(p.bookingId)) : peopleOf(state, tripId, { own });
     const healthKey = new Set(items.filter(i => i.health).map(i => i.key));
-    const doneOf = (p) => { const st = status(p, trip); return shop ? st.unsure.length === 0 && st.missing.every(k => healthKey.has(k)) : st.done; };
+    const paper = paperOf(state);
+    const doneOf = (p) => { const st = status(p, trip, { paper }); return shop ? st.unsure.length === 0 && st.missing.every(k => healthKey.has(k)) : st.done; };
     const rows = people.map(p => ({
       personId: p.id, done: doneOf(p),
-      cells: Object.fromEntries(items.map(i => [i.key, shop && i.health ? SHOP_FILLS : cellText(p, trip, i.key, healthShort)]))
+      cells: Object.fromEntries(items.map(i => [i.key, shop && i.health ? SHOP_FILLS
+        : paper && PAPER_KEYS.includes(i.key) ? (cellText(p, trip, i.key, healthShort) || PAPER_TEXT) : cellText(p, trip, i.key, healthShort)]))
     }));
     return { items, rows };
   }
@@ -608,7 +627,7 @@
   }
 
   R.rosterCore = {
-    COURSE_JA, isPartnerBooking, isHeld, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
+    COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,

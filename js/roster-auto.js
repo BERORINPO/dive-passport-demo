@@ -49,10 +49,11 @@
   function missingPeople(state, bookingId) {
     const b = bookingOf(state, bookingId);
     const trip = tripOfBooking(state, b);
-    return peopleOfBooking(state, bookingId).filter(p => C().askGuest(p, trip).some(k => k !== 'today'));
+    return peopleOfBooking(state, bookingId).filter(p => C().askGuest(p, trip, { paper: C().paperOf(state) }).some(k => k !== 'today'));
   }
-  /* 当日の体調がまだの人（他のお店が確かめる人は除く） */
-  const needToday = (state, bookingId) => peopleOfBooking(state, bookingId).filter(p => !C().isHeld(p) && !p.health.today);
+  /* 当日の体調がまだの人（他のお店が確かめる人は除く）。健康を紙で聞くお店では、当日の朝の質問は送らない（受付で紙に書いてもらう） */
+  const needToday = (state, bookingId) => (C().paperOf(state) ? []
+    : peopleOfBooking(state, bookingId).filter(p => !C().isHeld(p) && !p.health.today));
 
   /* ---------- 文面（健康の答えは入れない。名前と日付とリンクだけ） ---------- */
   function md(date, lang) {
@@ -63,7 +64,12 @@
   }
   /* ko・zh は、文面を用意するまで英語で送る */
   const textLang = (lang) => (lang === 'ja' ? 'ja' : 'en');
-  function message(kind, { shop, booking, trip, people, link }) {
+  /* お願いの最後の 1 行。[アプリで聞くお店, 健康を紙で聞くお店] */
+  const HEALTH_NOTE = {
+    ja: ['健康の質問の答えは、このお店だけが見ます。AI には送りません。', '健康の質問は、当日の受付で紙の申込書にお願いします。'],
+    en: ['Only this shop sees your health answers. They are not sent to AI.', 'Health questions are answered on the paper form at check-in on the day.']
+  };
+  function message(kind, { shop, booking, trip, people, link, paper = false }) {
     const L = textLang(booking.lang || 'ja');
     const when = `${md(trip.date, L)}${trip.start ? ` ${trip.start}` : ''}`;
     const names = people.map(p => p.name || (L === 'ja' ? '（お名前未定の方）' : '(name not given)'));
@@ -74,7 +80,8 @@
       if (kind === 'request' || kind === 'remind') {
         return {
           subject: `${kind === 'remind' ? '【もう一度】' : ''}【${shop}】${md(trip.date, 'ja')} のダイビングの前に、名簿の項目をお願いします`,
-          body: `${hello}沖縄県の条例で、お店は潜る方の名簿を作ります。まだいただいていない項目だけを、下のリンクからお願いします（約 3 分）。\n\n${link}\n\nお願いする方: ${names.join('、')}\n健康の質問の答えは、このお店だけが見ます。AI には送りません。${sign}`
+          body: `${hello}沖縄県の条例で、お店は潜る方の名簿を作ります。まだいただいていない項目だけを、下のリンクからお願いします（約 3 分）。\n\n${link}\n\n` +
+            `お願いする方: ${names.join('、')}\n${HEALTH_NOTE.ja[paper ? 1 : 0]}${sign}`
         };
       }
       if (kind === 'today') {
@@ -93,7 +100,8 @@
     if (kind === 'request' || kind === 'remind') {
       return {
         subject: `${kind === 'remind' ? '[Reminder] ' : ''}[${shop}] Please fill in the diver list before your dive on ${md(trip.date, 'en')}`,
-        body: `${hello}Under Okinawa Prefecture rules, the shop keeps a list of everyone who dives. Please fill in only the missing items at the link below (about 3 minutes).\n\n${link}\n\nFor: ${names.join(', ')}\nOnly this shop sees your health answers. They are not sent to AI.${sign}`
+        body: `${hello}Under Okinawa Prefecture rules, the shop keeps a list of everyone who dives. ` +
+          `Please fill in only the missing items at the link below (about 3 minutes).\n\n${link}\n\nFor: ${names.join(', ')}\n${HEALTH_NOTE.en[paper ? 1 : 0]}${sign}`
       };
     }
     if (kind === 'today') {
@@ -155,7 +163,7 @@
     const shop = state.shop.name || '';
     /* askBase が空のとき（Worker）は印だけを入れ、送るときに予約ごとの鍵のリンクへ差し替える（鍵は名簿に残さない。worker/auto.mjs） */
     const link = askBase ? `${askBase}${booking.id}` : LINK_MARK;
-    const { subject, body } = message(kind, { shop, booking, trip, people, link });
+    const { subject, body } = message(kind, { shop, booking, trip, people, link, paper: C().paperOf(state) });
     const toGuest = kind !== 'staff';
     const to = toGuest ? (booking.leadEmail || '') : '';
     return {

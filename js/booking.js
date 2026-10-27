@@ -217,6 +217,21 @@
       el('button', { class: 'linkbtn', type: 'button', text: real ? '見本に戻す' : '本物にする', onclick: () => A.setMode(real ? 'sample' : 'real') }));
   }
 
+  /* 健康の質問をどこで聞くか（お店ごと）。紙にすると、お客さんのリンクと自動の連絡は健康を聞かず、名簿の健康の欄は「紙の申込書」になる */
+  function healthModeRow(s) {
+    const paper = C().paperOf(s);
+    const pick = (on) => () => {
+      const r = save(st => C().setHealthPaper(st, { paper: on, at: now() }));
+      notice = r.error ? { kind: 'warn', text: '切り替えられませんでした' }
+        : { kind: 'ok', text: on ? '健康の質問は、紙の申込書で聞きます。お客さんのリンクと自動の連絡では聞きません。' : '健康の質問を、お客さんのリンクで聞きます。' };
+      render();
+    };
+    const opt = (on, text) => el('button', { class: 'ptab', type: 'button', 'aria-pressed': String(paper === on), text, onclick: pick(on) });
+    return el('section', { class: 'reset' },
+      el('span', { class: 'rd__k', text: '健康の質問（お店ごと）' }),
+      el('div', { class: 'ptabs', role: 'group', 'aria-label': '健康の質問' }, opt(false, 'アプリで聞く'), opt(true, '紙の申込書で聞く')));
+  }
+
   function renderList() {
     loadUnread();
     const s = R.rosterStore.get();
@@ -246,6 +261,7 @@
       /* 書類の自動化のデモ: 見本のメールが届いた形と、次の予定の時刻まで進める */
       el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本のメールが届く（デモ）', onclick: () => R.autoFlow.demoMail(ui) })),
       (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
+      healthModeRow(s),
       /* 済んで 7 日を過ぎた便は、サーバーが便ごとに分けて置く（読むだけ）。サーバーを使わない版には無い */
       R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '済んだ便を見る（7 日より前）', onclick: () => go('past') })) : null,
       s.trips.length ? resetButton() : null,
@@ -496,7 +512,7 @@
 
   function personLine(p, trip) {
     const items = R.roster.ITEMS[trip ? trip.kind : 'dive'];
-    const st = C().status(p, trip);
+    const st = C().status(p, trip, { paper: C().paperOf(R.rosterStore.get()) });
     const labels = st.missing.map(k => items.find(i => i.key === k).ja);
     const rest = labels.length > 4 ? ` ほか ${labels.length - 4}` : '';
     return el('div', { class: 'rd' },
