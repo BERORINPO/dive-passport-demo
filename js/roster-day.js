@@ -33,7 +33,7 @@
     const items = S().ITEMS[trip.kind];
     const isTrip = (k) => items.find(i => i.key === k).trip;
     const people = C().peopleOf(state, tripId, { own: true }).map(person => {
-      const st = C().status(person, trip);
+      const st = C().status(person, trip, { paper: C().paperOf(state) });
       return { person, unsure: st.unsure, guest: st.missing.filter(k => !isTrip(k)), done: st.done };
     });
     const blank = { ...S().blankPerson(), id: 'trip' };

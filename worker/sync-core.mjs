@@ -31,7 +31,7 @@ function tidy(state, { today, at }) {
    - 便・予約・人の id は重ならない（同じ id の人を 2 人入れて、他のお店のお客さんの健康の答えを外す決まりを抜けさせない。ザクのレビュー 2026-10-27）
    記録の before / after の中身は、まだ項目を絞っていない。お客さんのリンク（/ask）を Access の外に出す前に絞る（plan/server.md） */
 const STATE_KEYS = ['v', 'shop', 'trips', 'bookings', 'people', 'log', 'jobs', 'outbox'];
-const SHOP_KEYS = ['name'];
+const SHOP_KEYS = ['name', 'health'];
 const LOG_KEYS = ['at', 'who', 'act', 'kind', 'id', 'fields', 'before', 'after', 'sent', 'demo'];
 const onlyKeys = (o, keys) => Object.keys(o).every(k => keys.includes(k));
 const unique = (list) => new Set(list.map(x => x.id)).size === list.length;

@@ -9,13 +9,12 @@
   "js/intake-photo.js": 4,
   "js/intake.js": 3,
   "js/partner-photo.js": 3,
-  "js/roster-auto.js": 2,
+  "js/roster-auto.js": 1,
   "js/roster-schema.js": 2,
   "js/roster-share.js": 1,
   "js/share-roster.js": 2,
   "js/shop.js": 1,
   "worker/auto-core.mjs": 1,
-  "worker/auto.mjs": 1,
   "worker/handler.mjs": 1,
   "worker/read-core.mjs": 3
 }
