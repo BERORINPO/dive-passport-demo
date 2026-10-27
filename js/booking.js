@@ -49,7 +49,7 @@
 
   function blankMail() { return { text: '', sampleId: null, shown: null, reading: null, tripId: '', kind: '', busy: false, error: '' }; }
   function blankPhone() {
-    return { date: R.today(), start: '', tourId: R.TOURS[0].id, leadName: '', leadPhone: '', people: '1', source: 'phone', note: '', tripId: '' };
+    return { date: R.today(), start: '', tourId: R.TOURS[0].id, leadName: '', leadPhone: '', email: '', people: '1', source: 'phone', note: '', tripId: '' };
   }
 
   const now = () => new Date().toISOString();
@@ -74,7 +74,7 @@
     }
   }
 
-  /* ctx: tripId（名簿の取り込みの便）/ personId（確かめる人）/ notice（知らせる文）/ saved（false なら保存できなかったと知らせる） */
+  /* ctx: day（一覧で開く日）/ tripId（名簿の取り込みの便）/ personId（確かめる人）/ notice（知らせる文）/ saved（false なら保存できなかったと知らせる） */
   function go(next, ctx = {}) {
     mode = next;
     armedReset = false;
@@ -83,6 +83,7 @@
     if (ctx.personId) reviewPerson = ctx.personId;
     if (ctx.bookingId) askBooking = ctx.bookingId;
     if (ctx.shop !== undefined) shareShop = ctx.shop;
+    if (ctx.day) day = ctx.day;
     if (next === 'mail') mail = blankMail();
     if (next === 'phone') phone = blankPhone();
     if (next === 'ask') copied = null;
@@ -122,13 +123,15 @@
     const lead = b.leadName || (row.people[0] && row.people[0].name) || '名前の分からない予約';
     const others = Math.max(b.people, total) - 1;
     const where = C().isPartnerBooking(b) ? `${b.shop}（乗り合い）` : b.site ? `${b.site}（${SOURCE_JA[b.source]}）` : SOURCE_JA[b.source];
-    const status = unsure ? '確かめてほしい所がある' : guests ? `${guests} 人分の入力を待っている`
+    const auto = R.autoFlow.rowNote(R.rosterStore.get(), b.id);   // 書類の自動化: 送ったお願い・お店への知らせ
+    const status = unsure ? '確かめてほしい所がある' : auto ? auto.text : guests ? `${guests} 人分の入力を待っている`
       : heldToday ? `当日の体調は${b.shop}が便の日に確かめる` : waiting ? '便のポイントかガイドがまだ' : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, lead, others > 0 ? el('span', { class: 'nw', text: ` ほか ${others} 人` }) : null),
       el('span', { class: `st st--${st[0]}`, text: st[1] }),
       el('span', { class: 'bk__meta', text: `${where}　${status}`.trim() }),
-      guests ? el('button', { class: 'linkbtn', type: 'button', text: 'お客さんに聞く', onclick: () => go('ask', { bookingId: b.id }) }) : null);
+      R.autoFlow.hasPlan(R.rosterStore.get(), b.id) ? el('button', { class: 'linkbtn', type: 'button', text: '流れを見る', onclick: () => go('flow', { bookingId: b.id }) })
+        : guests ? el('button', { class: 'linkbtn', type: 'button', text: 'お客さんに聞く', onclick: () => go('ask', { bookingId: b.id }) }) : null);
   }
 
   function tripCard(s, trip) {
@@ -206,6 +209,9 @@
           notice = r.error ? { kind: 'warn', text: '見本の便を作れませんでした' } : { kind: 'ok', text: '見本の乗り合い便を作りました（13:00、4 店・お客さん 30 人）' };
           render();
         } })),
+      /* 書類の自動化のデモ: 見本のメールが届いた形と、次の予定の時刻まで進める */
+      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本のメールが届く（デモ）', onclick: () => R.autoFlow.demoMail(ui) })),
+      (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
       s.trips.length ? resetButton() : null,
       dock(
         el('button', { class: 'btn', type: 'button', text: 'メールを貼る', onclick: () => go('mail') }),
@@ -332,6 +338,11 @@
       save(s => C().logAi(s, { at: now(), sent }));
       job.reading = reading;
       job.tripId = '';
+      /* 書類の自動化: 日付が読めたら、確かめずに便へ入れて予定を作る（自信の無い所は印が付き、名簿の「確かめる」に出る） */
+      if (reading.booking && reading.booking.date && mail === job) {
+        const r = R.autoFlow.addReading(save, reading, 'ja');
+        if (!r.error) { go('flow', { bookingId: r.bookingId, saved: r.saved, notice: '予約メールを読んで、自動で入れました' }); return; }
+      }
     } catch (e) {
       if (e.sent) save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
       job.error = ERROR_JA[e.kind] || ERROR_JA.bad;
@@ -390,9 +401,13 @@
     const input = { date: phone.date, people: Number(phone.people), leadName: phone.leadName.trim(), leadPhone: phone.leadPhone.trim(), note: phone.note.trim() };
     const problems = C().bookingProblems(input);
     if (problems.length) { errorsNode.textContent = `確かめてください: ${problems.map(p => PROBLEM_JA[p]).join('・')}`; return; }
-    const booking = { source: phone.source, leadName: input.leadName, leadPhone: input.leadPhone, people: input.people, note: input.note };
-    const r = save(s => C().addBookingToTrip(s, { tripId: phone.tripId, want: phoneWant(), booking, reading: null, src: 'staff', at: now(), newId: R.newId }).state);
+    const email = phone.email.trim();
+    if (email && !R.roster.emailOk(email)) { errorsNode.textContent = '確かめてください: メールアドレス'; return; }
+    const booking = { source: phone.source, leadName: input.leadName, leadPhone: input.leadPhone, people: input.people, note: input.note, ...(email ? { leadEmail: email } : {}) };
+    let bookingId = '';
+    const r = save(s => { const st = C().addBookingToTrip(s, { tripId: phone.tripId, want: phoneWant(), booking, reading: null, src: 'staff', at: now(), newId: R.newId }).state; bookingId = st.bookings[st.bookings.length - 1].id; return st; });
     if (r.error) { errorsNode.textContent = '予約を入れられませんでした。入力を確かめて、もう一度試してください。'; return; }
+    R.autoFlow.plan(save, bookingId);   // 書類の自動化: お願い・2 日前・前日の夜・当日の朝の予定
     done(phone.date, `予約を入れました: ${booking.leadName || '名前の分からない予約'}（${booking.people} 人）`, r.saved);
   }
 
@@ -413,6 +428,8 @@
         el('div', { class: 'row' },
           field('代表者の名前', el('input', { class: 'input', type: 'text', maxlength: 60, autocomplete: 'off', value: phone.leadName, oninput: set('leadName') })),
           field('電話', el('input', { class: 'input', type: 'tel', maxlength: 30, autocomplete: 'off', value: phone.leadPhone, oninput: set('leadPhone') }))),
+        field('メールアドレス（分かれば）', el('input', { class: 'input', type: 'email', maxlength: 254, autocomplete: 'off', value: phone.email, oninput: set('email') }),
+          'あると、名簿の項目のお願いを自動で送ります'),
         el('div', { class: 'row' },
           field('人数', el('input', { class: 'input input--short', type: 'number', min: 1, max: R.roster.MAX_PEOPLE, value: phone.people, oninput: set('people') })),
           field('どこから', el('select', { class: 'input', onchange: set('source') },
@@ -488,6 +505,7 @@
       : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
+            : mode === 'flow' ? R.autoFlow.render({ bookingId: askBooking, ui })
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })
               : SHARE_MODES[mode] ? R.shareRoster[SHARE_MODES[mode]]({ tripId: dayTrip, shop: shareShop, ui })
                 : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui }) : renderList();
@@ -507,6 +525,10 @@
   }
 
   R.renderBooking = render;
+  /* 書類の自動化: 時刻が来た予定を 1 分ごとに動かす。予約と名簿の画面を見ているときは描き直す */
+  const autoTick = () => { if (R.autoFlow.tick(save) && !root.closest('[hidden]') && !['mail', 'phone'].includes(mode)) render(); };
+  setTimeout(autoTick, 1500);
+  setInterval(autoTick, 60000);
   R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log', 'joint', 'boat', 'callout'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
   /* 見本 / 本物が変わった（切り替えた・上限で見本に戻った・healthz が通った）。入力の途中の画面は描き直さない */
   R.aiReader.onChange(() => { if (mode === 'list' && !document.getElementById('view-booking').hidden) render(); });

@@ -123,6 +123,8 @@
     const { trip } = g;
     return [
       ...tripMast(trip, '今日の名簿', ui, g.count),
+      /* 書類の自動化: 当日の朝 6 時に名簿を作った印（js/roster-auto.js の runDue） */
+      trip.rosterAt ? el('p', { class: 'flag flag--ok', role: 'status', text: `✓ 条例の名簿ができました（${new Date(Date.parse(trip.rosterAt) + 9 * 3600000).toISOString().slice(11, 16)}、自動）` }) : null,
       cancelBand(trip, ui),
       trip.partners.length ? el('p', { class: 'note', text: '乗り合いの他のお店のお客さんは、この名簿に入れません（条例の名簿はお店ごと）。船の全員は「乗り合い」の合同名簿で見ます。' }) : null,
       tripFields(g, ui),
