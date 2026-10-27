@@ -93,6 +93,8 @@
     await new Promise(resolve => setTimeout(resolve, SAMPLE_MS));
     const table = { ...(R.SAMPLE_READINGS || {}), ...(R.SAMPLE_LIST_READINGS || {}) };   // 予約の一覧の見本は data-big-sample.js
     const hit = req.sampleId && Object.prototype.hasOwnProperty.call(table, req.sampleId) ? table[req.sampleId] : null;
+    /* 見本のメールは、画面に出した文面と同じだけ予約の日付をずらす（data-samples.js の R.sampleMail） */
+    if (hit && req.doc === 'mail' && R.SAMPLE_MAILS && R.SAMPLE_MAILS[req.sampleId] && R.today) return accept(R.sampleMail(req.sampleId, R.today()).reading);
     return accept(JSON.parse(JSON.stringify(hit || { booking: null, people: [], healthSeen: false })));
   }
 

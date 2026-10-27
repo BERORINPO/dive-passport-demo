@@ -46,7 +46,7 @@
 
   function blankMail() { return { text: '', sampleId: null, shown: null, reading: null, tripId: '', kind: '', busy: false, error: '' }; }
   function blankPhone() {
-    return { date: day, start: '', tourId: R.TOURS[0].id, leadName: '', leadPhone: '', people: '1', source: 'phone', note: '', tripId: '' };
+    return { date: R.today(), start: '', tourId: R.TOURS[0].id, leadName: '', leadPhone: '', people: '1', source: 'phone', note: '', tripId: '' };
   }
 
   const now = () => new Date().toISOString();
@@ -197,7 +197,9 @@
         : el('p', { class: 'empty', text: 'まだ予約がありません。「メールを貼る」で、見本のメールから試せます。' }),
       el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本の乗り合い便を作る（4 店・30 人）',
         onclick: () => {
-          const r = save(st => R.rosterShare.addBigSample(st, { day: day || R.today(), at: new Date().toISOString(), newId: R.newId }).state);
+          /* 開いている日でなく今日に作り、今日を開く（見本の便は「今日の 13:00」。小禄さんの不具合さがし 2026-10-27） */
+          const r = save(st => R.rosterShare.addBigSample(st, { day: R.today(), at: new Date().toISOString(), newId: R.newId }).state);
+          if (!r.error) day = R.today();
           notice = r.error ? { kind: 'warn', text: '見本の便を作れませんでした' } : { kind: 'ok', text: '見本の乗り合い便を作りました（13:00、4 店・お客さん 30 人）' };
           render();
         } })),
@@ -224,7 +226,9 @@
   }
 
   /* ---------- 予約サイトのメールを取り込む ---------- */
-  const matchSample = (text) => Object.keys(R.SAMPLE_MAILS).find(id => R.SAMPLE_MAILS[id].text === text.replace(/\r\n?/g, '\n').trimEnd()) || null;
+  /* 見本のメールは、日付を今日から数えた日にずらして出す（data-samples.js の R.sampleMail） */
+  const sampleText = (id) => R.sampleMail(id, R.today()).text;
+  const matchSample = (text) => Object.keys(R.SAMPLE_MAILS).find(id => sampleText(id) === text.replace(/\r\n?/g, '\n').trimEnd()) || null;
   let mailOut = null;
   let mailInputs = [];      // 読んでいる間は押せなくする入力欄とボタン
 
@@ -350,7 +354,7 @@
     });
     const sampleButtons = Object.entries(R.SAMPLE_MAILS).map(([id, m], i) => el('button', {
       class: 'btn btn--ghost btn--small', type: 'button', title: m.note, text: `見本 ${i + 1}`,
-      onclick: () => { mail = { ...blankMail(), text: m.text, sampleId: id }; textarea.value = m.text; fillMail(); }
+      onclick: () => { const text = sampleText(id); mail = { ...blankMail(), text, sampleId: id }; textarea.value = text; fillMail(); }
     }));
     mailInputs = [textarea, ...sampleButtons];
     mailOut = el('div', { class: 'mail__out' });

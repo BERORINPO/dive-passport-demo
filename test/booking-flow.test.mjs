@@ -60,6 +60,40 @@ test('見本の予約メール 4 通で、予約と人が入り、送る文面�
   assert.ok(s.log.filter(e => e.act === 'ai').every(e => e.sent.mode === 'sample' && !('text' in e.sent)));
 });
 
+test('見本のメールの日付: 開いた日の 2 日後以降で最初の土曜日（月・年・うるう年の境目も）', () => {
+  const R = boot(memory());
+  const want = { '2026-10-21': '2026-10-24', '2026-10-27': '2026-10-31', '2026-10-29': '2026-10-31', '2026-10-30': '2026-11-07',
+    '2026-12-30': '2027-01-02', '2027-02-26': '2027-03-06', '2028-02-26': '2028-03-04' };
+  Object.entries(want).forEach(([today, day]) => assert.equal(R.sampleMailDay(today), day, today));
+});
+
+test('見本のメールの日付: 文面と読み取りの予約日だけをずらし、生年月日・予約番号・元の見本は変えない', () => {
+  const R = boot(memory());
+  const before = JSON.stringify([R.SAMPLE_MAILS, R.SAMPLE_READINGS]);
+  const e1 = R.sampleMail('e1', '2026-10-27');
+  assert.ok(e1.text.includes('10/31（土）') && e1.text.includes('2026年10月31日（土）') && e1.text.includes('YS-20261020-0042'));
+  assert.ok(!e1.text.includes('10/24') && !e1.text.includes('10月24日'));
+  assert.equal(e1.reading.booking.date, '2026-10-31');
+  const e2 = R.sampleMail('e2', '2026-12-30');
+  assert.ok(e2.text.includes('Jan 2, 2027') && e2.text.includes('Saturday, January 2, 2027') && e2.text.includes('1990-06-15'));
+  const e3 = R.sampleMail('e3', '2026-10-27');
+  assert.ok(e3.text.includes('ご希望日: 10月31日') && e3.text.includes('生年月日: 1995/12/24'), '生年月日の 24 日は動かさない');
+  const e4 = R.sampleMail('e4', '2026-10-27');
+  assert.ok(e4.text.includes('来週31日') && e4.text.includes('> 2026/10/25') && !e4.text.includes('24日'));
+  assert.equal(R.sampleMail('e1', '2026-10-21').text, R.SAMPLE_MAILS.e1.text, '元の日に開けば元の文面のまま');
+  assert.equal(JSON.stringify([R.SAMPLE_MAILS, R.SAMPLE_READINGS]), before, '元の見本は書き換えない');
+});
+
+test('見本のメールを読むと、今日より後の便に入る（過去の便に入らない）', async () => {
+  const R = boot(memory());
+  const day = R.sampleMailDay(R.today());
+  assert.ok(day > R.today());
+  const req = { doc: 'mail', text: R.sampleMail('e1', R.today()).text, sampleId: 'e1' };
+  const { reading } = await R.aiReader.read(req);
+  assert.equal(reading.booking.date, day);
+  assert.equal(R.aiReader.preview(req).text, req.text, '送る文面は、画面に出したずらした文面');
+});
+
 test('開き直しても同じ名簿が読める', async () => {
   const local = memory();
   const R = boot(local);
