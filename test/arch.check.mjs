@@ -93,8 +93,10 @@ const NET_TOOLS = [
   [/\bset(?:Timeout|Interval)\s*\(\s*['"`]/, '文字列をコードとして動かしている'],
   [/\.\s*constructor\s*\(|\bReflect\s*\.|\b(?:top|parent|frames|opener)\s*\??\.?\s*\[/, '文字の名前で外のものを引いている']
 ];
-const NET_BAN = { line: [[/\bfetch\b/, '外への通信 fetch (ai-reader.js 以外)'], ...NET_TOOLS], file: [] };
+const NET_BAN = { line: [[/\bfetch\b/, '外への通信 fetch (ai-reader.js と roster-sync.js 以外)'], ...NET_TOOLS], file: [] };
 const AI_READER_BAN = { line: NET_TOOLS, file: [] };
+/* 画面で fetch してよいのは、同じ場所の Worker へ送る 2 つだけ（AI の読み取りと、お店の名簿）。外の URL は NET_TOOLS が止める */
+const NET_ALLOWED = ['js/ai-reader.js', 'js/roster-sync.js'];
 
 /* コメントを消す。文字列・テンプレート文字列（複数行も）・正規表現の中の // と /* は残す。\ の次の 1 字は読み飛ばす。
    blankStrings のときは文字列の中身も空白にする（見本メールの「Date of birth」を時計と見なさないため）。
@@ -166,7 +168,7 @@ function violations(src, rules) {
   violations(read(p), rulesFor[role]).forEach(v => fail(`${p}:${v.line} ${v.what} を使っている`));
 }));
 jsFiles.forEach(p => {
-  violations(read(p), p === 'js/ai-reader.js' ? AI_READER_BAN : NET_BAN).forEach(v => fail(`${p}:${v.line} ${v.what}`));
+  violations(read(p), NET_ALLOWED.includes(p) ? AI_READER_BAN : NET_BAN).forEach(v => fail(`${p}:${v.line} ${v.what}`));
 });
 [...(roles.entry || []), ...(roles.adapter || [])].filter(p => p.endsWith('.js')).forEach(p => {
   violations(read(p), HTML_BAN).forEach(v => fail(`${p}:${v.line} ${v.what}`));
@@ -201,13 +203,13 @@ workerFiles.forEach(p => {
   violations(read(p), rules).forEach(v => fail(`${p}:${v.line} ${v.what}`));
   workerUrlProblems(read(p), rules.urls).forEach(u => fail(`${p}: 決めていない外の先 ${u}`));
 });
-const CORE_IMPORT_BAN = /(?:from\s+|import\s*\(?\s*)['"][^'"]*\/(?:access|budget|anthropic|handler|index|fakes)\.mjs['"]/;
+const CORE_IMPORT_BAN = /(?:from\s+|import\s*\(?\s*)['"][^'"]*\/(?:access|budget|anthropic|roster-db|handler|index|fakes)\.mjs['"]/;
 (roles.core || []).filter(p => p.startsWith('worker/')).forEach(p => {
   if (CORE_IMPORT_BAN.test(stripComments(read(p), false).join('\n'))) fail(`${p}: core が adapter・entry・見本を読んでいる`);
 });
 const FAKES = existsSync(new URL('worker/fakes.mjs', root)) ? read('worker/fakes.mjs') : '';
 const WORKER_ADAPTERS = (roles.adapter || []).filter(p => p.startsWith('worker/'));
-[['worker/access.mjs', 'fakeAccess'], ['worker/budget.mjs', 'fakeKv'], ['worker/anthropic.mjs', 'fakeAnthropic']].forEach(([a, f]) => {
+[['worker/access.mjs', 'fakeAccess'], ['worker/budget.mjs', 'fakeKv'], ['worker/anthropic.mjs', 'fakeAnthropic'], ['worker/roster-db.mjs', 'fakeD1']].forEach(([a, f]) => {
   if (!WORKER_ADAPTERS.includes(a)) fail(`表 1 の adapter に ${a} が無い`);
   if (!new RegExp(`export\\s+(?:async\\s+)?function\\s+${f}\\b`).test(FAKES)) fail(`${a} の見本 ${f} が worker/fakes.mjs に無い`);
 });
@@ -223,7 +225,7 @@ WORKER_PROBES.forEach(([code, p]) => { if (!violations(code, workerRules(p)).len
   ["await io.fetch(`https://${'evil.example.com'}/x`);", 'worker/access.mjs'], ["await io.fetch(`https://${team}/other`);", 'worker/access.mjs'],
   ["await io.fetch('https://api.anthropic.com/v1/messages/../files');", 'worker/anthropic.mjs']]
   .forEach(([code, p]) => { if (!workerUrlProblems(code, workerRules(p).urls).length) fail(`検査が甘い: ${p} の外の先「${code}」を見逃した`); });
-["import { verifyAccess } from './access.mjs';", "import { x } from '../worker/budget.mjs';", "import '../worker/fakes.mjs';", "const m = await import('./anthropic.mjs');"]
+["import { verifyAccess } from './access.mjs';", "import { x } from '../worker/budget.mjs';", "import { getRoster } from './roster-db.mjs';", "import '../worker/fakes.mjs';", "const m = await import('./anthropic.mjs');"]
   .forEach(code => { if (!CORE_IMPORT_BAN.test(code)) fail(`検査が甘い: core の「${code}」を見逃した`); });
 if (CORE_IMPORT_BAN.test("import '../js/roster-schema.js';")) fail('検査が厳しすぎる: core が shared を読むのを止めた');
 if (workerUrlProblems("const u = 'https://api.anthropic.com/v1/messages';", workerRules('worker/anthropic.mjs').urls).length) fail('検査が厳しすぎる: anthropic.mjs の先を止めた');

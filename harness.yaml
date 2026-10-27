@@ -1,7 +1,7 @@
 # 検査の入口。Node 18 以上だけで動く（npm の部品なし）
 # turtle3d.js だけは import を使う ES module なので、module として検査する
 typecheck: for f in js/*.js; do [ "$f" = js/turtle3d.js ] && continue; node --check "$f" || exit 1; done && node --input-type=module --check < js/turtle3d.js && for f in worker/*.mjs tools/*.mjs; do node --check "$f" || exit 1; done
-offline_smoke: node test/design.check.mjs && node test/worker.test.mjs && node test/roster.test.mjs && node test/guest.test.mjs && node test/day.test.mjs && node test/share.test.mjs && node test/ai-reader.test.mjs && node test/booking-flow.test.mjs && node test/photo-mask.test.mjs && node test/pass.roundtrip.test.mjs && node test/match.eval.mjs --check
+offline_smoke: node test/design.check.mjs && node test/worker.test.mjs && node test/sync.test.mjs && node test/sync-client.test.mjs && node test/roster.test.mjs && node test/guest.test.mjs && node test/day.test.mjs && node test/share.test.mjs && node test/ai-reader.test.mjs && node test/booking-flow.test.mjs && node test/photo-mask.test.mjs && node test/pass.roundtrip.test.mjs && node test/match.eval.mjs --check
 arch: node test/arch.check.mjs
 # 画面を直したとき（手で）: 幅 320 / 375 / 414 / 768 で test/layout.audit.js をブラウザで回す（design.md の「確かめ方」）
 contract: (置いたあと・手で) docs/deploy.md の「置いたあとの確かめ」。見本 16 件の読み取りと上限の止まり方を、置いた Worker で確かめる

@@ -3,16 +3,19 @@
    画面のファイルは Static Assets が配る（wrangler.jsonc の run_worker_first で、ここに来るのは /api/* だけ）。
    守る順番: 道と method → 同じ場所からの呼び出し（Sec-Fetch-Site）→ 設定がそろっている → Access の JWT → 種類と大きさと形 → 上限（呼ぶ前）→ AI → 答えの形。
    ログは 1 要求 1 行。残すのは知っている道の名前・状態・doc・量・時間・外した行の数・健康が見えたか・止まった理由だけ
-   （中身・メールアドレス・JWT は出さない） */
+   （中身・メールアドレス・JWT は出さない）。
+   /api/roster はお店の名簿の正本（D1）。決まりは sync-core.mjs、D1 との境目は roster-db.mjs、計画は plan/server.md */
 import { checkRequest, readingFrom, costMicro, periods, limitsFrom, WORST_MICRO, MAX_BODY, MODEL } from './read-core.mjs';
+import { checkPut, readStored, MAX_PUT_BODY, SHOP_DEFAULT } from './sync-core.mjs';
 import { verifyAccess } from './access.mjs';
 import { reserve, spend, remaining } from './budget.mjs';
 import { callModel } from './anthropic.mjs';
+import { getRoster, putRoster } from './roster-db.mjs';
 
 /* どれか欠けたら置き方の誤り。欠けた名前はログにだけ出す。直し方は docs/deploy.md */
 const REQUIRED_SECRETS = ['ANTHROPIC_API_KEY', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS'];
 const REQUIRED_VARS = ['DAILY_LIMIT', 'MONTHLY_USD'];
-const ROUTES = { '/api/healthz': 'GET', '/api/read': 'POST' };
+const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': ['GET', 'PUT'] };
 
 const API_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -103,15 +106,61 @@ async function read(request, env, io, note) {
   return json(200, reading.reading);
 }
 
+/* お店の名簿（plan/server.md）。GET は今の名簿、PUT は版を確かめて書く。版が違えば最新を返す（画面が当て直して送り直す） */
+async function roster(request, env, io, note) {
+  const now = io.now();
+  const at = new Date(now).toISOString();
+  const today = periods(now).day;
+  const shop = SHOP_DEFAULT;
+  const current = async () => {
+    const got = await getRoster(env.DB, shop);
+    return { version: got.version, state: got.text === null ? null : readStored(got.text, { today, at }) };
+  };
+  if (request.method === 'GET') {
+    let got;
+    try { got = await getRoster(env.DB, shop); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
+    const state = got.text === null ? null : readStored(got.text, { today, at });
+    if (got.text !== null && !state) { note.why = 'stored'; return json(500, { error: 'stored' }); }   // 壊れた物を画面に広げない
+    note.version = got.version;
+    return json(200, { version: got.version, state });
+  }
+
+  if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
+  const raw = await readCapped(request, MAX_PUT_BODY);
+  if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }); }
+  let given;
+  try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
+  const checked = checkPut(given, { today, at });
+  if (!checked.ok) {
+    note.why = checked.error.slice(0, 40);
+    return checked.error === 'size' ? json(413, { error: 'size' }) : json(400, { error: 'input' });
+  }
+  note.size = checked.text.length;
+  try {
+    const put = await putRoster(env.DB, shop, checked.base, checked.text, at);
+    if (put.ok) { note.version = put.version; return json(200, { version: put.version, state: checked.state }); }
+    const latest = await current();
+    if (latest.version !== 0 && !latest.state) { note.why = 'stored'; return json(500, { error: 'stored' }); }
+    note.why = 'conflict';
+    note.version = latest.version;
+    return json(409, { error: 'conflict', version: latest.version, state: latest.state });
+  } catch (e) {
+    note.why = 'db';
+    return json(503, { error: 'db' });
+  }
+}
+
 async function route(request, env, io, url, note) {
   /* ここに来た /api 以外は、Static Assets に無いファイル */
   if (!url.pathname.startsWith('/api/')) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
-  const method = ROUTES[url.pathname];
-  if (!method) return json(404, { error: 'path' });
-  if (request.method !== method) return json(405, { error: 'method' }, { allow: method });   // OPTIONS も断る（CORS のヘッダは出さない）
+  const methods = ROUTES[url.pathname];
+  if (!methods) return json(404, { error: 'path' });
+  if (!methods.includes(request.method)) return json(405, { error: 'method' }, { allow: methods.join(', ') });   // OPTIONS も断る（CORS のヘッダは出さない）
   if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; return json(403, { error: 'site' }); }
 
   const miss = missingConfig(env);
+  /* D1 は名簿の道だけが使う。無くても読み取り（/api/read）と /api/healthz は止めない */
+  if (url.pathname === '/api/roster' && !(env.DB && typeof env.DB.prepare === 'function')) miss.push('DB');
   if (miss.length) { note.why = `config:${miss.join('+')}`; return json(503, { error: 'config' }); }
   const who = await verifyAccess(request, env, io);
   if (!who.ok) {
@@ -119,6 +168,7 @@ async function route(request, env, io, url, note) {
     return who.why === 'certs' ? json(503, { error: 'access-keys' }) : json(403, { error: 'access' });
   }
 
+  if (url.pathname === '/api/roster') return roster(request, env, io, note);
   return url.pathname === '/api/healthz' ? healthz(env, io) : read(request, env, io, note);
 }
 
