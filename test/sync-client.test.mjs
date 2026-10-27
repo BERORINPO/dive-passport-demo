@@ -327,6 +327,93 @@ test('開き直した端末の送れていなかった名簿は、送る間に�
   assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の名簿は別の場所に残す');
 });
 
+test('ジンのレビュー HIGH 8: 端末の名簿が別のお店の物なら、ログインしたお店に送らず、端末の別の場所に残して、そのお店の名簿にする', async () => {
+  const srv = server();
+  const local = memory();
+  const a = device(srv, local);
+  a.rosterStore.update(addTrip(a));
+  await a.rosterStore.startSync();
+  await a.rosterStore.whenSynced();
+  assert.equal(JSON.parse(local.getItem('redux-roster-v1-sync')).shop, 'default', 'どのお店の名簿かを覚える');
+  /* この端末のメールが、別のお店（shop-a）の人になった。shop-a の名簿はまだ無い */
+  srv.db.addShop({ id: 'shop-a', name: 'A ダイブ', members: [EMAIL] });
+  const reopened = device(srv, local);
+  assert.equal(await reopened.rosterStore.startSync(), true);
+  await reopened.rosterStore.whenSynced();
+  assert.equal(srv.db.rows.has('shop-a'), false, 'default の名簿を shop-a に送らない');
+  assert.equal(reopened.rosterStore.get().trips.length, 0, 'shop-a の名簿（空）にする');
+  assert.equal(reopened.rosterStore.note(), 'sync-shop');
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の名簿は別の場所に残す');
+  assert.equal(JSON.parse(local.getItem('redux-roster-v1-sync')).shop, 'shop-a');
+  /* shop-a で入れた直しは shop-a に届く */
+  reopened.rosterStore.update(addTrip(reopened));
+  await reopened.rosterStore.whenSynced();
+  assert.equal(JSON.parse(srv.db.rows.get('shop-a').state).trips.length, 1);
+  assert.equal(JSON.parse(srv.db.rows.get('default').state).trips.length, 1, 'default の名簿はそのまま');
+});
+
+test('ジンのレビュー HIGH 8（開いたままの画面）: ログインしたお店が途中で変わったら、前のお店の直しを送らず、取り込みもせず、端末の名簿を残して止める', async () => {
+  const srv = server();
+  const local = memory();
+  const a = device(srv, local);
+  a.rosterStore.update(addTrip(a));
+  await a.rosterStore.startSync();
+  await a.rosterStore.whenSynced();
+  const before = srv.db.rows.get('default').state;
+  /* 別のタブで、別のお店（shop-a）の人としてログインし直した。shop-a にも同じ版の番号の名簿がある */
+  srv.db.addShop({ id: 'shop-a', name: 'A ダイブ', members: [EMAIL] });
+  srv.db.rows.set('shop-a', { ...srv.db.rows.get('default'), state: JSON.stringify(a.roster.blankState('A ダイブ')) });
+  a.rosterStore.update(addGuide(a, '見本 次郎'));
+  await a.rosterStore.whenSynced();
+  assert.equal(a.rosterStore.note(), 'sync-shop-changed');
+  assert.equal(JSON.parse(srv.db.rows.get('shop-a').state).trips.length, 0, 'shop-a の名簿に A の直しは入らない');
+  assert.equal(srv.db.rows.get('default').state, before);
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の直しは残す');
+  const calls = srv.calls;
+  a.rosterStore.update(addGuide(a, '見本 三郎'));
+  await a.rosterStore.whenSynced();
+  assert.equal(srv.calls, calls, '止めたあとは送らない');
+  /* 取り込み（refresh）も、別のお店の名簿なら取り込まない */
+  const srv2 = server();
+  const b = device(srv2);
+  b.rosterStore.update(addTrip(b));
+  await b.rosterStore.startSync();
+  await b.rosterStore.whenSynced();
+  srv2.db.addShop({ id: 'shop-a', name: 'A ダイブ', members: [EMAIL] });
+  srv2.db.rows.set('shop-a', { version: 5, state: JSON.stringify(b.roster.blankState('A ダイブ')), updated_at: AT });
+  assert.equal(await b.rosterStore.refresh(), false);
+  assert.equal(b.rosterStore.note(), 'sync-shop-changed');
+  assert.equal(b.rosterStore.get().trips.length, 1, '画面は前のお店の名簿のまま（別のお店の名簿に替えない）');
+});
+
+test('ジンのレビュー HIGH 7: サーバーの名簿がこの画面より新しい版なら、つながずに読み込み直しを頼む。送る途中で 426 が来たら、端末の名簿を残して送るのを止める', async () => {
+  const srv = server();
+  const a = device(srv);
+  a.rosterStore.update(addTrip(a));
+  await a.rosterStore.startSync();
+  await a.rosterStore.whenSynced();
+  /* サーバーを新しい版に置き直した（新しい版のサーバーの答えを真似る） */
+  const newer = JSON.parse(srv.db.rows.get('default').state);
+  const newServer = { fetch: async () => new Response(JSON.stringify({ version: 9, state: { ...newer, v: newer.v + 1 }, shop: 'default' }), { status: 200 }) };
+  const b = device(newServer);
+  assert.equal(await b.rosterStore.startSync(), false);
+  assert.equal(b.rosterStore.note(), 'sync-newer');
+  /* つないだままの端末が送ると、サーバーは 426（古い版の画面）を返す。ここでは本物の handler の 426 を作るため、端末の名簿の版を 1 つ下げて送る */
+  const local = memory();
+  const c = device(srv, local);
+  await c.rosterStore.startSync();
+  const realPush = c.rosterSync.push;
+  c.rosterSync.push = (base, state, opt) => realPush(base, { ...state, v: 0 }, opt);
+  c.rosterStore.update(addGuide(c, '見本 次郎'));
+  await c.rosterStore.whenSynced();
+  assert.equal(c.rosterStore.note(), 'sync-newer');
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1);
+  const calls = srv.calls;
+  c.rosterStore.update(addGuide(c, '見本 三郎'));
+  await c.rosterStore.whenSynced();
+  assert.equal(srv.calls, calls, '止めたあとは送らない');
+});
+
 test('/api/roster が無い（GitHub Pages・D1 がまだ無い Worker）ときは、端末だけで今までどおり動く', async () => {
   const srv = server();
   srv.fetch = async () => new Response('{"error":"config"}', { status: 503 });
@@ -354,7 +441,7 @@ for (const t of tests) {
     REAL_LOG(`ok   ${t.name}`);
   } catch (e) {
     failed += 1;
-    REAL_LOG(`FAIL ${t.name}\n     ${e.message}`);
+    REAL_LOG(`FAIL ${t.name}\n     ${e.stack || e.message}`);
   }
 }
 REAL_LOG(`${tests.length - failed}/${tests.length} passed`);

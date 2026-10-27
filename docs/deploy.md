@@ -88,7 +88,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 d1 create redux-rosters
    ```
-3. 表を作る（worker/migrations/ の 0001〜0004。0004 の済んだ便の表は、それを書く Worker を置く前に作る。無いと、便が済んで 7 日を過ぎた日の書き込みが 503 になる）
+3. 表を作る（worker/migrations/ の 0001〜0005。表は、それを使う Worker を置く前に作る。0004（済んだ便）が無いと便が済んで 7 日を過ぎた日の書き込みが 503 になり、0005（読めなかった予約メール）が無いと、読めなかったことを残せない（ログには残る））
    ```bash
    npx wrangler@4.151.0 d1 migrations apply redux-rosters --remote
    ```

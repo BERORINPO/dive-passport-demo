@@ -29,11 +29,39 @@
     'sync-offline': 'サーバーに送れていない直しがあります。この端末に残してあり、つながったら送ります。',
     'sync-kept': '送れないうちに別の端末で名簿が直されました。この端末の名簿は消さずに別の場所に残し、サーバーの名簿にしました。',
     'sync-dropped': '別の端末の直しとぶつかったため、この端末の直しを取り消した物があります。予約と名簿を確かめてください。',
+    'sync-shop': 'この端末には、別のお店の名簿がありました。送らずに端末の別の場所に残し、ログインしたお店の名簿にしました。',
+    'sync-shop-changed': 'ログインしたお店が変わりました。画面を読み込み直してください。この端末の直しは送らず、別の場所に残してあります。',
+    'sync-newer': 'REDUX が新しくなりました。画面を読み込み直してください。この端末の直しは別の場所に残してあります。',
     'sync-login': 'ログインが切れました。画面を読み込み直してください。直しはこの端末に残してあり、ログインし直したら送ります。',
     'sync-shrink': 'この端末から、名簿の人が大きく消える書き込みがあったので、サーバーが止めました。サーバーの名簿に戻し、この端末の名簿は別の場所に残しました。',
     'sync-rejected': 'サーバーが受け付けなかった直しがあります。サーバーの名簿に戻し、この端末の名簿は別の場所に残しました。予約と名簿を確かめてください。',
     newer: '別のタブで、この画面より新しい版の名簿が保存されました。消さないよう、この画面からは保存しません。ページを読み込み直してください。'
   };
+
+  /* 読めなかった予約メール（サーバーを使う版だけ）。予約の一覧を開いたときに、1 分に 1 回まで読む */
+  const UNREAD_WHY_JA = { limit: '1 日の上限を超えた', size: 'メールが大きすぎる', text: '本文が読めない', 'no-date': '日付が書かれていない',
+    full: '名簿がいっぱい', roster: '名簿に書けなかった', error: 'サーバーの誤り', ai: 'AI が読めなかった',
+    many: 'この日は、ほかにも読めなかったメールがある（多すぎて 1 通ずつは残していない）' };
+  const unread = { items: [], at: 0 };
+  function loadUnread() {
+    if (!R.rosterStore.synced() || Date.now() - unread.at < 60000) return;
+    unread.at = Date.now();
+    R.rosterSync.unread().then(r => { if (r.ok) { unread.items = r.items; if (mode === 'list') render(); } });
+  }
+  const jstShort = (iso) => {
+    const d = new Date(Date.parse(iso) + 9 * 3600000);
+    return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${d.getUTCHours()}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  };
+  function unreadBlock() {
+    if (!unread.items.length) return null;
+    const done = (id) => R.rosterSync.doneUnread(id).then(ok => { if (ok) { unread.items = unread.items.filter(x => x.id !== id); render(); } });
+    return el('section', { class: 'flag flag--warn', role: 'status' },
+      el('p', { text: `読めなかった予約メールが ${unread.items.length} 件あります。受信箱で、その時刻に届いた元のメールを探し、「メールを貼る」で入れてください。` }),
+      el('ul', { class: 'bks' }, unread.items.map(x => el('li', { class: 'bk' },
+        el('span', { class: 'bk__name', text: `${jstShort(x.at)} に届いたメール` }),
+        el('span', { class: 'bk__meta', text: UNREAD_WHY_JA[x.why] || '読めなかった' }),
+        el('button', { class: 'linkbtn', type: 'button', text: '入れた・済んだ', onclick: () => done(x.id) })))));
+  }
 
   let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
                             // day（今日の名簿）/ spo2（血中酸素）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
@@ -189,6 +217,7 @@
   }
 
   function renderList() {
+    loadUnread();
     const s = R.rosterStore.get();
     const trips = C().tripList(s);
     const dates = [...new Set(trips.map(t => t.date))];
@@ -197,6 +226,7 @@
       ...head('予約'),
       aiRow(),
       R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
+      unreadBlock(),
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
         class: 'day', type: 'button', 'aria-pressed': String(d === day), 'aria-label': md(d),
         onclick: () => { day = d; notice = null; armedReset = false; render(); }

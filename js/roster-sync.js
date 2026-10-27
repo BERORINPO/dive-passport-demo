@@ -30,11 +30,12 @@
     }
   }
 
-  /* 版と名簿の組。名簿は null（まだ無い）か、形の検査に通る物だけ */
+  /* 版と名簿とお店の組。名簿は null（まだ無い）か、形の検査に通る物だけ。shop はサーバーが決めたお店の id（無ければ default） */
   function shapeOf(data) {
     if (!data || !Number.isInteger(data.version) || data.version < 0) return null;
-    if (data.state === null) return data.version === 0 ? { version: 0, state: null } : null;
-    return data.state && typeof data.state === 'object' && R.roster.validateState(data.state).ok ? { version: data.version, state: data.state } : null;
+    const shop = typeof data.shop === 'string' && data.shop ? data.shop : 'default';
+    if (data.state === null) return data.version === 0 ? { version: 0, state: null, shop } : null;
+    return data.state && typeof data.state === 'object' && R.roster.validateState(data.state).ok ? { version: data.version, state: data.state, shop } : null;
   }
 
   /* Worker が返したお客さんのリンクの形（置いた形では別の Worker の https、手元では localhost）。/ask と # の後ろの鍵だけ */
@@ -52,14 +53,19 @@
     /* { ok: true, version, state } か { ok: false, why } */
     async pull() {
       const r = await call('GET');
+      if (r.status === 200 && r.data && R.roster.isNewer(r.data.state)) return { ok: false, why: 'newer' };   // サーバーの名簿がこの画面より新しい版
       const got = r.status === 200 ? shapeOf(r.data) : null;
       return got ? { ok: true, ...got } : { ok: false, why: r.status || 'network' };
     },
     /* { ok: true, version, state }（書けた。state はサーバーが直した後）/ { conflict: true, version, state }（先に別の端末が書いた）/
        { shrink: true, version, state }（人が大きく消えるので、サーバーが断った）/ { ok: false, why }。
        why: 'login'（ログイン切れ）・400 / 413（サーバーが中身を断った。送り直しても通らない）・それ以外（届かない・サーバーの誤り） */
-    async push(base, state, { allowShrink = false } = {}) {
-      const r = await call('PUT', allowShrink ? { base, state, allowShrink: true } : { base, state });
+    async push(base, state, { allowShrink = false, shop } = {}) {
+      const body = { base, state, ...(allowShrink ? { allowShrink: true } : {}), ...(shop ? { shop } : {}) };
+      const r = await call('PUT', body);
+      if (r.status === 409 && r.data && r.data.error === 'shop') return { ok: false, why: 'shop' };   // ログインしたお店が変わった
+      /* 426: この画面が古い版（サーバーが断った）。409 で返ってきた名簿が新しい版のときも同じ */
+      if (r.status === 426 || ((r.status === 409 || r.status === 200) && r.data && R.roster.isNewer(r.data.state))) return { ok: false, why: 'newer' };
       const got = (r.status === 200 || r.status === 409) ? shapeOf(r.data) : null;
       if (got && r.status === 200 && got.state) return { ok: true, ...got };
       if (got && r.status === 409) return r.data && r.data.error === 'shrink' ? { shrink: true, ...got } : { conflict: true, ...got };
@@ -74,6 +80,18 @@
         return { ok: true, state: d.state, skipped: d.skipped, full: d.full === true };
       }
       return { ok: false, why: r.status || 'network' };
+    },
+    /* 読めなかった予約メール（同じ場所の /api/mail-unread。ジンのレビュー HIGH 6）。{ ok: true, items: [{ id, at, why }] } か { ok: false, why } */
+    async unread() {
+      const r = await call('GET', undefined, '/api/mail-unread');
+      const items = r.status === 200 && r.data && Array.isArray(r.data.items) ? r.data.items : null;
+      const itemOk = (x) => x && typeof x.id === 'string' && typeof x.at === 'string' && typeof x.why === 'string';
+      return items && items.every(itemOk) ? { ok: true, items } : { ok: false, why: r.status || 'network' };
+    },
+    /* お店が「済んだ」を押した。消せた（か、もう無い）ら true */
+    async doneUnread(id) {
+      const r = await call('POST', { id }, '/api/mail-unread');
+      return r.status === 200 || r.status === 404;
     },
     /* お客さんに送るリンクを作る（同じ場所の /api/ask-link。Access の内）。作り直すと前のリンクは開けない。
        { ok: true, url, expiresOn } か { ok: false, why }（why 404 = サーバーにまだこの予約が無い） */
