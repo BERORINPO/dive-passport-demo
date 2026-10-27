@@ -131,7 +131,16 @@
     return JSON.stringify({ ...o, people });
   }
 
-  /* 1 年を過ぎた退避を消す。残す退避からも、他のお店のお客さんの健康の答えを外す（前の版で退避した物のため） */
+  /* 読める退避は、名簿と同じく便の日から 1 年を過ぎた便を消す（退避した日から数えると、便から最大 2 年残るため。ザクのレビュー 2026-10-27） */
+  function purgeBackup(text) {
+    let o = null;
+    try { o = JSON.parse(text); } catch (e) { return text; }
+    if (!o || typeof o !== 'object' || !R.roster.validateState(o).ok) return text;
+    const kept = R.rosterCore.purgeExpired(o, { today: ymd(new Date()), at: new Date().toISOString() });
+    return kept === o ? text : JSON.stringify(kept);
+  }
+
+  /* 1 年を過ぎた退避を消す。残す退避からも、他のお店のお客さんの健康の答えと、便の日から 1 年を過ぎた便を外す（前の版で退避した物のため） */
   function tidyBackups() {
     try {
       const keys = [];
@@ -142,8 +151,8 @@
       keys.forEach(k => {
         if (Date.now() - Number(k.slice(ROSTER_BACKUP.length)) > BACKUP_KEEP_MS) { localStorage.removeItem(k); return; }
         const v = localStorage.getItem(k);
-        const stripped = v === null ? v : stripPartnerHealth(v);
-        if (stripped !== v) localStorage.setItem(k, stripped);
+        const tidied = v === null ? v : purgeBackup(stripPartnerHealth(v));
+        if (tidied !== v) localStorage.setItem(k, tidied);
       });
     } catch (e) {
       // 保存場所が使えないときは何もしない
@@ -287,7 +296,7 @@
       if (meta.version === got.version) sync.queue.push(() => local);   // 前に送れなかった直しがある。版が同じならそのまま送る
       else {
         /* 送れないうちに別の端末が直した。この端末の名簿は消さずに退避して、サーバーの名簿にする */
-        try { localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, stripPartnerHealth(JSON.stringify(local))); } catch (e) { /* 残せなくても、サーバーの名簿にする */ }
+        try { localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, purgeBackup(stripPartnerHealth(JSON.stringify(local)))); } catch (e) { /* 残せなくても、サーバーの名簿にする */ }
         rosterNote = 'sync-kept';
       }
     }

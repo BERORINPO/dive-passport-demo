@@ -62,9 +62,9 @@ function device(srv, local = memory()) {
 
 let n = 0;
 const newId = () => `id${(n += 1)}`;
-/* 見本メール e1 の 2 人を、10/24 の便に入れる直し */
+/* 見本メール e1 の 2 人を、3 日後の便に入れる直し（端末の時計で 1 年を過ぎた便は消えるので、日付は今日から数える） */
 const addTrip = (R) => (s) => {
-  const trip = { ...R.roster.blankTrip(), id: 't1', date: '2026-10-24', start: '08:30', kind: 'dive', tour: '体験ダイビング（ボート2本）', site: '北の根', guides: ['見本 ガイド'], createdAt: AT };
+  const trip = { ...R.roster.blankTrip(), id: 't1', date: R.ymd(R.addDays(new Date(), 3)), start: '08:30', kind: 'dive', tour: '体験ダイビング（ボート2本）', site: '北の根', guides: ['見本 ガイド'], createdAt: AT };
   const reading = JSON.parse(JSON.stringify(R.SAMPLE_READINGS.e1));
   return R.rosterCore.addBooking({ ...s, trips: [...s.trips, trip] }, { trip, booking: { source: 'mail', people: 2 }, reading, src: 'mail', at: AT, newId });
 };
@@ -148,6 +148,21 @@ test('送れないうちに別の端末が直していたら、この端末の�
   const kept = [...localA.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-'));
   assert.equal(kept.length, 1, 'この端末の名簿を 1 つ残す');
   assert.deepEqual(JSON.parse(localA.getItem(kept[0])).trips[0].guides, ['見本 ガイド', '見本 次郎']);
+});
+
+test('端末の退避も、便の日から 1 年を過ぎた便は消える（退避した日から数えない。ザクのレビュー 2026-10-27）', async () => {
+  const srv = server();
+  const local = memory();
+  const a = device(srv, local);
+  const old = { ...a.roster.blankTrip(), id: 't0', date: a.ymd(a.addDays(new Date(), -400)), start: '08:30', kind: 'dive', tour: '体験ダイビング', createdAt: AT };
+  const recent = addTrip(a)(a.roster.blankState('B マリン（見本）'));
+  const backup = { ...recent, trips: [...recent.trips, old] };
+  assert.ok(a.roster.validateState(backup).ok);
+  const key = `redux-roster-v1-broken-${Date.now() - 1000}`;
+  local.setItem(key, JSON.stringify(backup));
+  device(srv, local).rosterStore.get();   // 開き直すと退避を片付ける
+  const tidied = JSON.parse(local.getItem(key));
+  assert.deepEqual(tidied.trips.map(t => t.id), ['t1'], '1 年を過ぎた便だけが消える');
 });
 
 test('別の端末が便を消して当てられなくなった直しは外し、知らせる', async () => {

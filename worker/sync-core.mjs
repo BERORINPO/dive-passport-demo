@@ -22,6 +22,23 @@ function tidy(state, { today, at }) {
   return R.rosterShare.holdPartnerHealth(kept, { at });
 }
 
+/* 画面の形の検査（validateState）より厳しく見る所。サーバーに置く物だけにかける（端末にある名簿は今の検査のまま読める）。
+   - 名簿・お店・記録の 1 件は、決まった項目だけ（余分な項目に中身を紛れ込ませない）
+   - 便・予約・人の id は重ならない（同じ id の人を 2 人入れて、他のお店のお客さんの健康の答えを外す決まりを抜けさせない。ザクのレビュー 2026-10-27）
+   記録の before / after の中身は、まだ項目を絞っていない。お客さんのリンク（/ask）を Access の外に出す前に絞る（plan/server.md） */
+const STATE_KEYS = ['v', 'shop', 'trips', 'bookings', 'people', 'log'];
+const SHOP_KEYS = ['name'];
+const LOG_KEYS = ['at', 'who', 'act', 'kind', 'id', 'fields', 'before', 'after', 'sent', 'demo'];
+const onlyKeys = (o, keys) => Object.keys(o).every(k => keys.includes(k));
+const unique = (list) => new Set(list.map(x => x.id)).size === list.length;
+function strictProblem(s) {
+  if (!onlyKeys(s, STATE_KEYS)) return 'keys';
+  if (!onlyKeys(s.shop, SHOP_KEYS)) return 'shop-keys';
+  if (!s.log.every(e => onlyKeys(e, LOG_KEYS))) return 'log-keys';
+  if (!unique(s.trips) || !unique(s.bookings) || !unique(s.people)) return 'ids';
+  return '';
+}
+
 /* PUT の本文 { base, state } を確かめる。返すのは { ok, base, state, text } か { ok: false, error } */
 export function checkPut(given, { today, at }) {
   if (!given || typeof given !== 'object' || Array.isArray(given)) return { ok: false, error: 'shape' };
@@ -31,6 +48,8 @@ export function checkPut(given, { today, at }) {
   const scrubbed = R.rosterCore.scrubLog(state);
   const v = R.roster.validateState(scrubbed);
   if (!v.ok) return { ok: false, error: `state:${v.errors.slice(0, 3).join(',')}` };
+  const strict = strictProblem(scrubbed);
+  if (strict) return { ok: false, error: `strict:${strict}` };
   const next = tidy(scrubbed, { today, at });
   const text = JSON.stringify(next);
   if (bytes(text) > MAX_ROSTER_BYTES) return { ok: false, error: 'size' };

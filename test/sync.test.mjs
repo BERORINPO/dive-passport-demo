@@ -150,6 +150,24 @@ test('サーバーは画面を信じない: 他のお店のお客さんの健康
   assert.deepEqual(res.body.state, stored, '画面には、サーバーが直した後の名簿を返す');
 });
 
+test('画面の検査より厳しく見る: 余分な項目と、重なった id は置かない（ザクのレビュー 2026-10-27）', async () => {
+  const s = setup();
+  const p0 = withPartner.people[0];
+  const cases = {
+    '名簿の一番上の余分な項目': { ...withPartner, extra: { answers: NO5 } },
+    'お店の余分な項目': { ...withPartner, shop: { ...withPartner.shop, memo: 'x' } },
+    '記録の 1 件の余分な項目': { ...withPartner, log: [...withPartner.log.slice(0, -1), { ...withPartner.log[withPartner.log.length - 1], junk: 'y' }] },
+    '同じ id の人が 2 人': { ...withPartner, people: [...withPartner.people, { ...p0 }] },
+    '同じ id の便が 2 つ': { ...withPartner, trips: [...withPartner.trips, { ...withPartner.trips[0] }] }
+  };
+  for (const [name, state] of Object.entries(cases)) {
+    assert.ok(S.validateState(state).ok, `${name}: 画面の検査は通る形`);
+    const r = await put(s, 0, state);
+    assert.deepEqual([r.status, r.body.error], [400, 'input'], name);
+  }
+  assert.equal(s.db.writes, 0);
+});
+
 test('入口の守り: Access・同じ場所からの呼び出し・method。D1 が無いときは名簿の道だけ止め、healthz は動く', async () => {
   const s = setup();
   assert.equal((await call(s, req('GET', { jwt: null }))).status, 403);
