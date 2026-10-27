@@ -6,9 +6,9 @@
 | 役割 | パス |
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
-| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/auto-core.mjs |
-| adapter | js/ai-reader.js js/roster-sync.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/mail.mjs worker/site-guard.mjs worker/fakes.mjs |
-| entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/auto-flow.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs |
+| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/auto-core.mjs worker/ask-core.mjs |
+| adapter | js/ai-reader.js js/roster-sync.js js/ask-api.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/mail.mjs worker/site-guard.mjs worker/ask-db.mjs worker/fakes.mjs |
+| entry | index.html pass.html ask.html js/ask-page.js js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/auto-flow.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - Worker（worker/）は画面と同じ 4 役割で分ける。core の worker/read-core.mjs は js/roster-schema.js と js/health-redact.js を読んで、画面と同じ検査をもう一度かける。worker/fakes.mjs は Worker の adapter の見本（テストだけが読み、置く物には入らない）
@@ -16,7 +16,7 @@
 - 字体（BIZ UD ゴシック）は index.html だけが、repo の fonts/ から自前で配る（css/fonts.css）。外の字体は読まない
   - 日本語の字体は約 50 字ずつのファイルに分けて配られ（unicode-range）、端末は画面に出た字・打った字を含むファイルだけを取りに行く。どのファイルを取ったかで、配っている所に字の一部が分かる
   - Google Fonts から読むと、それが IP・端末の種類・時刻・サイトの origin と一緒に Google に伝わる（字体ファイルの要求には Origin ヘッダが付き、referrer を止めても消えない）。自前で配れば Google には伝わらない。分け方は Google と同じ（取得と作り方は fonts/README.md）
-  - pass.html は字体を読まない（端末の字体で描く）。自前で配っても、取りに行く束が中身で変わると、配っている所（今は GitHub Pages、後で Worker）のアクセスの記録から、健康の答えや名前の字の一部が分かる。pass.html が出す要求は、中身に関係なく毎回同じにする（置き場所が決まっても変えない）。CSP を meta で付けている
+  - pass.html と ask.html（お客さんのリンク）は字体を読まない（端末の字体で描く）。自前で配っても、取りに行く束が中身で変わると、配っている所（今は GitHub Pages、後で Worker）のアクセスの記録から、健康の答えや名前の字の一部が分かる。pass.html が出す要求は、中身に関係なく毎回同じにする（置き場所が決まっても変えない）。CSP を meta で付けている
 
 ## 2. 外部境界表
 | adapter | 相手 | Fake | fixture | credential | 書き込み |
@@ -47,6 +47,7 @@
 |---|---|---|---|
 | index.html | `https://cdn.jsdelivr.net/npm/three@0.160.0/` `https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/` | なし | 読む |
 | pass.html | なし | なし | 読まない |
+| ask.html | なし | なし | 読まない |
 | css/app.css | なし | なし | — |
 | css/fonts.css | なし | なし | — |
 

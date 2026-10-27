@@ -7,6 +7,8 @@ import { checkRequest, periods } from './read-core.mjs';
 import { checkBooking, addSiteBooking, mailText, senderAllowed, queuedOf, markResults, runDue, MAX_MAIL_BYTES } from './auto-core.mjs';
 import { mailReady, sendOne } from './mail.mjs';
 import { askModel } from './ask.mjs';
+import { mintLink, dropExpired } from './ask-db.mjs';
+import { linkExpiry } from './ask-core.mjs';
 
 const R = globalThis.REDUX;
 const JST_MS = 9 * 3600 * 1000;
@@ -19,8 +21,16 @@ export function clockOf(io) {
 }
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const dbReady = (env) => Boolean(env.DB && typeof env.DB.prepare === 'function');
-/* お客さんに渡すリンク（名簿の項目を聞く画面）の頭。送れる設定がそろうまでは空 */
-const askBaseOf = (env) => (mailReady(env) ? `${env.APP_URL.replace(/\/+$/, '')}/#ask=` : '');
+/* お客さんへの連絡のリンクの所は印（LINK_MARK）のまま名簿に残し、送る直前に予約ごとの鍵のリンクを作って差し替える。
+   作り直すと前のリンクは開けなくなる（2 日前の連絡を送ったら、最初の連絡のリンクは止まる） */
+async function withLink(env, io, state, item) {
+  const mark = R.rosterAuto.LINK_MARK;
+  if (!mailReady(env) || !item.body.includes(mark)) return item;
+  const { today, at } = clockOf(io);
+  const trip = state.trips.find(t => t.id === item.tripId);
+  const url = await mintLink(env.DB, { shop: SHOP_DEFAULT, bookingId: item.bookingId, personId: '', expiresOn: linkExpiry(trip, today), at, base: env.APP_URL });
+  return { ...item, body: item.body.split(mark).join(url) };
+}
 
 /* 名簿を読み、直し（名簿 → { state, … }）を当てて、版を確かめて書く。ぶつかったら読み直して当て直す。
    書く前に、画面から届いた名簿と同じ検査（sync-core.mjs の checkPut）にかける。返すのは { ok, state, out } か { ok: false, why } */
@@ -44,14 +54,13 @@ export async function changeRoster(env, io, change) {
    送ったあとに結果を書けなかったときは、次の回にもう一度送る（送り損ねるより、重なる方を選ぶ） */
 export async function runAutomation(env, io, note) {
   const { at, nowJst } = clockOf(io);
-  const askBase = askBaseOf(env);
-  const moved = await changeRoster(env, io, s => ({ state: runDue(s, { nowJst, at, newId, askBase }) }));
+  const moved = await changeRoster(env, io, s => ({ state: runDue(s, { nowJst, at, newId, askBase: '' }) }));
   if (!moved.ok) { note.why = `due-${moved.why}`; return; }
   const queued = queuedOf(moved.state);
   note.queued = queued.length;
   if (!queued.length) return;
   const results = [];
-  for (const item of queued) results.push(await sendOne(env, item, moved.state.shop.name));
+  for (const item of queued) results.push(await sendOne(env, await withLink(env, io, moved.state, item), moved.state.shop.name));
   note.sent = results.filter(r => r.result === 'sent').length;
   const marked = await changeRoster(env, io, s => ({ state: markResults(s, { results, at }) }));
   if (!marked.ok) note.why = `mark-${marked.why}`;
@@ -65,7 +74,10 @@ export async function scheduled(env, io) {
   const note = { route: 'cron' };
   try {
     if (!dbReady(env)) note.why = 'config:DB';
-    else await runAutomation(env, io, note);
+    else {
+      await runAutomation(env, io, note);
+      await dropExpired(env.DB, clockOf(io).today);
+    }
   } catch (e) {
     note.why = 'crash';
   }

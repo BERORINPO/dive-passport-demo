@@ -148,13 +148,16 @@
     return patch;
   }
 
-  /* お客さんが入れた。形が合わなければ { problems } を返し、state は変えない */
-  function applyGuest(state, { id, input, today, at }) {
+  /* お客さんが入れた。形が合わなければ { problems } を返し、state は変えない。
+     only は受ける項目を絞る（Worker のリンク: 予約のリンクは健康以外、1 人ずつのリンクは健康だけ。plan/meibo.md） */
+  function applyGuest(state, { id, input, today, at, only }) {
     if (!DAY.test(today)) throw new Error(`applyGuest: today は YYYY-MM-DD (${today})`);
     const entry = entryOf(state, id);
-    const problems = guestProblems(input, entry.ask, entry.parts);
+    const ask = Array.isArray(only) ? entry.ask.filter(k => only.includes(k)) : entry.ask;
+    if (!ask.length) return { state, problems: ['nothing'] };
+    const problems = guestProblems(input, ask, entry.parts);
     if (problems.length) return { state, problems };
-    const patch = guestPatch(input, entry.ask, today, entry.parts);
+    const patch = guestPatch(input, ask, today, entry.parts);
     if (patch.health && held(entry)) return { state, problems: ['held'] };
     const markUnsure = halfCert(patch, entry.parts) ? ['cert'] : [];
     return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'guest', at, markUnsure }), problems: [] };

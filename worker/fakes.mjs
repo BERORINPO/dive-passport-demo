@@ -63,19 +63,25 @@ export function fakeAnthropic() {
   return api;
 }
 
-/* roster-db.mjs の 3 つの文（SELECT・INSERT … ON CONFLICT DO NOTHING・版つきの UPDATE）だけを、本物の D1 と同じ答えの形で返す。
+/* roster-db.mjs の 3 つの文（SELECT・INSERT … ON CONFLICT DO NOTHING・版つきの UPDATE）と ask-db.mjs の 5 つの文だけを、本物の D1 と同じ答えの形で返す。
    知らない文は例外にする（roster-db.mjs に文を足したら、ここにも足してテストを通す） */
 export function fakeD1() {
   const rows = new Map();
+  const links = new Map();   // ask_links（お客さんのリンクの鍵の SHA-256 → 行）
   const db = {
     failing: false,
     writes: 0,
     rows,
+    links,
     prepare(sql) {
       const text = sql.replace(/\s+/g, ' ').trim();
       const statement = (args) => ({
         async first() {
           if (db.failing) throw new Error('d1 down');
+          if (/^SELECT shop, booking_id, person_id, expires_on FROM ask_links WHERE hash = \?1$/.test(text)) {
+            const l = links.get(args[0]);
+            return l ? { shop: l.shop, booking_id: l.booking_id, person_id: l.person_id, expires_on: l.expires_on } : null;
+          }
           if (!/^SELECT version, state FROM rosters WHERE shop = \?1$/.test(text)) throw new Error(`fakeD1: 知らない文 ${text}`);
           const row = rows.get(args[0]);
           return row ? { version: row.version, state: row.state } : null;
@@ -88,6 +94,17 @@ export function fakeD1() {
           } else if (/^UPDATE rosters SET version = version \+ 1, state = \?2, updated_at = \?3 WHERE shop = \?1 AND version = \?4$/.test(text)) {
             const row = rows.get(args[0]);
             if (row && row.version === args[3]) { rows.set(args[0], { version: row.version + 1, state: args[1], updated_at: args[2] }); changes = 1; }
+          } else if (/^DELETE FROM ask_links WHERE shop = \?1 AND booking_id = \?2 AND person_id = \?3$/.test(text)) {
+            for (const [h, l] of links) if (l.shop === args[0] && l.booking_id === args[1] && l.person_id === args[2]) { links.delete(h); changes += 1; }
+          } else if (/^INSERT INTO ask_links \(hash, shop, booking_id, person_id, expires_on, created_at, day, uses\) VALUES \(\?1, \?2, \?3, \?4, \?5, \?6, '', 0\)$/.test(text)) {
+            if (links.has(args[0])) throw new Error('UNIQUE constraint failed: ask_links.hash');
+            links.set(args[0], { shop: args[1], booking_id: args[2], person_id: args[3], expires_on: args[4], created_at: args[5], day: '', uses: 0 });
+            changes = 1;
+          } else if (/^UPDATE ask_links SET uses = CASE WHEN day = \?2 THEN uses \+ 1 ELSE 1 END, day = \?2 WHERE hash = \?1 AND \(day <> \?2 OR uses < \?3\)$/.test(text)) {
+            const l = links.get(args[0]);
+            if (l && (l.day !== args[1] || l.uses < args[2])) { l.uses = l.day === args[1] ? l.uses + 1 : 1; l.day = args[1]; changes = 1; }
+          } else if (/^DELETE FROM ask_links WHERE expires_on < \?1$/.test(text)) {
+            for (const [h, l] of links) if (l.expires_on < args[0]) { links.delete(h); changes += 1; }
           } else {
             throw new Error(`fakeD1: 知らない文 ${text}`);
           }

@@ -156,7 +156,13 @@ test('POST /api/bookings: 予約が便に入り、予定が作られ、お願い
   assert.equal(s.mail.sent.length, 1);
   assert.equal(s.mail.sent[0].to, 'hanako@mail.example');
   assert.deepEqual(s.mail.sent[0].from, { email: 'yoyaku@shop.example', name: 'B マリン（見本）' });
-  assert.ok(s.mail.sent[0].text.includes(`${ORIGIN}/#ask=${b.id}`), 'お客さんに聞くリンクが入る');
+  const link = s.mail.sent[0].text.match(/https:\/\/\S+\/ask#k=([A-Za-z0-9_-]{43})/);
+  assert.ok(link && link[0].startsWith(`${ORIGIN}/ask#k=`), 'お客さんに聞くリンク（予約ごとの鍵）が入る');
+  assert.ok(!s.mail.sent[0].text.includes(b.id), 'リンクに予約の id は入れない');
+  assert.ok(!JSON.stringify(st).includes(link[1]), '鍵は名簿に残さない（名簿には印だけ）');
+  assert.ok(st.outbox[0].body.includes('[[ask-link]]'));
+  assert.equal(s.db.links.size, 1, 'D1 には鍵の SHA-256 だけ');
+  assert.ok(![...s.db.links.keys()].includes(link[1]));
   const line = logs.find(l => l.includes('/api/bookings'));
   assert.ok(line && /"sent":1/.test(line), line);
   assert.ok(!logs.join('\n').includes('hanako') && !logs.join('\n').includes('花子'), 'ログに中身を出さない');

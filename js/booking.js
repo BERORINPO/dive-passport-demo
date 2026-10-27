@@ -443,9 +443,20 @@
 
   /* ---------- お客さんに聞く（送るリンク） ---------- */
   /* 予約 1 件に 1 つのリンク。開いた人は、この予約の人の「まだ」の所だけを入れる（js/guest-ask.js）。
-     試作ではこの端末の中だけで動く。本物では Worker が予約ごとの鍵を出す（P6） */
+     試作（GitHub Pages）ではこの端末の中だけで動く。Worker 版では Worker が予約ごとの鍵のリンクを作り、お客さんはログインなしで開く（ask.html） */
   const askUrl = (id) => `${location.origin}${location.pathname}#ask=${encodeURIComponent(id)}`;
+  const onWorker = () => !!document.querySelector('meta[name="redux-worker"]');
   let copied = null;        // リンクを写せたか（ok / fail）
+  let made = null;          // Worker が作ったリンク { bookingId, url, expiresOn } か { bookingId, wait } か { bookingId, error }
+
+  async function makeLink(bookingId) {
+    made = { bookingId, wait: true };
+    copied = null;
+    render();
+    const r = await R.rosterSync.askLink(bookingId);
+    made = r.ok ? { bookingId, url: r.url, expiresOn: r.expiresOn } : { bookingId, error: r.why };
+    render();
+  }
 
   function personLine(p, trip) {
     const items = R.roster.ITEMS[trip ? trip.kind : 'dive'];
@@ -466,7 +477,9 @@
     const people = s.people.filter(p => p.bookingId === b.id);
     const lead = b.leadName || (people[0] && people[0].name) || '名前の分からない予約';
     const items = R.roster.ITEMS[trip ? trip.kind : 'dive'];
-    const url = askUrl(b.id);
+    const real = onWorker();
+    const mine = made && made.bookingId === b.id ? made : null;
+    const url = real ? (mine && mine.url) || '' : askUrl(b.id);
     const copy = () => {
       const tell = (how) => () => { copied = how; render(); };
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(tell('ok'), tell('fail'));
@@ -479,14 +492,23 @@
         people.map(p => personLine(p, trip))),
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, 'お客さんに送るリンク', el('small', { text: '予約 1 件に 1 つ' })),
-        el('p', { class: 'url', text: url }),
-        el('p', { class: 'sheet__note', text: 'LINE やメールに貼って送ります。開いた人は、この予約の人の「まだ」の所だけを入れられます。試作では、この端末の中だけで開けます。' })),
+        url ? el('p', { class: 'url', text: url }) : null,
+        el('p', { class: 'sheet__note', text: real
+          ? `LINE やメールに貼って送ります。お客さんはログインなしで開き、この予約の人の「まだ」の所だけを入れられます。健康の質問は、そこから 1 人ずつのリンクで本人が答えます。${mine && mine.expiresOn ? `${md(mine.expiresOn)} まで使えます。` : ''}作り直すと、前に送ったリンクは開けなくなります。`
+          : 'LINE やメールに貼って送ります。開いた人は、この予約の人の「まだ」の所だけを入れられます。試作では、この端末の中だけで開けます。' })),
+      mine && mine.error ? el('p', { class: 'flag flag--warn', role: 'status', text: mine.error === 404
+        ? 'サーバーにまだこの予約が届いていません。少し待ってから、もう一度押してください。' : 'リンクを作れませんでした。もう一度押してください。' }) : null,
       copied === 'ok' ? el('p', { class: 'flag flag--ok', role: 'status', text: 'リンクを写しました' }) : null,
       copied === 'fail' ? el('p', { class: 'flag flag--warn', role: 'status', text: '写せませんでした。上のリンクを長押しして写してください' }) : null,
       back(),
-      dock(
-        el('button', { class: 'btn', type: 'button', text: 'リンクを写す', onclick: copy }),
-        el('button', { class: 'btn btn--ghost', type: 'button', text: 'この端末で開く（デモ）', onclick: () => R.openAsk(b.id) }))
+      real
+        ? dock(
+          url ? el('button', { class: 'btn', type: 'button', text: 'リンクを写す', onclick: copy }) : null,
+          el('button', { class: url ? 'btn btn--ghost' : 'btn', type: 'button', disabled: !!(mine && mine.wait), text: mine && mine.wait ? '作っています…' : url ? '作り直す' : 'リンクを作る',
+            onclick: () => makeLink(b.id) }))
+        : dock(
+          el('button', { class: 'btn', type: 'button', text: 'リンクを写す', onclick: copy }),
+          el('button', { class: 'btn btn--ghost', type: 'button', text: 'この端末で開く（デモ）', onclick: () => R.openAsk(b.id) }))
     ];
   }
 

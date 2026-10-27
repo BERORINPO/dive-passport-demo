@@ -198,7 +198,7 @@ export function fileProblems(text, rule, isHtml) {
 
 /* 字体を読まないページ（表の字体の列が「読まない」）が、@font-face のある CSS を読んでいないか。readLocal は repo のファイルを読む関数 */
 const hasFontFace = (css) => /@font-face/i.test(cssUnescape(css.replace(CSS_COMMENT, ' ')));   // @font-fac\65 も @font-face と読む
-export function fontFaceProblems(html, readLocal) {
+export function fontFaceProblems(html, readLocal, opts = {}) {
   const out = [];
   tags(html).forEach(({ tag, attrs, content }) => {
     if (tag === 'style' && hasFontFace(content)) out.push('字体を読まないページの <style> に @font-face がある');
@@ -211,13 +211,14 @@ export function fontFaceProblems(html, readLocal) {
     try { css = readLocal(href.replace(/^\.?\//, '').split(/[?#]/)[0]); } catch { out.push(`読めない CSS: ${href}`); return; }
     if (hasFontFace(css)) out.push(`字体を読まないページが、@font-face のある CSS を読んでいる: ${href}`);
   });
-  out.push(...cspProblems(html));
+  out.push(...cspProblems(html, opts));
   return out;
 }
 
 /* 字体を読まないページの守りの本体は meta の CSP。消したり緩めたりしたら落とす。
-   charset の次（どの読み込みよりも前）に置き、default-src・connect-src・img-src は 'none'、font-src と 'unsafe- は書かない */
-export function cspProblems(html) {
+   charset の次（どの読み込みよりも前）に置き、default-src・connect-src・img-src は 'none'、font-src と 'unsafe- は書かない。
+   connectSelf のページ（同じ場所の Worker だけに送る ask.html）は、connect-src を 'self' だけにする */
+export function cspProblems(html, { connectSelf = false } = {}) {
   const all = tags(html);
   const i = all.findIndex(t => t.tag === 'meta' && (t.attrs.get('http-equiv') || '').trim().toLowerCase() === 'content-security-policy');
   if (i < 0) return ['字体を読まないページに CSP の meta が無い'];
@@ -226,7 +227,8 @@ export function cspProblems(html) {
   if (firstLoad >= 0 && firstLoad < i) out.push('CSP の meta が、読み込みより後ろにある');
   const csp = (all[i].attrs.get('content') || '').toLowerCase();
   const dir = (name) => (csp.split(';').map(s => s.trim()).find(s => s.split(/\s+/)[0] === name) || '').split(/\s+/).slice(1).join(' ');
-  ['default-src', 'connect-src', 'img-src'].filter(d => dir(d) !== "'none'").forEach(d => out.push(`CSP の ${d} が 'none' でない`));
+  ['default-src', 'img-src', ...(connectSelf ? [] : ['connect-src'])].filter(d => dir(d) !== "'none'").forEach(d => out.push(`CSP の ${d} が 'none' でない`));
+  if (connectSelf && dir('connect-src') !== "'self'") out.push("CSP の connect-src が 'self' だけでない");
   if (/(^|;)\s*font-src\b/.test(csp)) out.push('CSP に font-src がある（字体は読まない）');
   if (/'unsafe-/.test(csp)) out.push("CSP に 'unsafe-…' がある");
   return out;

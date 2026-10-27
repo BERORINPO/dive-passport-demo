@@ -1,6 +1,7 @@
 /* お客さんの画面: お店が送ったリンク（#ask=予約の id）から開く。その予約の人の「まだ」の所だけを入れる。
    パスポートから入れる・当日の朝に体調を答える、もここ。決まりは js/roster-guest.js（core）。
-   試作では、この端末の名簿（localStorage）に入れる。本物では Worker が予約ごとの鍵で受け付ける（P6） */
+   試作では、この端末の名簿（localStorage）に入れる。本物のリンク（ask.html）では、同じ欄で Worker の /api/ask に送る
+   （js/ask-page.js が R.guestAsk.remote で読み書きの先を差し替える。聞く項目は Worker が決める。plan/meibo.md「お客さんのリンク」） */
 (() => {
   'use strict';
 
@@ -75,7 +76,12 @@
     passNameBlocked: { ja: '同じ人と確かめられないので入れられません', en: 'Cannot be used: we cannot confirm it is the same person' },
     passUse: { ja: '選んだ物を入れる', en: 'Use the selected items' },
     cancel: { ja: 'やめる', en: 'Cancel' },
-    passRest: { ja: '生年月日・住所・緊急時の連絡先は、パスポートに無いので、この画面のあとで入れます。', en: 'Date of birth, address and emergency contact are not on the passport; enter them next.' }
+    passRest: { ja: '生年月日・住所・緊急時の連絡先は、パスポートに無いので、この画面のあとで入れます。', en: 'Date of birth, address and emergency contact are not on the passport; enter them next.' },
+    doneHere: { ja: 'この画面で入れる所はそろいました', en: 'This page is complete' },
+    healthBy: { ja: '健康の質問と当日の体調は、1 人ずつのリンクで本人が答えます（お子さんは保護者の方）。', en: 'Health questions and how you feel on the day are answered by each person on their own link (a parent for children).' },
+    personLink: { ja: 'さんのリンクを写す', en: ': copy their link' },
+    personCopied: { ja: 'リンクを写しました。本人に送ってください', en: 'Link copied. Please send it to them' },
+    personFail: { ja: '写せませんでした。下のリンクを長押しして写してください', en: 'Could not copy. Press and hold the link below to copy it' }
   };
   const ITEM_EN = { name: 'Name', birthDate: 'Date of birth', address: 'Address', emergency: 'Emergency contact', certDate: 'Certification date',
     courses: 'Courses', dives: 'Experience', lastDive: 'Last dive', history: 'Medical history', today: 'Health today' };
@@ -83,7 +89,10 @@
   const PROBLEM = { birthDate: T.birthDate, address: T.address, emergency: { ja: '緊急時の連絡先（名前と電話）', en: 'Emergency contact (name and phone)' },
     cert: T.cert, certDate: T.certDate, dives: T.dives, lastDive: { ja: '最後に潜った月', en: 'Last dive month' },
     history: { ja: '健康の質問（全部）', en: 'All health questions' }, consent: { ja: '健康の答えの同意', en: 'Consent for health answers' },
-    name: { ja: '名前が違っても入れる、の印', en: 'The box for a different name' }, save: { ja: '保存できませんでした', en: 'Could not save' } };
+    name: { ja: '名前が違っても入れる、の印', en: 'The box for a different name' }, save: { ja: '保存できませんでした', en: 'Could not save' },
+    network: { ja: '送れませんでした。電波を確かめて、もう一度押してください', en: 'Could not send. Check your connection and try again' },
+    cancelled: { ja: 'このツアーは中止になりました', en: 'This tour is cancelled' }, 'not-today': { ja: '当日の体調は、当日の朝に答えます', en: 'Answer how you feel on the morning of the tour' },
+    gone: { ja: 'このリンクは使えません。お店に聞いてください', en: 'This link does not work. Please ask the shop' } };
 
   /* 開いている予約と、人ごとの書きかけ */
   let bookingId = '';
@@ -95,11 +104,14 @@
   let todayDemo = false;
   let passKeys = null;          // パスポートから入れる物の印。null = まだ選んでいない（最初は入れられる物に全部付ける）
   let otherName = false;        // 名前が違っても、この人に入れる
+  let remote = null;            // 本物のリンク: { view(), send(personId, input), today(personId, answer, consent), personLink(personId) }。js/ask-page.js が入れる
+  let personUrls = {};          // 1 人ずつのリンク（人の id → { url, copied }）
 
   const itemLabel = (items, key) => (R.lang === 'en' ? ITEM_EN[key] : items.find(i => i.key === key).ja);
   /* 「当日として答える」はデモ（見本の読み取り）のときだけ。本物では Worker の時計で当日かを決める（plan/meibo.md） */
   const demoMode = () => !!R.aiReader && R.aiReader.mode() === 'sample';
-  const isTheDay = (trip) => R.today() === trip.date;
+  /* 本物のリンクでは、当日かどうかを Worker の日付で決める（entry.todayOpen） */
+  const isTheDay = (trip, entry) => (remote ? !!(entry && entry.todayOpen) : R.today() === trip.date);
   const courseLabel = (c) => (R.lang === 'en' ? COURSE_EN[c] : C().COURSE_JA[c]);
   const md = (d) => { const [, m, dd] = d.split('-').map(Number); return `${m}/${dd}`; };
 
@@ -135,7 +147,7 @@
       const course = courseOpen ? d.cert.course : entry.parts.course;
       out.push(courseOpen ? field(T.cert, el('select', { class: 'input', onchange: (e) => { d.cert.course = e.target.value; render(); } },
         el('option', { value: '', text: '—' }),
-        R.roster.COURSES.filter(c => c && !(c === 'NONE' && /^\d{4}-\d{2}/.test(entry.parts.date || ''))).map(c => el('option', { value: c, selected: d.cert.course === c, text: courseLabel(c) }))))
+        R.roster.COURSES.filter(c => c && !(c === 'NONE' && (entry.parts.hasDate ?? /^\d{4}-\d{2}/.test(entry.parts.date || '')))).map(c => el('option', { value: c, selected: d.cert.course === c, text: courseLabel(c) }))))
         : el('p', { class: 'note', text: `${L(T.cert)}: ${courseLabel(course)}（${L(T.filled)}）` }));
       if (ask.includes('certDate') && entry.parts.cert.includes('date') && course && course !== 'NONE') {
         out.push(field(T.certDate, el('input', { class: 'input input--short', type: 'month', value: d.cert.date, oninput: (e) => { d.cert.date = e.target.value; } })));
@@ -180,7 +192,7 @@
 
   /* 当日の体調。当日でなければ、デモのときだけ「当日として」答えられる */
   function todayPart(trip, d, entry) {
-    const isDay = isTheDay(trip) || (todayDemo && demoMode());
+    const isDay = isTheDay(trip, entry) || (todayDemo && demoMode());
     if (!isDay) {
       return el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, L(T.todayWait), el('small', { text: md(trip.date) })),
@@ -213,16 +225,31 @@
     }
   }
 
+  /* 本物のリンク: Worker に送り、Worker が数えた問題を出す */
+  async function sendRemote(entry, d) {
+    if (entry.ask.length) {
+      const got = await remote.send(entry.person.id, { ...d, dives: d.dives === '' ? '' : Number(d.dives) });
+      if (got.problems.length) { problems = got.problems; render(); return; }
+    }
+    if (entry.needsToday && entry.todayOpen && d.today) {
+      const got = await remote.today(entry.person.id, d.today, d.consent);
+      if (got.problems.length) { problems = got.problems; render(); return; }
+    }
+    flash = 'sent';
+    render();
+  }
+
   function send(entry, trip) {
     const d = draftOf(entry.person);
     const at = new Date().toISOString();
     problems = [];
+    if (remote) { sendRemote(entry, d); return; }
     if (entry.ask.length) {
       const inputValue = { ...d, dives: d.dives === '' ? '' : Number(d.dives) };
       if (!save(s => G().applyGuest(s, { id: entry.person.id, input: inputValue, today: R.today(), at }))) { render(); return; }
     }
-    const demo = !isTheDay(trip) && todayDemo && demoMode();
-    if (entry.needsToday && (isTheDay(trip) || demo) && d.today) {
+    const demo = !isTheDay(trip, entry) && todayDemo && demoMode();
+    if (entry.needsToday && (isTheDay(trip, entry) || demo) && d.today) {
       if (!save(s => G().answerToday(s, { id: entry.person.id, answer: d.today, day: trip.date, consent: d.consent, today: R.today(), demo, at }))) { render(); return; }
     }
     flash = 'sent';
@@ -289,8 +316,34 @@
       el('h2', { class: 'page__title', text: [md(trip.date), trip.start, trip.tour].filter(Boolean).join(' ') }),
       el('div', { class: 'band band--warn', role: 'alert' }, el('p', { class: 'band__title', text: `! ${L(T.cancelTitle)}` }),
         el('p', { class: 'band__text', text: [why, L(T.cancelText)].filter(Boolean).join(R.lang === 'en' ? '. ' : '。') })),
-      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: L(T.back), onclick: close }))
+      backLink()
     ];
+  }
+
+  /* 試作だけ: いつもの画面に戻る。本物のリンク（ask.html）には戻る先が無い */
+  const backLink = () => (remote ? null : el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: L(T.back), onclick: close })));
+
+  /* 本物の予約のリンク: 健康は 1 人ずつのリンクで本人が答える。人ごとにリンクを作って写す */
+  function healthLinks(v) {
+    const open = v.people.filter(x => x.healthOpen);
+    if (!open.length) return null;
+    const copy = async (x) => {
+      const got = personUrls[x.person.id] || await remote.personLink(x.person.id);
+      if (!got.url) { problems = [got.why || 'network']; render(); return; }
+      let copied = false;
+      try { await navigator.clipboard.writeText(got.url); copied = true; } catch (e) { copied = false; }
+      personUrls[x.person.id] = { url: got.url, copied };
+      render();
+    };
+    return el('div', { class: 'sheet' },
+      el('p', { class: 'sheet__note', text: L(T.healthBy) }),
+      open.map(x => {
+        const made = personUrls[x.person.id];
+        return el('div', { class: 'rd' },
+          el('button', { class: 'linkbtn', type: 'button', text: `${x.person.name || '—'}${R.lang === 'en' ? '' : ' '}${L(T.personLink)}`, onclick: () => copy(x) }),
+          made ? el('span', { class: 'rd__sub', text: L(made.copied ? T.personCopied : T.personFail) }) : null,
+          made && !made.copied ? el('p', { class: 'url', text: made.url }) : null);
+      }));
   }
 
   function renderForm(v) {
@@ -298,12 +351,12 @@
     const entry = v.people.find(x => x.person.id === personId) || v.people[0];
     personId = entry.person.id;
     const d = draftOf(entry.person);
-    const pass = R.passStore.get();
+    const pass = remote ? null : R.passStore.get();   // 本物のリンクでは、この端末のパスポートから入れる所は次の一切れ
     const done = !entry.ask.length && !entry.needsToday;
     /* お店がもう知っていることは、項目の名前だけを出す（リンクが転送されても中身が見えないように） */
     const known = entry.known.map(k => el('div', { class: 'rd' },
       el('span', { class: 'rd__k', text: itemLabel(items, k) }), el('span', { class: 'rd__v', text: L(T.filled) })));
-    const canSend = entry.ask.length || (entry.needsToday && (isTheDay(trip) || (todayDemo && demoMode())) && d.today);
+    const canSend = entry.ask.length || (entry.needsToday && (isTheDay(trip, entry) || (todayDemo && demoMode())) && d.today);
     return [
       el('p', { class: 'note', text: `${v.shop}${L(T.from)}` }),
       el('h2', { class: 'page__title', text: L(trip.kind === 'snorkel' ? T.titleSnorkel : T.titleDive) }),
@@ -319,31 +372,40 @@
       }, x.person.name || '—', !x.ask.length && !x.needsToday ? ' ✓' : ''))) : null,
       known.length ? el('details', { class: 'sheet known' },
         el('summary', { text: R.lang === 'en' ? `${L(T.known)} (${known.length})` : `${L(T.known)}（${known.length}）` }), known, el('p', { class: 'sheet__note', text: L(T.knownNote) })) : null,
-      done ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, `✓ ${L(T.doneTitle)}`),
+      done ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, `✓ ${L(remote && entry.healthOpen ? T.doneHere : T.doneTitle)}`),
         el('p', { class: 'sheet__note', text: L(T.doneText) })) : null,
       entry.ask.length ? el('div', { class: 'form ask__form' }, formFields(entry, d, items)) : null,
+      remote && v.kind === 'booking' ? healthLinks(v) : null,
       entry.needsToday && entry.ask.length ? el('p', { class: 'note', text: L(T.todayLater) }) : null,
       entry.needsToday && !entry.ask.length ? todayPart(trip, d, entry) : null,
       symptomCard(),
       canSend ? R.dock(
         el('p', { class: 'errors', role: 'alert', text: problemText() }),
         el('button', { class: 'btn', type: 'button', text: L(T.send), onclick: () => send(entry, trip) })) : null,
-      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: L(T.back), onclick: close }))
+      backLink()
     ];
   }
 
   const problemText = () => (problems.length ? `${L(T.fix)}: ${problems.map(k => L(PROBLEM[k] || PROBLEM.save)).join(R.lang === 'en' ? ', ' : '・')}` : '');
 
-  function render() {
-    if (!bookingId) return;
+  /* 試作: この端末の名簿から */
+  function localView() {
     const s = R.rosterStore.get();
     const v = G().guestView(s, bookingId);
-    if (!v || !v.trip || !v.people.length) {
-      R.fill(root, el('p', { class: 'empty', text: L(T.noBooking) }), el('p', { class: 'reset' }, el('button', { class: 'linkbtn', type: 'button', text: L(T.back), onclick: close })));
-      return;
-    }
+    if (!v) return null;
     const booking = s.bookings.find(b => b.id === bookingId);
     v.shop = booking && C().isPartnerBooking(booking) ? booking.shop : s.shop.name;   // 乗り合いの他のお店のお客さんには、そのお店の名前を出す
+    return v;
+  }
+
+  function render() {
+    if (!bookingId && !remote) return;
+    const v = remote ? remote.view() : localView();
+    if (!v || !v.trip || !v.people.length) {
+      R.fill(root, el('p', { class: 'empty', text: L(T.noBooking) }), backLink());
+      return;
+    }
+    if (remote) v.items = R.roster.ITEMS[v.trip.kind || 'dive'];
     const entry = v.people.find(x => x.person.id === personId) || v.people[0];
     R.fill(root, v.trip.cancel ? renderCancelled(v) : view === 'passport' ? renderPassport(v, entry) : renderForm(v));
   }
@@ -351,7 +413,7 @@
   /* ---------- 開く・閉じる ---------- */
   function show(on) {
     root.hidden = !on;
-    guestParts.forEach(n => { n.hidden = on; });
+    guestParts.forEach(n => { if (n) n.hidden = on; });
   }
 
   function open(id) {
@@ -361,7 +423,7 @@
     problems = [];
     flash = null;
     show(true);
-    R.showTab('guest');
+    if (R.showTab) R.showTab('guest');
     render();
   }
 
@@ -381,6 +443,19 @@
   R.openAsk = (id) => {
     history.replaceState(null, '', `${location.pathname}${location.search}#ask=${encodeURIComponent(id)}`);
     open(id);
+  };
+  /* 本物のリンク（ask.html）から: 読み書きの先を Worker にする */
+  R.guestAsk = {
+    remote(source) {
+      remote = source;
+      drafts = {};
+      personUrls = {};
+      personId = '';
+      view = 'form';
+      show(true);
+      render();
+    },
+    refresh: () => render()
   };
   window.addEventListener('hashchange', fromHash);
   R.onLang(() => render());

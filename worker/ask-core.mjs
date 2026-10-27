@@ -1,0 +1,110 @@
+/* お客さんのリンクの決まり（core）。外のもの（通信・D1・時計・暗号）は使わない。今日は受け取る。
+   聞く項目は Worker が自分の名簿から計算し、お客さんから届いた ask や patch は信じない（js/roster-guest.js の guestProblems・guestPatch をここでかける）。
+   予約 1 件のリンクは健康以外、1 人ずつのリンクはその人の健康（既往症と当日の体調）だけ。計画は plan/meibo.md「お客さんのリンク」 */
+import '../js/roster-schema.js';
+import '../js/roster-core.js';
+import '../js/roster-guest.js';
+import '../js/roster-auto.js';
+
+const R = globalThis.REDUX;
+const G = () => R.rosterGuest;
+
+/* 鍵は 32 バイトの base64url（43 字）。本文の上限と、鍵 1 つあたり 1 日に受ける回数 */
+export const KEY_RE = /^[A-Za-z0-9_-]{43}$/;
+export const MAX_ASK_BODY = 8192;
+export const USES_PER_DAY = 30;
+const HEALTH = ['history'];
+const ACTIONS = ['view', 'send', 'today', 'person-link'];
+const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const ID = /^[\w-]{1,64}$/;
+
+/* リンクの期限: 便の翌日まで。日付の無い便は作った日から 14 日 */
+export const linkExpiry = (trip, today) => R.rosterAuto.dayAdd(trip && trip.date ? trip.date : today, trip && trip.date ? 1 : 14);
+
+/* /api/ask の本文を確かめる。{ ok, k, action, personId, input, answer, consent } か { ok: false, error } */
+export function checkAsk(given) {
+  if (!isObj(given)) return { ok: false, error: 'shape' };
+  if (!Object.keys(given).every(k => ['k', 'action', 'personId', 'input', 'answer', 'consent'].includes(k))) return { ok: false, error: 'keys' };
+  if (typeof given.k !== 'string' || !KEY_RE.test(given.k)) return { ok: false, error: 'key' };
+  if (!ACTIONS.includes(given.action)) return { ok: false, error: 'action' };
+  if (given.action !== 'view' && !(typeof given.personId === 'string' && ID.test(given.personId))) return { ok: false, error: 'person' };
+  if (given.action === 'send' && !isObj(given.input)) return { ok: false, error: 'input' };
+  if (given.action === 'today' && !['ok', 'unwell'].includes(given.answer)) return { ok: false, error: 'answer' };
+  return { ok: true, ...given };
+}
+
+/* リンクで開ける予約と人。期限切れ・予約が無い・人が別の予約、はどれも null（呼ぶ側は同じ 404 を返す） */
+function target(state, link, today) {
+  if (!link || link.expiresOn < today) return null;
+  const v = G().guestView(state, link.bookingId);
+  if (!v || !v.trip) return null;
+  const people = link.personId ? v.people.filter(e => e.person.id === link.personId) : v.people;
+  if (!people.length) return null;
+  return { v, people };
+}
+
+/* 1 人分の「まだ」の所を、リンクの種類で分ける */
+function split(entry, link, isDay) {
+  const forHealth = !!link.personId;
+  const ask = forHealth ? entry.ask.filter(k => HEALTH.includes(k)) : entry.ask.filter(k => !HEALTH.includes(k));
+  const healthOpen = entry.ask.some(k => HEALTH.includes(k)) || entry.needsToday;
+  return { ask, needsToday: forHealth && entry.needsToday, todayOpen: forHealth && entry.needsToday && isDay, healthOpen };
+}
+
+/* お客さんに見せる物。名簿の中身は出さない（名前・聞く項目の名前・入っている項目の名前・C カードの講習の名前だけ） */
+export function linkView(state, link, today) {
+  const t = target(state, link, today);
+  if (!t) return null;
+  const { v } = t;
+  const booking = v.booking;
+  const isDay = v.trip.date === today;
+  return {
+    shop: R.rosterCore.isPartnerBooking(booking) ? booking.shop : state.shop.name,
+    kind: link.personId ? 'person' : 'booking',
+    trip: { date: v.trip.date, start: v.trip.start, tour: v.trip.tour, kind: v.trip.kind, cancel: v.trip.cancel ? { reason: v.trip.cancel.reason } : null },
+    isDay,
+    people: t.people.map(e => {
+      const s = split(e, link, isDay);
+      return {
+        person: { id: e.person.id, name: e.person.name },
+        ask: s.ask, needsToday: s.needsToday, todayOpen: s.todayOpen, healthOpen: s.healthOpen, known: e.known, consented: e.consented,
+        parts: { emergency: e.parts.emergency, cert: e.parts.cert, course: e.parts.course, date: '', hasDate: !!e.parts.date }
+      };
+    })
+  };
+}
+
+/* リンクから入れる直し。{ state, problems }。problems に 'gone' があれば 404 と同じ扱い */
+export function applyLink(state, link, req, { today, at }) {
+  const t = target(state, link, today);
+  if (!t) return { state, problems: ['gone'] };
+  const entry = t.people.find(e => e.person.id === req.personId);
+  if (!entry) return { state, problems: ['gone'] };
+  if (t.v.trip.cancel) return { state, problems: ['cancelled'] };
+  if (req.action === 'send') {
+    const only = link.personId ? HEALTH : entry.ask.filter(k => !HEALTH.includes(k));
+    return G().applyGuest(state, { id: entry.person.id, input: req.input, today, at, only });
+  }
+  /* 当日の体調は、1 人ずつのリンクで、Worker の日付が便の日のときだけ */
+  if (!link.personId || t.v.trip.date !== today) return { state, problems: ['not-today'] };
+  return G().answerToday(state, { id: entry.person.id, answer: req.answer, day: today, consent: req.consent === true, today, demo: false, at });
+}
+
+/* 予約のリンクから、その予約の 1 人の健康のリンクを作ってよいか。{ ok, bookingId, personId } */
+export function personLinkTarget(state, link, personId, today) {
+  if (link.personId) return { ok: false };
+  const t = target(state, link, today);
+  if (!t) return { ok: false };
+  const entry = t.people.find(e => e.person.id === personId);
+  if (!entry || t.v.trip.cancel) return { ok: false };
+  return { ok: true, bookingId: link.bookingId, personId, trip: t.v.trip };
+}
+
+/* お店が作る予約のリンク（/api/ask-link）。予約があり、便がまだ終わっていないときだけ */
+export function bookingLinkTarget(state, bookingId, today) {
+  const b = state.bookings.find(x => x.id === bookingId);
+  const trip = b ? state.trips.find(x => x.id === b.tripId) : null;
+  if (!b || !trip) return { ok: false };
+  const expiresOn = linkExpiry(trip, today);
+  return expiresOn < today ? { ok: false } : { ok: true, trip, expiresOn };
+}

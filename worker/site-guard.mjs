@@ -1,5 +1,5 @@
 /* サイトの予約フォームから届く予約の守り（adapter）。Turnstile（ロボットよけ）の答えを Cloudflare に確かめ、
-   1 つの IP からの回数を Workers Rate Limiting（BOOKING_LIMIT）で数える。見本は worker/fakes.mjs の fakeTurnstile・fakeRateLimit */
+   1 つの IP からの回数を Workers Rate Limiting（BOOKING_LIMIT・ASK_LIMIT）で数える。見本は worker/fakes.mjs の fakeTurnstile・fakeRateLimit */
 
 const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
@@ -19,10 +19,10 @@ export async function verifyTurnstile(env, token, ip, io) {
   return got && got.success === true ? { ok: true } : { ok: false, why: 'turnstile-no' };
 }
 
-/* 1 つの IP からの回数。上限を超えたら false。binding が答えないときも false（受けない側に倒す） */
-export async function underLimit(env, ip) {
+/* 1 つの IP からの回数（limiter は BOOKING_LIMIT か ASK_LIMIT）。上限を超えたら false。binding が答えないときも false（受けない側に倒す） */
+export async function underLimit(limiter, ip) {
   try {
-    const got = await env.BOOKING_LIMIT.limit({ key: `booking:${ip || 'unknown'}` });
+    const got = await limiter.limit({ key: ip || 'unknown' });
     return Boolean(got && got.success);
   } catch (e) {
     return false;

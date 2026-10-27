@@ -13,6 +13,8 @@
   const REMIND_AT = '09:00';
   const EVE_AT = '20:00';
   const MORNING_AT = '06:00';
+  /* Worker が作る連絡の、お客さんのリンクを入れる所の印 */
+  const LINK_MARK = '[[ask-link]]';
 
   /* ---------- 日付（時計を使わずに数える。roster-guest.js の dayNumber と同じ暦の式） ---------- */
   function dayNumber(ymd) {
@@ -151,7 +153,8 @@
   /* ---------- 時刻が来た予定を動かす ---------- */
   function outItem(state, { kind, booking, trip, people, at, newId, askBase }) {
     const shop = state.shop.name || '';
-    const link = `${askBase}${booking.id}`;
+    /* askBase が空のとき（Worker）は印だけを入れ、送るときに予約ごとの鍵のリンクへ差し替える（鍵は名簿に残さない。worker/auto.mjs） */
+    const link = askBase ? `${askBase}${booking.id}` : LINK_MARK;
     const { subject, body } = message(kind, { shop, booking, trip, people, link });
     const toGuest = kind !== 'staff';
     const to = toGuest ? (booking.leadEmail || '') : '';
@@ -229,5 +232,5 @@
     return items.sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : 0));
   }
 
-  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline };
+  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline };
 })();
