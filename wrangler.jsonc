@@ -1,6 +1,6 @@
 // Cloudflare Worker の設定（P6）。置き方は docs/deploy.md。
 // この repo は公開なので、鍵・チームのメールアドレス・Access の値はここに書かず、wrangler secret put で入れる
-// （ANTHROPIC_API_KEY・ACCESS_TEAM_DOMAIN・ACCESS_AUD・ALLOWED_EMAILS）。
+// （ANTHROPIC_API_KEY・ACCESS_TEAM_DOMAIN・ACCESS_AUD・ALLOWED_EMAILS・ASK_ORIGIN = お客さんの Worker の URL）。
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dive-passport-demo",
@@ -16,6 +16,18 @@
     "run_worker_first": ["/api/*"],
     "not_found_handling": "none"
   },
+  "d1_databases": [
+    // お店の名簿の正本（plan/server.md）とお客さんのリンクの鍵。お客さんの Worker（wrangler.ask.jsonc）も同じ物を読む。
+    // database_id は鍵ではない（wrangler d1 create が出した値）。表は worker/migrations/ を wrangler d1 migrations apply で作る
+    { "binding": "DB", "database_name": "redux-rosters", "database_id": "f74f3e8d-7869-4899-9bdf-33c3737a5654", "migrations_dir": "worker/migrations" }
+  ],
+  "ratelimits": [
+    // サイトの予約フォーム（/api/bookings）と、手元の確かめ用の /api/ask の、1 つの IP の回数（plan/auto.md）
+    { "name": "BOOKING_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
+    { "name": "ASK_LIMIT", "namespace_id": "1003", "simple": { "limit": 30, "period": 60 } }
+  ],
+  // 書類の自動化: 時刻が来た予定を動かす（9:00・20:00・6:00 の予定に、遅れても 15 分）
+  "triggers": { "crons": ["*/15 * * * *"] },
   "kv_namespaces": [
     // 回数と費用の目安を数える。id は wrangler kv namespace create BUDGET が出した値（2026-10-22。id は鍵ではない）
     { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" }

@@ -494,7 +494,7 @@ test('予約を便に入れる: 便が無ければ作る。読み取りから予
   assert.ok(S.validateState(s).ok);
   const again = C.addBookingToTrip(s, { tripId: trip.id, want, booking: C.bookingFromReading(r), reading: r, src: 'mail', at: AT, newId });
   assert.equal(again.state.trips.length, 2, '便があればそこへ');
-  assert.deepEqual(C.bookingFromReading({ booking: null, people: [], healthSeen: false }), { source: 'mail', site: '', ref: '', leadName: '', leadPhone: '', people: 1 });
+  assert.deepEqual(C.bookingFromReading({ booking: null, people: [], healthSeen: false }), { source: 'mail', site: '', ref: '', leadName: '', leadPhone: '', leadEmail: '', people: 1 });
   const miss = C.missingForReading(SAMPLES.e1, 'dive');
   assert.equal(miss.unknown, 0);
   assert.deepEqual(miss.items.map(i => i.key), ['birthDate', 'address', 'emergency', 'history', 'today']);

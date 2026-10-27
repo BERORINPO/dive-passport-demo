@@ -9,9 +9,11 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'dist');
+/* お客さんのリンクだけの Worker（wrangler.ask.jsonc）に置く物。ask.html と、ask.html が読むファイルだけ（お店の画面は置かない） */
+const outAsk = join(root, 'dist-ask');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
-const KEEP = [/^index\.html$/, /^pass\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
+const KEEP = [/^index\.html$/, /^pass\.html$/, /^ask\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
   /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.glb$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/, /^audio\/[^/]+\.mp3$/];
 
 export function siteFiles() {
@@ -36,12 +38,16 @@ export function headers(indexHtml) {
   /* pass.html（他のお店のスマホで開くパスポート）は字体も画像も読まず、どこにもつながない */
   const pass = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`,
     `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
+  /* ask.html（お店が送ったリンクから開くお客さんの画面）は同じ場所の /api/ask だけにつなぎ、字体は読まない。Access の外に出す道（plan/meibo.md） */
+  const ask = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'self'`,
+    `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
   const block = (paths, lines) => paths.map(p => [p, ...lines.map(l => `  ${l}`)].join('\n')).join('\n');
   return [
     block(['/*'], ['X-Content-Type-Options: nosniff', 'Referrer-Policy: no-referrer', 'X-Robots-Tag: noindex, nofollow',
       'Cross-Origin-Opener-Policy: same-origin', 'Permissions-Policy: geolocation=(), microphone=(), payment=(), usb=()']),
     block(['/', '/index.html', '/index'], [`Content-Security-Policy: ${index}`, 'Cache-Control: no-cache']),
     block(['/pass.html', '/pass'], [`Content-Security-Policy: ${pass}`, 'Cache-Control: no-cache']),
+    block(['/ask.html', '/ask'], [`Content-Security-Policy: ${ask}`, 'Cache-Control: no-store']),
     /* どの束を取ったかで画面の字が分かるので、長くためて取りに来る回数を減らす（Worker を通らないので path はログに出ない） */
     block(['/fonts/*'], ['Cache-Control: public, max-age=31536000, immutable']),
     block(['/js/*', '/css/*'], ['Cache-Control: no-cache']),
@@ -69,4 +75,38 @@ function build() {
   console.log(`dist/: ${files.length} files + _headers`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) build();
+/* ask.html が読む js と css（script の src と stylesheet の href）。これ以外はお客さん用の Worker に置かない */
+export function askFiles(html = readFileSync(join(root, 'ask.html'), 'utf8')) {
+  const refs = [...html.matchAll(/<script src="([^"]+)"><\/script>|<link rel="stylesheet" href="([^"]+)">/g)].map(m => m[1] || m[2]);
+  if (!refs.every(f => /^(js|css)\/[\w.-]+\.(js|css)$/.test(f))) throw new Error('ask.html が js/ と css/ のほかを読んでいる');
+  return ['ask.html', ...refs];
+}
+
+export function askHeaders(indexHtml) {
+  const all = headers(indexHtml).split('\n');
+  /* 共通（/*）と、ask.html・/ask の CSP、js と css のキャッシュだけを、同じ書き方で写す */
+  const keep = new Set(['/*', '/ask.html', '/ask', '/js/*', '/css/*']);
+  const out = [];
+  let on = false;
+  for (const line of all) {
+    if (/^\S/.test(line)) on = keep.has(line.trim());
+    if (on && line) out.push(line);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+function buildAsk(index) {
+  rmSync(outAsk, { recursive: true, force: true });
+  const files = askFiles();
+  for (const f of files) {
+    mkdirSync(dirname(join(outAsk, f)), { recursive: true });
+    cpSync(join(root, f), join(outAsk, f));
+  }
+  writeFileSync(join(outAsk, '_headers'), askHeaders(index));
+  console.log(`dist-ask/: ${files.length} files + _headers`);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  build();
+  buildAsk(readFileSync(join(root, 'index.html'), 'utf8'));
+}

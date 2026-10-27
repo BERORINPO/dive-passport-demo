@@ -9,11 +9,11 @@
   const URL_PATH = '/api/roster';
   const TIMEOUT_MS = 10000;
 
-  async function call(method, body) {
+  async function call(method, body, path = URL_PATH) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {
-      const res = await fetch(URL_PATH, {
+      const res = await fetch(path, {
         method, credentials: 'same-origin', redirect: 'manual', cache: 'no-store', signal: ctl.signal,
         headers: body === undefined ? {} : { 'content-type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body)
@@ -35,6 +35,17 @@
     return data.state && typeof data.state === 'object' && R.roster.validateState(data.state).ok ? { version: data.version, state: data.state } : null;
   }
 
+  /* Worker が返したお客さんのリンクの形（置いた形では別の Worker の https、手元では localhost）。/ask と # の後ろの鍵だけ */
+  function linkOk(u) {
+    try {
+      const x = new URL(u);
+      return (x.protocol === 'https:' || (x.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(x.hostname)))
+        && x.pathname === '/ask' && !x.search && /^#k=[A-Za-z0-9_-]{43}$/.test(x.hash);
+    } catch (e) {
+      return false;
+    }
+  }
+
   R.rosterSync = {
     /* { ok: true, version, state } か { ok: false, why } */
     async pull() {
@@ -48,6 +59,14 @@
       const got = (r.status === 200 || r.status === 409) ? shapeOf(r.data) : null;
       if (got && r.status === 200 && got.state) return { ok: true, ...got };
       if (got && r.status === 409) return { conflict: true, ...got };
+      return { ok: false, why: r.status || 'network' };
+    },
+    /* お客さんに送るリンクを作る（同じ場所の /api/ask-link。Access の内）。作り直すと前のリンクは開けない。
+       { ok: true, url, expiresOn } か { ok: false, why }（why 404 = サーバーにまだこの予約が無い） */
+    async askLink(bookingId) {
+      const r = await call('POST', { bookingId }, '/api/ask-link');
+      const d = r.data;
+      if (r.status === 200 && d && typeof d.url === 'string' && linkOk(d.url)) return { ok: true, url: d.url, expiresOn: String(d.expiresOn || '') };
       return { ok: false, why: r.status || 'network' };
     }
   };

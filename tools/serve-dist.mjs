@@ -7,7 +7,8 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, extname, normalize, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handle } from '../worker/handler.mjs';
-import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, checkRedirect } from '../worker/fakes.mjs';
+import { scheduled } from '../worker/auto.mjs';
+import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
 import '../js/data-samples.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
@@ -32,7 +33,16 @@ const access = await fakeAccess(TEAM);
 const api = fakeAnthropic();
 const kv = fakeKv();
 const env = { ANTHROPIC_API_KEY: 'local-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-  DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, DB: fakeD1() };   // お店の名簿は、この道具が動いている間だけ覚える（止めると消える）
+  DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, DB: fakeD1(),   // お店の名簿は、この道具が動いている間だけ覚える（止めると消える）
+  /* 書類の自動化（plan/auto.md）。サイトの予約フォームは SITE_ORIGINS に書いた origin から（例: SITE_ORIGINS=http://localhost:5173）。
+     Turnstile はどの答えも通す見本、メールは送らずにこの画面（端末）に出すだけの見本 */
+  SITE_ORIGINS: process.env.SITE_ORIGINS || '', TURNSTILE_SECRET: 'local-not-real', BOOKING_LIMIT: fakeRateLimit(30), ASK_LIMIT: fakeRateLimit(300),
+  EMAIL: { send: async (m) => { console.log(`[メールの見本・送っていない] 宛先 ${m.to} / 件名 ${m.subject}
+${m.text}
+`); return { messageId: 'local' }; } },
+  MAIL_FROM: 'yoyaku@local.example', APP_URL: `http://localhost:${port}`, SHOP_NAME: 'B マリン（見本）' };
+const turnstile = fakeTurnstile();
+turnstile.hostname = 'localhost';   // 手元のサイト（SITE_ORIGINS の http://localhost:…）で解いた答えとして返す
 /* 見本の答え: 予約メールは見本の読み取り（data-samples.js）を、モデルの形（snake_case）に戻して返す */
 const SAMPLES = globalThis.REDUX.SAMPLE_READINGS;
 const MAILS = globalThis.REDUX.SAMPLE_MAILS;
@@ -48,6 +58,7 @@ const io = {
   now: () => Date.now(),
   fetch: async (url, init) => {
     checkRedirect(init);   // Workers と同じく、redirect: 'error' は例外にする
+    if (String(url).endsWith('/turnstile/v0/siteverify')) return turnstile.respond(init);
     if (url === access.certsUrl) return new Response(JSON.stringify({ keys: access.keys }));
     const body = JSON.parse(init.body);
     const text = body.messages[0].content.map(c => c.text || '').join('');
@@ -61,6 +72,7 @@ const io = {
 function fileFor(pathname) {
   let rel;
   try { rel = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).replace(/^\/+/, ''); } catch (e) { return null; }
+  if (/^[\w-]+$/.test(rel)) rel = `${rel}.html`;   // Static Assets と同じく /ask で ask.html を配る
   const file = normalize(join(root, rel));
   const inside = relative(root, file);
   if (!inside || inside.startsWith('..') || isAbsolute(inside) || inside.startsWith('_')) return null;
@@ -71,7 +83,7 @@ const HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 async function serve(req, res) {
   /* 手元だけ。ほかの名前で来た要求（DNS rebinding）は断る */
   if (!HOSTS.has(req.headers.host || '')) { res.writeHead(403); res.end('Forbidden'); return; }
-  const url = new URL(req.url, `http://127.0.0.1:${port}`);
+  const url = new URL(req.url, `http://${req.headers.host}`);   // 開いた名前のまま（localhost か 127.0.0.1）。リンクの頭が画面と同じ場所になる
   if (url.pathname.startsWith('/api/')) {
     const chunks = [];
     for await (const c of req) chunks.push(c);
@@ -94,3 +106,5 @@ createServer((req, res) => serve(req, res).catch(() => {
   if (!res.headersSent) res.writeHead(400);
   res.end('Bad request');
 })).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています`));
+/* Cron の代わり。1 分ごとに時刻が来た予定を動かす（置いた Worker は 15 分ごと） */
+setInterval(() => { scheduled(env, io).catch(() => {}); }, 60 * 1000);

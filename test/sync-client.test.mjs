@@ -180,6 +180,32 @@ test('別の端末が便を消して当てられなくなった直しは外し�
   assert.equal(a.rosterStore.get().trips.length, 0);
 });
 
+test('直しの中で作った id は、送るときの当て直しでも変わらない（その id を指す後の直しが外れない）', async () => {
+  const srv = server();
+  const a = device(srv);
+  await a.rosterStore.startSync();
+  let made = '';
+  /* 画面と同じく、直しの中で R.newId を呼ぶ（電話の予約を入れる → その予約に予定を足す、の形） */
+  a.rosterStore.update(s => {
+    const trip = { ...a.roster.blankTrip(), id: 't1', date: a.ymd(a.addDays(new Date(), 3)), start: '08:30', kind: 'dive', tour: '体験ダイビング（ボート2本）', site: '北の根', guides: [], createdAt: AT };
+    const next = a.rosterCore.addBooking({ ...s, trips: [...s.trips, trip] }, { trip, booking: { source: 'phone', people: 1 }, reading: null, src: 'staff', at: AT, newId: a.newId });
+    made = next.bookings[next.bookings.length - 1].id;
+    return next;
+  });
+  const first = made;
+  a.rosterStore.update(s => {
+    if (!s.bookings.some(b => b.id === first)) throw new Error('予約が見つからない');
+    return { ...s, bookings: s.bookings.map(b => (b.id === first ? { ...b, people: 3 } : b)) };
+  });
+  await a.rosterStore.whenSynced();
+  await a.rosterStore.refresh();
+  const b = a.rosterStore.get().bookings;
+  assert.equal(b.length, 1);
+  assert.equal(b[0].id, first);
+  assert.equal(b[0].people, 3);
+  assert.equal(srv.db.rows.get('default').version, 2);
+});
+
 test('/api/roster が無い（GitHub Pages・D1 がまだ無い Worker）ときは、端末だけで今までどおり動く', async () => {
   const srv = server();
   srv.fetch = async () => new Response('{"error":"config"}', { status: 503 });
@@ -204,11 +230,11 @@ let failed = 0;
 for (const t of tests) {
   try {
     await t.fn();
-    console.log(`ok   ${t.name}`);
+    REAL_LOG(`ok   ${t.name}`);
   } catch (e) {
     failed += 1;
-    console.log(`FAIL ${t.name}\n     ${e.message}`);
+    REAL_LOG(`FAIL ${t.name}\n     ${e.message}`);
   }
 }
-console.log(`${tests.length - failed}/${tests.length} passed`);
+REAL_LOG(`${tests.length - failed}/${tests.length} passed`);
 if (failed) process.exit(1);

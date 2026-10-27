@@ -90,6 +90,10 @@
   /* 予約と名簿も、受付ともパスポートとも別の保存場所に置く。読み込むときに形を確かめ、保存期間（1 年）を過ぎた便を消す。
      形が合わないときは黙って消さず、元の文字を別のキーに退避してから空で始める（1 年保存の名簿のため）。
      形は roster-schema.js、組み立ては roster-core.js（この 2 つは core.js の後に読む） */
+  /* デモの時計（R.setClockTo で進める）と、日本の時刻のずれ */
+  let clockOffset = 0;
+  const JST_MS = 9 * 3600 * 1000;
+
   const ROSTER_KEY = 'redux-roster-v1';
   const ROSTER_SHOP = 'B マリン（見本）';
   const ROSTER_BACKUP = `${ROSTER_KEY}-broken-`;
@@ -272,7 +276,20 @@
     return sync.flushing;
   }
 
-  function updateRoster(fn) {
+  /* 直しは、サーバーに送るたびに当て直す（rebase）。中で R.newId を呼ぶ直しが毎回ちがう id を作ると、
+     その id を指す後の直し（予約に予定を足す、など）が当てられずに外れる。1 回目に作った id を、当て直しでも使い回す */
+  function stableIds(fn) {
+    const made = [];
+    return (s) => {
+      const real = R.newId;
+      let i = 0;
+      R.newId = () => (i < made.length ? made[i++] : (made[i++] = real()));
+      try { return fn(s); } finally { R.newId = real; }
+    };
+  }
+
+  function updateRoster(change) {
+    const fn = stableIds(change);
     const next = fn(loadRoster());
     if (!sync) return saveRoster(next);
     const saved = saveRoster(next);   // 先に画面と端末に出す（形の検査もここで）
@@ -403,6 +420,15 @@
       synced: () => !!sync,
       subscribe: (fn) => { rosterListeners.push(fn); }
     },
-    today: () => ymd(new Date())
+    today: () => ymd(new Date(Date.now() + clockOffset)),
+    /* 日本の時刻「YYYY-MM-DDTHH:MM」。書類の自動化の予定と比べる（js/roster-auto.js） */
+    nowJst: () => new Date(Date.now() + clockOffset + JST_MS).toISOString().slice(0, 16),
+    /* 記録に残す時刻（デモの時計を進めたら、その時刻で残す） */
+    nowIso: () => new Date(Date.now() + clockOffset).toISOString(),
+    /* デモの「時刻を進める」。日本の時刻まで時計を進める（戻さない。開き直すと元の時計に戻る） */
+    setClockTo: (jst) => {
+      const target = Date.parse(`${jst}:00+09:00`);
+      if (Number.isFinite(target) && target > Date.now() + clockOffset) clockOffset = target - Date.now();
+    }
   };
 })();

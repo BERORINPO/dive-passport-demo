@@ -96,7 +96,8 @@ Yosuke の確認は 3 回: ①今（この計画とモック）②P2 のあと�
   - 予約 1 件のリンクで受けるのは健康以外の項目だけ。既往症と当日の体調は、1 人ずつのリンクで本人に答えてもらう（子どもは保護者）
   - 聞く項目は Worker が自分の名簿から計算し、guestProblems と guestPatch も Worker でかける（お客さんから来た ask や patch は信じない）。当日の体調は、Worker の日付が便の日のときだけ受ける。デモの「当日として答える」は外し、`aiReader.mode()` でデモかを決める試作の判定も持ち込まない
   - /api/ask に Cloudflare の rate limit を付け、鍵 1 つあたり 1 日に受ける回数にも上限を付ける。`Sec-Fetch-Site: same-origin` と JSON は /api と同じく必須
-  - Access を外す道（Bypass）は `/ask` と `/api/ask` だけにする（`/ask*` と書くと `/askadmin` なども外に出る）
+  - Access を外す道（Bypass）は `/ask`・`/ask.html`・`/api/ask` と、ask.html が読む `/js/*`・`/css/*` だけにする（`/ask*` や `/js*` と書くと `/askadmin` なども外に出る）。
+    JS と CSS は公開の repo と同じ中身で、`*.local.*` は置く物に入らない。`/api/ask-link` は Access の内のまま（Worker も JWT を確かめる）。ザクのレビュー 2026-10-27
 
 ## 後回しにするもの
 予約サイトとの本当の連携（API）/ Google カレンダーと直接つなぐ（API・OAuth。権限付与なので株主判断。中間発表の後）/ お店ごとの申込書の書式の登録 / 2 台での乗り合いのやりとり（下の「乗り合いの本物の形」）/ ログイン / 本当の保存先（お店のドライブ）

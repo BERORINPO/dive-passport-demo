@@ -12,7 +12,7 @@
   function blank() {
     const day = R.ymd(R.addDays(new Date(), 2));
     return {
-      tour: 'dive', date: day, people: 2, name: '', lang: R.lang, swim: '', exp: '', dives: '', worries: [],
+      tour: 'dive', date: day, people: 2, name: '', email: '', lang: R.lang, swim: '', exp: '', dives: '', worries: [],
       consent: false, answers: R.HEALTH.map(() => null), medicalAt: '',
       flightMode: 'unknown', flightDate: day, flightTime: '', source: 'form'
     };
@@ -141,6 +141,9 @@
       field(L(t.fLang), el('select', { class: 'input', id: 'f-lang', onchange: (e) => set({ lang: e.target.value }) },
         R.LANGS.map(o => el('option', { value: o.id, selected: draft.lang === o.id, text: o.label }))), 'f-lang'));
 
+    /* ご連絡用のメールアドレス（任意）。あると、名簿の項目のお願いを自動で送る（書類の自動化、plan/auto.md） */
+    const contact = field(L(t.fEmail), el('input', { class: 'input', type: 'email', id: 'f-email', maxlength: 254, autocomplete: 'email', value: draft.email, oninput: (e) => set({ email: e.target.value }) }), 'f-email');
+
     const dives = el('div', { class: 'field', id: 'dives', hidden: draft.exp !== 'card' },
       el('label', { class: 'label', for: 'f-dives', text: L(t.fDives) }),
       el('input', { class: 'input input--short', type: 'number', id: 'f-dives', min: 0, value: draft.dives, onchange: (e) => set({ dives: e.target.value }) }));
@@ -162,7 +165,7 @@
       flightInputs());
 
     const form = el('form', { class: 'form', novalidate: true },
-      basics, who, swim, exp, worries, health, flight, errors,
+      basics, who, contact, swim, exp, worries, health, flight, errors,
       el('button', { class: 'btn btn--big', type: 'submit', text: L(t.submit) }));
     form.addEventListener('submit', (e) => { e.preventDefault(); submit(errors); });
 
@@ -175,7 +178,8 @@
     const problems = [
       !draft.tour && L(t.errTour),
       !draft.date && L(t.errDate),
-      !draft.name.trim() && L(t.errName)
+      !draft.name.trim() && L(t.errName),
+      draft.email.trim() && !R.roster.emailOk(draft.email.trim()) && L(t.errEmail)
     ].filter(Boolean);
     if (problems.length) {
       errorsNode.textContent = problems.join(' / ');
@@ -183,7 +187,7 @@
     }
     const intake = {
       id: R.newId(), at: new Date().toISOString(), tour: draft.tour, date: draft.date, people: draft.people,
-      name: draft.name.trim(), lang: draft.lang, swim: draft.swim, exp: draft.exp, dives: draft.dives,
+      name: draft.name.trim(), email: draft.email.trim(), lang: draft.lang, swim: draft.swim, exp: draft.exp, dives: draft.dives,
       worries: [...draft.worries],
       health: { consent: draft.consent, answers: draft.consent ? [...draft.answers] : R.HEALTH.map(() => null) },
       medicalAt: draft.consent ? (draft.medicalAt || R.today()) : '',
@@ -204,7 +208,9 @@
     if (!tour) return '';
     let bookingId = '';
     try {
-      R.rosterStore.update(s => { const out = R.rosterCore.addFromIntake(s, { intake, tour, at: intake.at, newId: R.newId }); bookingId = out.bookingId; return out.state; });
+      /* 書類の自動化: 予約に連絡先を持ち、お願い・2 日前・前日の夜・当日の朝の予定も作る（js/roster-auto.js） */
+      const nowJst = R.nowJst();
+      R.rosterStore.update(s => { const out = R.rosterAuto.addFromForm(s, { intake, tour, at: intake.at, nowJst, newId: R.newId }); bookingId = out.bookingId; return out.state; });
     } catch (e) {
       bookingId = '';
     }

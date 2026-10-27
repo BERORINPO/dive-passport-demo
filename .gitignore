@@ -3,3 +3,4 @@ PLAN*.md
 .dev.vars*
 .wrangler/
 dist/
+dist-ask/

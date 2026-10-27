@@ -35,6 +35,16 @@
   const MAX_IMAGE = 4000000;                                   // 写真の上限（base64 の文字数、約 3 MB）
   const MAX_PEOPLE = 30;
 
+  /* 書類の自動化（plan/auto.md）。予約の連絡先と言語、自動の予定（jobs）、送る連絡（outbox） */
+  const LANGS = ['ja', 'en', 'ko', 'zh'];
+  const EMAIL = /^[^\s@<>()"',;:]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,}$/;
+  const JOB_KINDS = ['request', 'remind', 'eve', 'morning'];     // お願い / 2 日前にもう一度 / 前日の夜にお店へ / 当日の朝（名簿と体調の質問）
+  const JOB_STATUS = ['waiting', 'done', 'skipped'];
+  const OUT_KINDS = ['request', 'remind', 'today', 'staff'];      // staff: お店への知らせ（メールでなく画面に出す）
+  const OUT_STATUS = ['queued', 'sent', 'failed', 'unsent', 'notice'];   // unsent: 送り先やメールの設定が無くて送っていない
+  const MAX_JOBS = 2000;
+  const MAX_OUTBOX = 2000;
+
   /* 名簿の項目。trip は便から入る項目、health は AI に渡さない項目 */
   const it = (key, ja, extra) => ({ key, ja, ...(extra || {}) });
   const ITEMS = {
@@ -129,8 +139,10 @@
 
   /* ---------- 検査 ---------- */
   /* cancel は中止した便にだけ付く（blankTrip には入れない。前の版の画面が、中止していない便まで読めなくならないように） */
-  const TRIP_SHAPE = [...Object.keys(blankTrip()), 'cancel'];
-  const BOOKING_SHAPE = Object.keys(blankBooking());
+  const TRIP_SHAPE = [...Object.keys(blankTrip()), 'cancel', 'rosterAt'];
+  /* leadEmail（お願いを送る先）と lang（送る言葉）は、書類の自動化で足した。無い予約もある（前の版・電話でメールを聞いていない） */
+  const BOOKING_SHAPE = [...Object.keys(blankBooking()), 'leadEmail', 'lang'];
+  const emailOk = (v) => v === '' || (isStr(v, 254) && EMAIL.test(v));
 
   /* 札（乗り合いの札ボード）。お客さんは personId、ガイドは名前とお店（shop が空ならこの店）。番号は便の中で重ならない */
   const tagOk = (x) => isStr(x.no, 10) && x.no !== '' &&
@@ -148,6 +160,7 @@
       !(isList(t.tags, MAX_PEOPLE * 4, tagOk) && new Set(t.tags.map(x => x.no)).size === t.tags.length) && 'tags',
       !isList(t.checks, MAX_CHECKS, checkOk) && 'checks',
       !(t.cancel === undefined || cancelOk(t.cancel)) && 'cancel',
+      !(t.rosterAt === undefined || isStr(t.rosterAt, 40)) && 'rosterAt',   // 当日の朝に名簿を作った時刻（書類の自動化）
       !isStr(t.createdAt, 40) && 'createdAt'
     ]);
   }
@@ -174,8 +187,23 @@
       !isStr(b.site, 40) && 'site', !isStr(b.ref, 60) && 'ref', !isStr(b.leadName, 60) && 'leadName',
       !isStr(b.leadPhone, 30) && 'leadPhone',
       !(Number.isInteger(b.people) && b.people >= 1 && b.people <= MAX_PEOPLE) && 'people',
-      !(isStr(b.shop, 60) && (b.source !== 'partner' || b.shop.trim() !== '')) && 'shop', !isStr(b.note, 400) && 'note', !isStr(b.createdAt, 40) && 'createdAt'
+      !(isStr(b.shop, 60) && (b.source !== 'partner' || b.shop.trim() !== '')) && 'shop', !isStr(b.note, 400) && 'note', !isStr(b.createdAt, 40) && 'createdAt',
+      !(b.leadEmail === undefined || emailOk(b.leadEmail)) && 'leadEmail', !(b.lang === undefined || LANGS.includes(b.lang)) && 'lang'
     ]);
+  }
+
+  /* 自動の予定の 1 件。due は日本の時刻の「YYYY-MM-DDTHH:MM」（core は時計を使わないので、時刻は文字のまま比べる） */
+  const isJst = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) && realDate(v.slice(0, 10)) && realTime(v.slice(11));
+  function jobOk(j) {
+    return onlyKeys(j, ['v', 'id', 'kind', 'bookingId', 'tripId', 'due', 'status', 'doneAt']) && j.v === VERSION && isId(j.id) &&
+      JOB_KINDS.includes(j.kind) && isId(j.bookingId) && isId(j.tripId) && isJst(j.due) && JOB_STATUS.includes(j.status) && isStr(j.doneAt, 40);
+  }
+  /* 送る連絡の 1 件。本文に健康の答えは入れない（roster-auto.js が組む）。people はお願いする人の id */
+  function outOk(o) {
+    return onlyKeys(o, ['v', 'id', 'kind', 'bookingId', 'tripId', 'to', 'lang', 'subject', 'body', 'people', 'status', 'why', 'at', 'sentAt']) &&
+      o.v === VERSION && isId(o.id) && OUT_KINDS.includes(o.kind) && isId(o.bookingId) && isId(o.tripId) && emailOk(o.to) &&
+      LANGS.includes(o.lang) && isStr(o.subject, 200) && isStr(o.body, 4000) && isList(o.people, MAX_PEOPLE, isId) &&
+      OUT_STATUS.includes(o.status) && isStr(o.why, 40) && isStr(o.at, 40) && isStr(o.sentAt, 40);
   }
 
   /* consentAt・consentVer は、お客さんが健康の答えに同意した日と同意の文の版（P3 で足した。無くてもよい）。
@@ -250,7 +278,8 @@
     return result([
       !(isObj(s.shop) && isStr(s.shop.name, 60)) && 'shop',
       !all(s.trips, validateTrip) && 'trips', !all(s.bookings, validateBooking) && 'bookings',
-      !all(s.people, validatePerson) && 'people', !(Array.isArray(s.log) && s.log.every(logOk)) && 'log'
+      !all(s.people, validatePerson) && 'people', !(Array.isArray(s.log) && s.log.every(logOk)) && 'log',
+      !(s.jobs === undefined || isList(s.jobs, MAX_JOBS, jobOk)) && 'jobs', !(s.outbox === undefined || isList(s.outbox, MAX_OUTBOX, outOk)) && 'outbox'
     ]);
   }
 
@@ -289,7 +318,7 @@
 
   /* ---------- AI の答え（Worker と見本が返す形）。健康の項目は入れない ---------- */
   const READ_PERSON_KEYS = [...AI_FIELDS, 'unsure'];
-  const BOOKING_KEYS = ['site', 'ref', 'date', 'start', 'tour', 'people', 'leadName', 'leadPhone', 'unsure'];
+  const BOOKING_KEYS = ['site', 'ref', 'date', 'start', 'tour', 'people', 'leadName', 'leadPhone', 'leadEmail', 'unsure'];
 
   function validateReading(x) {
     if (!onlyKeys(x, ['booking', 'people', 'healthSeen']) || typeof x.healthSeen !== 'boolean' ||
@@ -299,7 +328,7 @@
     const b = x.booking;
     const bookingOk = b === null || (onlyKeys(b, BOOKING_KEYS) &&
       isStr(b.site, 40) && isStr(b.ref, 60) && isDay(b.date) && isTime(b.start) && isStr(b.tour, 80) &&
-      isCount(b.people, MAX_PEOPLE) && isStr(b.leadName, 60) && isStr(b.leadPhone, 30) &&
+      isCount(b.people, MAX_PEOPLE) && isStr(b.leadName, 60) && isStr(b.leadPhone, 30) && (b.leadEmail === undefined || emailOk(b.leadEmail)) &&
       isList(b.unsure, 10, u => BOOKING_KEYS.includes(u) && u !== 'unsure'));
     const peopleOk = x.people.every(p => onlyKeys(p, READ_PERSON_KEYS) &&
       personFieldsOk(p).every(e => !e) && isList(p.unsure, 20, u => AI_FIELDS.includes(u)));
@@ -315,12 +344,13 @@
   const time = (v) => { const s = str(v, 5); return realTime(s) ? s : ''; };
   const count = (v) => (Number.isInteger(v) && v >= 0 && v <= 100000 ? v : '');
   const size = (v, max) => (typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= max ? v : '');
+  const emailOf = (v) => { const s = str(v, 254); return EMAIL.test(s) ? s : ''; };
   const UNSURE = { name: 'name', birth_date: 'birthDate', phone: 'phone', address: 'address',
     emergency_name: 'emergency', emergency_relation: 'emergency', emergency_phone: 'emergency',
     cert_course: 'cert', cert_date: 'cert', dive_count: 'dives', last_dive: 'lastDive',
     height_cm: 'sizes', weight_kg: 'sizes', foot_cm: 'sizes' };
   const BOOKING_UNSURE = { site: 'site', ref: 'ref', date: 'date', start: 'start', tour: 'tour', people: 'people',
-    lead_name: 'leadName', lead_phone: 'leadPhone' };
+    lead_name: 'leadName', lead_phone: 'leadPhone', lead_email: 'leadEmail' };
   const mapList = (list, table) => [...new Set((Array.isArray(list) ? list : [])
     .filter(u => typeof u === 'string' && has(table, u)).map(u => table[u]))];
 
@@ -347,7 +377,7 @@
     return {
       site: str(b.site, 40), ref: str(b.ref, 60), date: day(b.date), start: time(b.start), tour: str(b.tour, 80),
       people: Number.isInteger(b.people) && b.people >= 0 && b.people <= MAX_PEOPLE ? b.people : '',
-      leadName: str(b.lead_name, 60), leadPhone: str(b.lead_phone, 30), unsure: mapList(b.unsure, BOOKING_UNSURE)
+      leadName: str(b.lead_name, 60), leadPhone: str(b.lead_phone, 30), leadEmail: emailOf(b.lead_email), unsure: mapList(b.unsure, BOOKING_UNSURE)
     };
   }
 
@@ -361,6 +391,7 @@
     VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, CHECK_STAGES, MAX_DIVES, CANCEL_REASONS, CANCEL_TEXT, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
     ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
     validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody,
-    validateReading, fromModel
+    validateReading, fromModel,
+    LANGS, JOB_KINDS, OUT_KINDS, OUT_STATUS, isJst, emailOk, jobOk, outOk
   };
 })();

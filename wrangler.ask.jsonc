@@ -1,0 +1,26 @@
+// お客さんのリンクだけの Worker の設定（plan/meibo.md「お客さんのリンク」）。Access を付けない別の Worker で、
+// ask.html と、それが読むファイル（node tools/build-site.mjs が作る dist-ask/）と /api/ask だけを置く。
+// お店の画面・名簿の道（/api/roster）は置かない。名簿の D1 はお店の Worker（wrangler.jsonc）と同じ物を使う。
+// 置き方: node tools/build-site.mjs && npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc（docs/deploy.md）
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "redux-ask",
+  "main": "worker/ask-index.mjs",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist-ask",
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "none"
+  },
+  "d1_databases": [
+    // お店の Worker と同じ名簿。database_id は鍵ではない（wrangler d1 create が出した値）
+    { "binding": "DB", "database_name": "redux-rosters", "database_id": "f74f3e8d-7869-4899-9bdf-33c3737a5654" }
+  ],
+  "ratelimits": [
+    // 1 つの IP から /api/ask を呼べる回数（1 分に 30 回）。鍵 1 つの 1 日の回数は D1 で数える
+    { "name": "ASK_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }
+  ],
+  "observability": { "enabled": false }
+}

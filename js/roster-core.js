@@ -14,7 +14,7 @@
   const AI_SRC = ['mail', 'paper', 'ccard'];
   const EDIT_WHO = ['staff', 'guest', 'system'];                 // 人やお店が直すときの「した人」
   const EDIT_SRC = ['guest', 'staff', 'passport', 'partner'];    // 人やお店が直すときの「出どころ」
-  const BOOKING_FIELDS = ['source', 'site', 'ref', 'leadName', 'leadPhone', 'people', 'shop', 'note'];
+  const BOOKING_FIELDS = ['source', 'site', 'ref', 'leadName', 'leadPhone', 'leadEmail', 'lang', 'people', 'shop', 'note'];
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
   /* 中身が同じか（key の順は問わない） */
@@ -240,7 +240,7 @@
   /* AI の読み取りから、予約の形を組む */
   function bookingFromReading(reading) {
     const b = reading.booking || {};
-    return { source: 'mail', site: b.site || '', ref: b.ref || '', leadName: b.leadName || '', leadPhone: b.leadPhone || '',
+    return { source: 'mail', site: b.site || '', ref: b.ref || '', leadName: b.leadName || '', leadPhone: b.leadPhone || '', leadEmail: b.leadEmail || '',
       people: Number.isInteger(b.people) && b.people >= 1 ? b.people : 1 };
   }
 
@@ -600,7 +600,10 @@
     if (!trips.size && !removed) return state;
     return withLog(
       { ...state, trips: state.trips.filter(t => !trips.has(t.id)), bookings: state.bookings.filter(b => !bookings.has(b.id)),
-        people: state.people.filter(p => !people.has(p.id)), log },
+        people: state.people.filter(p => !people.has(p.id)), log,
+        /* 書類の自動化の予定と送る連絡も、便と一緒に消す（送る連絡には名前とメールアドレスが入るので、名簿と同じく 1 年まで） */
+        ...(state.jobs ? { jobs: state.jobs.filter(j => !bookings.has(j.bookingId)) } : {}),
+        ...(state.outbox ? { outbox: state.outbox.filter(o => !bookings.has(o.bookingId)) } : {}) },
       entry(at, 'system', 'remove', 'state', '', { after: { trips: trips.size, people: people.size, log: removed } }));
   }
 

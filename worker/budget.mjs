@@ -33,6 +33,19 @@ export async function spend(kv, keys, micro) {
   await kv.put(`month:${keys.month}`, String(now.month + micro), { expirationTtl: MONTH_TTL_S });
 }
 
+/* 1 日の回数（サイトの予約・届いたメールの予約。ザクのレビュー 2026-10-27 H-1・M-5）。上限に届いていたら false。
+   KV が答えないときも false（受けない側に倒す） */
+export async function takeDaily(kv, key, max) {
+  try {
+    const n = count(await kv.get(key));
+    if (n >= max) return false;
+    await kv.put(key, String(n + 1), { expirationTtl: DAY_TTL_S });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /* /api/healthz で見せる今日と今月の残り（数だけ） */
 export async function remaining(kv, keys, limits) {
   const now = await used(kv, keys);

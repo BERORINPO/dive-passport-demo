@@ -96,7 +96,7 @@ const NET_TOOLS = [
 const NET_BAN = { line: [[/\bfetch\b/, '外への通信 fetch (ai-reader.js と roster-sync.js 以外)'], ...NET_TOOLS], file: [] };
 const AI_READER_BAN = { line: NET_TOOLS, file: [] };
 /* 画面で fetch してよいのは、同じ場所の Worker へ送る 2 つだけ（AI の読み取りと、お店の名簿）。外の URL は NET_TOOLS が止める */
-const NET_ALLOWED = ['js/ai-reader.js', 'js/roster-sync.js'];
+const NET_ALLOWED = ['js/ai-reader.js', 'js/roster-sync.js', 'js/ask-api.js'];
 
 /* コメントを消す。文字列・テンプレート文字列（複数行も）・正規表現の中の // と /* は残す。\ の次の 1 字は読み飛ばす。
    blankStrings のときは文字列の中身も空白にする（見本メールの「Date of birth」を時計と見なさないため）。
@@ -184,8 +184,9 @@ workerFiles.filter(f => !listed.has(f)).forEach(f => fail(`表 1 に無い Worke
 /* 外の URL は、ファイルごとに決めた先（完全一致）だけ。fakes.mjs は Access の見本の先だけ。
    検査で追えない形（io.fetch(env.X)、文字を足して作った URL）は、テストの io.fetch が知らない先で例外を出すことで止める */
 const ACCESS_URLS = ['https://${team}/cdn-cgi/access/certs', 'https://${team}'];
-const WORKER_NET = { 'worker/index.mjs': { kind: 'live', urls: [] }, 'worker/access.mjs': { kind: 'io', urls: ACCESS_URLS },
-  'worker/anthropic.mjs': { kind: 'io', urls: ['https://api.anthropic.com/v1/messages'] }, 'worker/fakes.mjs': { kind: 'fake', urls: ACCESS_URLS } };
+const WORKER_NET = { 'worker/index.mjs': { kind: 'live', urls: [] }, 'worker/ask-index.mjs': { kind: 'live', urls: [] }, 'worker/access.mjs': { kind: 'io', urls: ACCESS_URLS },
+  'worker/anthropic.mjs': { kind: 'io', urls: ['https://api.anthropic.com/v1/messages'] },
+  'worker/site-guard.mjs': { kind: 'io', urls: ['https://challenges.cloudflare.com/turnstile/v0/siteverify'] }, 'worker/fakes.mjs': { kind: 'fake', urls: ACCESS_URLS } };
 const WORKER_TOOLS = NET_TOOLS.filter(([re]) => !/\(\?:https\?\|wss\?\|ftp\)/.test(re.source) && !/\(\?:\\\/\\\/\|/.test(re.source));
 function workerRules(p) {
   const net = WORKER_NET[p] || { kind: 'none', urls: [] };
@@ -203,13 +204,14 @@ workerFiles.forEach(p => {
   violations(read(p), rules).forEach(v => fail(`${p}:${v.line} ${v.what}`));
   workerUrlProblems(read(p), rules.urls).forEach(u => fail(`${p}: 決めていない外の先 ${u}`));
 });
-const CORE_IMPORT_BAN = /(?:from\s+|import\s*\(?\s*)['"][^'"]*\/(?:access|budget|anthropic|roster-db|handler|index|fakes)\.mjs['"]/;
+const CORE_IMPORT_BAN = /(?:from\s+|import\s*\(?\s*)['"][^'"]*\/(?:access|budget|anthropic|roster-db|handler|index|fakes|mail|site-guard|ask|auto|ask-db|ask-route)\.mjs['"]/;
 (roles.core || []).filter(p => p.startsWith('worker/')).forEach(p => {
   if (CORE_IMPORT_BAN.test(stripComments(read(p), false).join('\n'))) fail(`${p}: core が adapter・entry・見本を読んでいる`);
 });
 const FAKES = existsSync(new URL('worker/fakes.mjs', root)) ? read('worker/fakes.mjs') : '';
 const WORKER_ADAPTERS = (roles.adapter || []).filter(p => p.startsWith('worker/'));
-[['worker/access.mjs', 'fakeAccess'], ['worker/budget.mjs', 'fakeKv'], ['worker/anthropic.mjs', 'fakeAnthropic'], ['worker/roster-db.mjs', 'fakeD1']].forEach(([a, f]) => {
+[['worker/access.mjs', 'fakeAccess'], ['worker/budget.mjs', 'fakeKv'], ['worker/anthropic.mjs', 'fakeAnthropic'], ['worker/roster-db.mjs', 'fakeD1'],
+  ['worker/mail.mjs', 'fakeMail'], ['worker/ask-db.mjs', 'fakeD1'], ['worker/site-guard.mjs', 'fakeTurnstile'], ['worker/site-guard.mjs', 'fakeRateLimit']].forEach(([a, f]) => {
   if (!WORKER_ADAPTERS.includes(a)) fail(`表 1 の adapter に ${a} が無い`);
   if (!new RegExp(`export\\s+(?:async\\s+)?function\\s+${f}\\b`).test(FAKES)) fail(`${a} の見本 ${f} が worker/fakes.mjs に無い`);
 });
@@ -235,6 +237,8 @@ const ALLOW = allowTable(doc);
 if (!ALLOW || !Object.keys(ALLOW).length) fail('spec/architecture.md に表「外から読む先」が無い（検査が何も見ていない）');
 tableProblems(ALLOW).forEach(fail);
 const htmlFiles = readdirSync(new URL('./', root)).filter(f => f.endsWith('.html') && !f.endsWith('.local.html'));
+/* 字体を読まないページのうち、同じ場所の Worker にだけ送ってよいページ（お客さんのリンク。/api/ask） */
+const CONNECT_SELF = ['ask.html'];
 const cssFiles = readdirSync(new URL('css/', root)).filter(f => f.endsWith('.css')).map(f => `css/${f}`);
 if (!htmlFiles.length) fail('検査する HTML が無い');
 [...htmlFiles, ...cssFiles].forEach(f => {
@@ -242,7 +246,7 @@ if (!htmlFiles.length) fail('検査する HTML が無い');
   if (!rule) { fail(`表「外から読む先」に ${f} の行が無い`); return; }
   const text = read(f);
   fileProblems(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: ${v}`));
-  if (f.endsWith('.html') && !rule.fonts) fontFaceProblems(text, read).forEach(v => fail(`${f}: ${v}`));
+  if (f.endsWith('.html') && !rule.fonts) fontFaceProblems(text, read, { connectSelf: CONNECT_SELF.includes(f) }).forEach(v => fail(`${f}: ${v}`));
   unusedAllows(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: 表で許しているのに使っていない: ${v}`));
 });
 Object.keys(ALLOW || {}).filter(f => !existsSync(new URL(f, root))).forEach(f => fail(`表「外から読む先」のファイルが無い: ${f}`));
@@ -367,6 +371,11 @@ const FONT_PROBES = [`${CSP_OK}<link rel="stylesheet" href="css/fonts.css">`, `$
   '<link rel="stylesheet" href="css/app.css"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src \'none\'; connect-src \'none\'">',
   '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src \'none\'; connect-src \'none\'; style-src \'unsafe-inline\'">'];
 FONT_PROBES.forEach(h => { if (!fontFaceProblems(h, read).length) fail(`検査が甘い: 字体を読まないページの「${h.slice(-60)}」を見逃した`); });
+const SELF_CSP = (connect) => `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src ${connect}">`;
+["'self' https://evil.example.com", '*', "'none' 'self' https:"].forEach(c => {
+  if (!fontFaceProblems(SELF_CSP(c), read, { connectSelf: true }).length) fail(`検査が甘い: ask.html の connect-src ${c} を見逃した`);
+});
+if (fontFaceProblems(SELF_CSP("'self'"), read, { connectSelf: true }).length) fail("検査が厳しすぎる: ask.html の connect-src 'self' を止めた");
 const FONT_CLEAN = `${CSP_OK}<link rel="stylesheet" href="css/app.css">`;
 if (fontFaceProblems(FONT_CLEAN, read).length) fail(`検査が厳しすぎる: ${fontFaceProblems(FONT_CLEAN, read)[0]}`);
 const probeCount = FILE_PROBES.length + NET_PROBES.length + IMPORT_PROBES.length + TABLE_PROBES.length + FONT_PROBES.length;
