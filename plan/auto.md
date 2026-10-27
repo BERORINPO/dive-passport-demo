@@ -49,22 +49,30 @@ AquaGate（仲村さんのサイト）の予約フォームから届く予約を
 ## 置くときの設定（Zaku のレビューと Yosuke の確認のあと。今は wrangler.jsonc に入れていない）
 
 置くまでは、設定が無ければ止まる作りにしてある（/api/bookings は 503、Cron は `config:DB` をログに出して何もしない、メールは unsent）。
+連絡を送るのは Cron だけ。サイトの予約と届いたメールは名簿に入れるだけで、お願いは次の Cron（最大 15 分後）で送る（ザクのレビュー 2026-10-27 M-1）。
 
 | 名前 | 種類 | 中身 | 無いとき |
 |---|---|---|---|
-| `DB` | D1 binding | 名簿の正本（plan/server.md） | Cron・メール・予約の口は何もしない |
+| `DB` | D1 binding | 名簿の正本（plan/server.md）。表は `worker/migrations/0001_rosters.sql` と `0002_ask_links.sql`（お客さんのリンクの鍵の SHA-256） | Cron・メール・予約の口・お客さんのリンクは何もしない |
 | `triggers.crons` | wrangler.jsonc | `"*/15 * * * *"`（15 分ごと。予定は 9:00・20:00・6:00 なので、遅れても 15 分） | 予定が動かない（画面を開いている間だけ動く） |
 | `EMAIL` | send_email binding | Email Service。お店のドメインを `wrangler email sending enable` で載せる（有料・ドメインが要る） | 送らず unsent（no-mail-config） |
 | `MAIL_FROM` | var | 送り元（お店のドメインのアドレス） | 同上 |
 | `APP_URL` | var | お客さんに渡すリンクの頭（Worker の URL）。**/ask は今 Access の内側なので、お客さんは開けない**。Access の外に出すのは plan/server.md の 4 | 同上 |
-| `MAIL_SENDERS` | var | 届いたメールを読む送り主（封筒の From、「,」区切り）。お店が予約サイトのメールを転送する元 | 全部断る |
+| `MAIL_SENDERS` | var | 届いたメールを読む送り主（封筒の From、「,」区切り）。お店が予約サイトのメールを転送する元。加えて Authentication-Results の SPF か DKIM がそのドメインで pass のときだけ受ける | 全部断る |
 | Email Routing の rule | ダッシュボード | 受けるアドレス → この Worker | メールは届かない |
 | `SITE_ORIGINS` | var | 予約フォームを置くサイトの origin（「,」区切り） | /api/bookings は 503 |
-| `TURNSTILE_SECRET` | secret | Turnstile の秘密の鍵（サイト側にサイトキー） | 同上 |
+| `TURNSTILE_SECRET` | secret | Turnstile の秘密の鍵（サイト側にサイトキー）。サイト側の widget は `data-action="booking"`。答えの hostname が SITE_ORIGINS のどれかでないと通さない | 同上 |
 | `BOOKING_LIMIT` | ratelimits binding | `{ "name": "BOOKING_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } }` | 同上 |
+| `BUDGET` | KV binding（今ある物） | サイトの予約とメールの予約の 1 日の件数（各 30 件）も数える | /api/bookings は 503 |
+| `ASK_LIMIT` | ratelimits binding | お客さんのリンク（/api/ask）の 1 つの IP の回数。`{ "name": "ASK_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }` | /api/ask は 503 |
+| Access の Bypass | ダッシュボード | `/ask`・`/ask.html`・`/api/ask`・`/js/*`・`/css/*`（plan/meibo.md「お客さんのリンク」） | お客さんがリンクを開けない |
 | `SHOP_NAME` | var | 名簿がまだ無いときのお店の名前（送るメールの差出人名） | 空 |
+
+外からの予約の守り（ザクのレビュー 2026-10-27 H-1・M-2・M-5）: サイトからは 1 件 10 人まで・1 日 30 件まで、メールからは 1 日 30 件まで（AI を呼ぶ前に数える）。
+名簿が上限（1 MB）の 7 割を超えたら外からは入れず、お店自身の書き込みの分を残す。名前は改行・URL・ドメインらしい字を断る（お客さんへのメールの 1 行目に入るため）。
 
 残る穴（置く前に決める）:
 - 送ったあとに結果を書けなかったら、次の回にもう一度送る（重なる方を選んだ）
 - 読めなかった予約メールは断らずにログだけ残す。お店に知らせる道はまだ無い
-- お客さんのリンク（/ask）が Access の外に出るまでは、メールが送れても、お客さんは開けない
+- 済んだ予定（jobs）と送った連絡（outbox）は消していない。1 年分で MAX_JOBS / MAX_OUTBOX（各 2000）と 1 MB に届く前に、便ごとに分けて持つ形（plan/server.md）と一緒に直す
+- お店の確認を挟む（サイトの予約を別の表に置き、お店が確かめてから名簿へ）はザクの案。今は件数と 7 割の歯止めで代え、試用で困ったら入れる

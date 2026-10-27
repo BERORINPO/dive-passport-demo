@@ -1,5 +1,6 @@
 /* お客さんのリンクの画面（ask.html）の起動（entry）。URL の # の後ろの鍵で、聞く項目を /api/ask から受け取り、js/guest-ask.js の欄で答えてもらう。
-   鍵は # の後ろだけに置き（サーバーの記録・Referer・履歴に残さない）、/api/ask へは本文で送る。聞く項目と答えの検査は Worker が持つ。
+   鍵は # の後ろだけに置き（サーバーの記録・Referer に残さない）、/api/ask へは本文で送る。聞く項目と答えの検査は Worker が持つ。
+   開いたら鍵をこのタブの sessionStorage に移し、URL と履歴から消す（共用の端末で後から開き直させない。ザクのレビュー 2026-10-27 M-4）。
    計画は plan/meibo.md「お客さんのリンク」 */
 (() => {
   'use strict';
@@ -15,8 +16,18 @@
     limit: { ja: '今日はこのリンクを開ける回数を超えました。明日また開くか、お店に聞いてください。', en: 'This link has been opened too many times today. Try again tomorrow or ask the shop.' }
   };
 
-  const m = /^#k=([A-Za-z0-9_-]{43})$/.exec(location.hash);
-  const key = m ? m[1] : '';
+  const STORE = 'redux-ask-key';
+  /* # の後ろに鍵があれば移して URL から消す。無ければ、このタブで前に開いた鍵（読み込み直し） */
+  function takeKey() {
+    const m = /^#k=([A-Za-z0-9_-]{43})$/.exec(location.hash);
+    if (m) {
+      try { sessionStorage.setItem(STORE, m[1]); } catch (e) { /* 移せなくても、この表示の間は使える */ }
+      history.replaceState(null, '', location.pathname);
+      return m[1];
+    }
+    try { return sessionStorage.getItem(STORE) || ''; } catch (e) { return ''; }
+  }
+  const key = takeKey();
   let view = null;
   let failed = null;
 
@@ -38,7 +49,7 @@
     async personLink(personId) {
       const r = await post({ action: 'person-link', personId });
       const url = r.status === 200 && r.data && typeof r.data.url === 'string' ? r.data.url : '';
-      return url.startsWith(`${location.origin}/ask#k=`) ? { url } : { why: r.status === 0 ? 'network' : 'gone' };
+      return url.startsWith(`${location.origin}/ask#k=`) ? { url } : { why: r.status === 0 ? 'network' : r.status === 429 ? 'links' : 'gone' };
     }
   };
 

@@ -4,11 +4,13 @@
 import { getRoster } from './roster-db.mjs';
 import { readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { changeRoster, clockOf } from './auto.mjs';
-import { keyHash, findLink, useLink, mintLink } from './ask-db.mjs';
+import { keyHash, findLink, useLink, mintLink, countLinks } from './ask-db.mjs';
 import { checkAsk, linkView, applyLink, personLinkTarget, bookingLinkTarget, USES_PER_DAY } from './ask-core.mjs';
 
 /* 鍵が無い・切れた・違う・予約が無い、はどれも同じ答え */
 const GONE = { status: 404, body: { error: 'gone' } };
+/* 1 人ずつのリンクは 1 人あたりこの本数まで（前の物は止めない） */
+const PERSON_LINKS_MAX = 3;
 
 async function currentState(env, io) {
   const { today, at } = clockOf(io);
@@ -37,6 +39,10 @@ export async function takeAsk(given, env, io, note, origin) {
     const state = await currentState(env, io);
     const t = state && personLinkTarget(state, link, checked.personId, today);
     if (!t || !t.ok) { note.why = 'gone'; return GONE; }
+    if (await countLinks(env.DB, { shop: SHOP_DEFAULT, bookingId: t.bookingId, personId: t.personId }) >= PERSON_LINKS_MAX) {
+      note.why = 'person-links';
+      return { status: 429, body: { error: 'links' } };
+    }
     const url = await mintLink(env.DB, { shop: SHOP_DEFAULT, bookingId: t.bookingId, personId: t.personId, expiresOn: link.expiresOn, at, base: origin });
     return { status: 200, body: { url } };
   }

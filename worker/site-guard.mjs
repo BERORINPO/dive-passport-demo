@@ -3,8 +3,10 @@
 
 const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
-/* Turnstile の答えを確かめる。{ ok } か { ok: false, why }（why は短い名前だけ） */
-export async function verifyTurnstile(env, token, ip, io) {
+/* Turnstile の答えを確かめる。{ ok } か { ok: false, why }（why は短い名前だけ）。
+   答えを出したページの hostname が許したサイトのもので、action が 'booking' のときだけ通す（別のページで解いた答えを使わせない。ザクのレビュー 2026-10-27 M-2） */
+export const TURNSTILE_ACTION = 'booking';
+export async function verifyTurnstile(env, token, ip, io, hosts) {
   if (typeof token !== 'string' || !token || token.length > 2048) return { ok: false, why: 'turnstile-missing' };
   let r;
   try {
@@ -16,7 +18,9 @@ export async function verifyTurnstile(env, token, ip, io) {
   }
   if (!r.ok) return { ok: false, why: `turnstile-${r.status}` };
   const got = await r.json().catch(() => null);
-  return got && got.success === true ? { ok: true } : { ok: false, why: 'turnstile-no' };
+  if (!got || got.success !== true) return { ok: false, why: 'turnstile-no' };
+  if (!hosts.includes(String(got.hostname || '').toLowerCase())) return { ok: false, why: 'turnstile-host' };
+  return got.action === TURNSTILE_ACTION ? { ok: true } : { ok: false, why: 'turnstile-action' };
 }
 
 /* 1 つの IP からの回数（limiter は BOOKING_LIMIT か ASK_LIMIT）。上限を超えたら false。binding が答えないときも false（受けない側に倒す） */

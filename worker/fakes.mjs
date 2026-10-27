@@ -63,7 +63,7 @@ export function fakeAnthropic() {
   return api;
 }
 
-/* roster-db.mjs の 3 つの文（SELECT・INSERT … ON CONFLICT DO NOTHING・版つきの UPDATE）と ask-db.mjs の 5 つの文だけを、本物の D1 と同じ答えの形で返す。
+/* roster-db.mjs の 3 つの文（SELECT・INSERT … ON CONFLICT DO NOTHING・版つきの UPDATE）と ask-db.mjs の 6 つの文だけを、本物の D1 と同じ答えの形で返す。
    知らない文は例外にする（roster-db.mjs に文を足したら、ここにも足してテストを通す） */
 export function fakeD1() {
   const rows = new Map();
@@ -78,6 +78,9 @@ export function fakeD1() {
       const statement = (args) => ({
         async first() {
           if (db.failing) throw new Error('d1 down');
+          if (/^SELECT COUNT\(\*\) AS n FROM ask_links WHERE shop = \?1 AND booking_id = \?2 AND person_id = \?3$/.test(text)) {
+            return { n: [...links.values()].filter(l => l.shop === args[0] && l.booking_id === args[1] && l.person_id === args[2]).length };
+          }
           if (/^SELECT shop, booking_id, person_id, expires_on FROM ask_links WHERE hash = \?1$/.test(text)) {
             const l = links.get(args[0]);
             return l ? { shop: l.shop, booking_id: l.booking_id, person_id: l.person_id, expires_on: l.expires_on } : null;
@@ -138,10 +141,12 @@ export function fakeTurnstile() {
     calls: [],
     success: true,
     status: 200,
+    hostname: 'aquagate.example.com',
+    action: 'booking',
     async respond(init) {
       checkRedirect(init);
       t.calls.push(JSON.parse(init.body));
-      return new Response(JSON.stringify({ success: t.success }), { status: t.status });
+      return new Response(JSON.stringify({ success: t.success, hostname: t.hostname, action: t.action }), { status: t.status });
     }
   };
   return t;

@@ -42,6 +42,7 @@ ${m.text}
 `); return { messageId: 'local' }; } },
   MAIL_FROM: 'yoyaku@local.example', APP_URL: `http://localhost:${port}`, SHOP_NAME: 'B マリン（見本）' };
 const turnstile = fakeTurnstile();
+turnstile.hostname = 'localhost';   // 手元のサイト（SITE_ORIGINS の http://localhost:…）で解いた答えとして返す
 /* 見本の答え: 予約メールは見本の読み取り（data-samples.js）を、モデルの形（snake_case）に戻して返す */
 const SAMPLES = globalThis.REDUX.SAMPLE_READINGS;
 const MAILS = globalThis.REDUX.SAMPLE_MAILS;

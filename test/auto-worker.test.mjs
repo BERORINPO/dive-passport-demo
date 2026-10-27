@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { handle } from '../worker/handler.mjs';
 import { scheduled, receiveMail } from '../worker/auto.mjs';
-import { checkBooking, mailText, senderAllowed, TOURS, SWIM, EXP, WORRIES } from '../worker/auto-core.mjs';
+import { checkBooking, mailText, senderAllowed, authPassed, roomForPublic, TOURS, SWIM, EXP, WORRIES, SWIM_JA, WORRY_JA } from '../worker/auto-core.mjs';
+import { MAX_ROSTER_BYTES } from '../worker/sync-core.mjs';
 import { fakeKv, fakeAnthropic, fakeD1, fakeMail, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
 
 const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
@@ -68,6 +69,8 @@ test('予約を受ける口の項目は、画面の js/data.js とそろって�
   assert.deepEqual(SWIM, plain(D.SWIM.map(x => x.id)));
   assert.deepEqual(EXP, plain(D.EXP.map(x => x.id)));
   assert.deepEqual(WORRIES, plain(D.WORRIES.map(x => x.id)));
+  assert.deepEqual(SWIM.map(k => SWIM_JA[k]), plain(D.SWIM.map(x => x.ja)));
+  assert.deepEqual(WORRIES.map(k => WORRY_JA[k]), plain(D.WORRIES.map(x => x.ja)));
 });
 
 test('予約の本文の検査: 足りない・余分・過去の日・メールが無い・電話に文字、を断る。メモの健康のことは外す', () => {
@@ -84,6 +87,10 @@ test('予約の本文の検査: 足りない・余分・過去の日・メール
   bad({ email: '' }, 'email');
   bad({ email: 'not-mail' }, 'email');
   bad({ people: 0 }, 'people');
+  bad({ people: 11 }, 'people');   // サイトからは 1 件 10 人まで（名簿をふくらませない。ザクのレビュー H-1）
+  bad({ name: 'Win a prize at https://evil.example' }, 'name');   // メールの 1 行目に入るので、URL・ドメイン・改行は断る（M-2）
+  bad({ name: '見本\n花子' }, 'name');
+  bad({ name: 'go to evil.example' }, 'name');
   bad({ tour: 'jetski' }, 'tour');
   bad({ phone: 'call me' }, 'phone');
   bad({ worries: ['ears', 'x'] }, 'worries');
@@ -93,6 +100,25 @@ test('予約の本文の検査: 足りない・余分・過去の日・メール
   assert.ok(withNote.ok);
   assert.ok(withNote.booking.note.includes('2 人で行きます'));
   assert.ok(!withNote.booking.note.includes('喘息'), 'メモの健康のことは名簿に入れない');
+  assert.ok(checkBooking({ ...GOOD, name: 'J. Smith' }, { today }).ok, 'ふつうの名前の点は通る');
+  const told = checkBooking({ ...GOOD, swim: 'shallow', worries: ['seasick', 'ears'], note: '初めてです' }, { today });
+  assert.equal(told.booking.note, '泳ぎ: 足のつく所なら泳げる／心配: 船酔いしやすい・耳抜きが心配\n初めてです', '泳ぎと心配なことはメモの頭に残す');
+});
+
+test('外からの予約の守り: 名簿が上限の 7 割を超えたら外からは入れない・1 日の件数・Turnstile の hostname と action', async () => {
+  assert.ok(roomForPublic('x'.repeat(MAX_ROSTER_BYTES * 0.7)));
+  assert.ok(!roomForPublic('x'.repeat(MAX_ROSTER_BYTES * 0.7 + 1)));
+  const s = setup();
+  s.turnstile.hostname = 'evil.example.com';
+  assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 403, '別のサイトで解いた答えは通さない');
+  s.turnstile.hostname = 'aquagate.example.com';
+  s.turnstile.action = 'login';
+  assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 403, 'action が booking でない答えは通さない');
+  s.turnstile.action = 'booking';
+  s.env.BUDGET.put('site:2026-10-27', '30');
+  const full = await handle(booking(GOOD, { ip: '198.51.100.20' }), s.env, s.io);
+  assert.equal(full.status, 429, 'サイトからの予約は 1 日 30 件まで');
+  assert.equal(s.db.writes, 0);
 });
 
 test('POST /api/bookings: 許した origin だけ。OPTIONS はその origin にだけ CORS を返す', async () => {
@@ -137,18 +163,21 @@ test('POST /api/bookings: 1 つの IP からは 5 回まで。6 回目は Turnst
   assert.equal((await handle(booking(GOOD, { ip: '203.0.113.9' }), s.env, s.io)).status, 202, '別の IP は通る');
 });
 
-test('POST /api/bookings: 予約が便に入り、予定が作られ、お願いのメールがすぐ送られる。ログに名前もメールも出ない', async () => {
+test('POST /api/bookings: 予約が便に入り、予定が作られる。お願いのメールは次の Cron で送る。ログに名前もメールも出ない', async () => {
   const s = setup();
   logs.length = 0;
   const res = await handle(booking({ ...GOOD, note: '2 人とも初めてです' }), s.env, s.io);
   assert.equal(res.status, 202);
+  assert.equal(s.mail.sent.length, 0, '外からの入口では送らない（重なって 2 回送らない。ザクのレビュー M-1）');
+  assert.equal((stored(s.db).outbox || []).length, 0);
+  await scheduled(s.env, s.io);
   assert.deepEqual(await res.json(), { ok: true });
   assert.equal(res.headers.get('access-control-allow-origin'), SITE);
   const st = stored(s.db);
   const b = st.bookings[0];
   assert.equal(b.leadEmail, 'hanako@mail.example');
   assert.equal(b.leadPhone, '090-0000-0000');
-  assert.equal(b.note, '2 人とも初めてです');
+  assert.equal(b.note, '泳ぎ: 足のつく所なら泳げる／心配: 耳抜きが心配\n2 人とも初めてです');
   assert.equal(st.trips[0].date, '2026-11-03');
   assert.deepEqual(st.jobs.map(j => [j.kind, j.status]), [['request', 'done'], ['remind', 'waiting'], ['eve', 'waiting'], ['morning', 'waiting']]);
   assert.equal(st.outbox.length, 1);
@@ -163,7 +192,7 @@ test('POST /api/bookings: 予約が便に入り、予定が作られ、お願い
   assert.ok(st.outbox[0].body.includes('[[ask-link]]'));
   assert.equal(s.db.links.size, 1, 'D1 には鍵の SHA-256 だけ');
   assert.ok(![...s.db.links.keys()].includes(link[1]));
-  const line = logs.find(l => l.includes('/api/bookings'));
+  const line = logs.find(l => l.includes('"route":"cron"'));
   assert.ok(line && /"sent":1/.test(line), line);
   assert.ok(!logs.join('\n').includes('hanako') && !logs.join('\n').includes('花子'), 'ログに中身を出さない');
 });
@@ -171,11 +200,13 @@ test('POST /api/bookings: 予約が便に入り、予定が作られ、お願い
 test('メールの設定がそろわないうちは送らず、unsent（no-mail-config）にする。送れなかったら failed', async () => {
   const s = setup({ MAIL_FROM: '' });
   assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 202);
+  await scheduled(s.env, s.io);
   assert.deepEqual(stored(s.db).outbox.map(o => [o.status, o.why]), [['unsent', 'no-mail-config']]);
   assert.equal(s.mail.sent.length, 0);
   const f = setup();
   f.mail.fail = 'E_DELIVERY_FAILED';
   assert.equal((await handle(booking(GOOD), f.env, f.io)).status, 202);
+  await scheduled(f.env, f.io);
   assert.deepEqual(stored(f.db).outbox.map(o => [o.status, o.why]), [['failed', 'E_DELIVERY_FAILED']]);
 });
 
@@ -185,6 +216,7 @@ test('Cron: 時刻が来た予定（2 日前・前日の夜・当日の朝）が
   assert.equal(empty.db.writes, 0);
   const s = setup();
   await handle(booking(GOOD), s.env, s.io);
+  await scheduled(s.env, s.io);
   s.mail.sent.length = 0;
   s.io.clock = Date.parse('2026-11-01T00:00:00Z');   // 日本で 11/1 の 9:00（2 日前）
   await scheduled(s.env, s.io);
@@ -203,10 +235,11 @@ test('Cron: 時刻が来た予定（2 日前・前日の夜・当日の朝）が
 });
 
 /* 届いたメールの見本（Email Routing が渡す形） */
-function message(raw, from = 'forward@shop.example') {
+const PASS = 'mx.cloudflare.net; dkim=pass header.d=shop.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass';
+function message(raw, from = 'forward@shop.example', auth = PASS) {
   const bytes = new TextEncoder().encode(raw);
   return {
-    from, to: 'yoyaku@shop.example', rawSize: bytes.byteLength, rejected: '',
+    from, to: 'yoyaku@shop.example', rawSize: bytes.byteLength, rejected: '', headers: new Headers({ 'authentication-results': auth }),
     raw: new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }),
     setReject(why) { this.rejected = why; }
   };
@@ -233,6 +266,13 @@ test('届いたメールの本文を取り出す: 平文・multipart の base64�
   assert.ok(senderAllowed('Forward@Shop.example', 'a@x.example, forward@shop.example'));
   assert.ok(!senderAllowed('evil@x.example', 'forward@shop.example'));
   assert.ok(!senderAllowed('', ''));
+  assert.ok(authPassed(PASS, 'forward@shop.example'));
+  assert.ok(authPassed('mx; spf=fail smtp.mailfrom=x@evil.example; dkim=pass header.d=shop.example', 'forward@shop.example'), 'DKIM が送り主のドメインで通れば受ける');
+  assert.ok(authPassed('mx; spf=pass smtp.mailfrom=bounce@mail.shop.example', 'forward@shop.example') === false, '子のドメインからの SPF は送り主の親を名乗れない');
+  assert.ok(authPassed('mx; dkim=pass header.d=shop.example', 'a@mail.shop.example'), '送り主が子のドメインなら親の DKIM で受ける');
+  assert.ok(!authPassed('mx; spf=pass smtp.mailfrom=x@evil.example; dkim=pass header.d=evil.example', 'forward@shop.example'), '別のドメインで通っても受けない');
+  assert.ok(!authPassed('mx; spf=fail smtp.mailfrom=forward@shop.example; dkim=none', 'forward@shop.example'));
+  assert.ok(!authPassed('', 'forward@shop.example'));
 });
 
 test('届いた予約メール: 許した送り主だけを読み、日付が読めたら便に入れてお願いを送る。それ以外の送り主は断り、AI を呼ばない', async () => {
@@ -242,10 +282,16 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   assert.ok(evil.rejected);
   assert.equal(s.api.calls.length, 0);
   s.api.answer = JSON.stringify({ participants: [{ name: '見本 次郎' }], booking: { site: '予約サイト', date: '2026-11-05', start: '08:30', tour: '体験ダイビング', people: 1, lead_name: '見本 次郎', lead_email: 'jiro@mail.example' }, health_info_visible: false });
+  const spoofed = message(MAIL_RAW('予約です'), 'forward@shop.example', 'mx; spf=fail smtp.mailfrom=forward@shop.example; dkim=none');
+  await receiveMail(spoofed, s.env, s.io);
+  assert.ok(spoofed.rejected, '封筒の From だけで SPF も DKIM も通らないメールは断る（ザクのレビュー M-5）');
+  assert.equal(s.api.calls.length, 0);
   const ok = message(MAIL_RAW('予約サイトからのお知らせ\r\n11/5 体験ダイビング 1 名\r\n見本 次郎 様'));
   await receiveMail(ok, s.env, s.io);
   assert.equal(ok.rejected, '');
   assert.equal(s.api.calls.length, 1);
+  assert.equal(s.mail.sent.length, 0, '送るのは次の Cron');
+  await scheduled(s.env, s.io);
   const st = stored(s.db);
   assert.equal(st.bookings.length, 1);
   assert.equal(st.bookings[0].leadEmail, 'jiro@mail.example');
@@ -254,6 +300,10 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   s.api.answer = JSON.stringify({ participants: [{ name: '見本 三郎' }], booking: { people: 1 }, health_info_visible: false });
   await receiveMail(message(MAIL_RAW('日付の無いメール')), s.env, s.io);
   assert.equal(stored(s.db).bookings.length, 1, '日付が読めないメールは自動では入れない（お店が画面で入れる）');
+  s.env.BUDGET.put('mail:2026-10-27', '30');
+  const calls = s.api.calls.length;
+  await receiveMail(message(MAIL_RAW('31 通目')), s.env, s.io);
+  assert.equal(s.api.calls.length, calls, 'メールからの予約は 1 日 30 件まで。超えたら AI を呼ばない');
 });
 
 let failed = 0;

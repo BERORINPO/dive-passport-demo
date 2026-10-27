@@ -7,6 +7,7 @@ import '../js/roster-core.js';
 import '../js/roster-share.js';
 import '../js/roster-guest.js';
 import '../js/roster-auto.js';
+import { MAX_ROSTER_BYTES } from './sync-core.mjs';
 
 const R = globalThis.REDUX;
 
@@ -15,21 +16,32 @@ export const MAX_BOOKING_BODY = 4096;
 export const MAX_MAIL_BYTES = 256 * 1024;
 /* 予約を受ける先の日: 今日から 1 年と少し先まで */
 const MAX_DAYS_AHEAD = 400;
+/* 外から入る予約（サイトのフォーム・届いたメール）の守り（ザクのレビュー 2026-10-27 H-1・M-5）:
+   1 件の人数、1 日の件数、名簿がこの割合を超えたら外からは入れない（お店自身の書き込みの分を残す） */
+export const SITE_MAX_PEOPLE = 10;
+export const SITE_DAILY_MAX = 30;
+export const MAIL_DAILY_MAX = 30;
+const PUBLIC_FILL = 0.7;
+export const roomForPublic = (text) => new TextEncoder().encode(text).byteLength <= MAX_ROSTER_BYTES * PUBLIC_FILL;
 
 /* js/data.js の R.TOURS のうち、予約を名簿に入れるのに使う所だけ（test/auto-worker.test.mjs が data.js とそろっているか確かめる） */
 export const TOURS = [
   { id: 'dive', diving: true, start: '08:30', name: { ja: '体験ダイビング（ボート・2 本）' } },
   { id: 'snorkel', diving: false, start: '09:00', name: { ja: 'ボートスノーケル（1 回）' } }
 ];
-/* js/data.js の R.SWIM・R.EXP・R.WORRIES の id（同じテストが確かめる） */
-export const SWIM = ['none', 'shallow', '25m', 'good'];
+/* js/data.js の R.SWIM・R.WORRIES の id と日本語、R.EXP の id（同じテストが確かめる）。泳ぎと心配なことは、予約のメモの頭に残す */
+export const SWIM_JA = { none: '泳げない', shallow: '足のつく所なら泳げる', '25m': '25 m くらい泳げる', good: '泳ぎは得意' };
+export const WORRY_JA = { face: '水に顔をつけるのが苦手', deep: '深い所が怖い', ears: '耳抜きが心配', seasick: '船酔いしやすい' };
+export const SWIM = Object.keys(SWIM_JA);
 export const EXP = ['first', 'few', 'card'];
-export const WORRIES = ['face', 'deep', 'ears', 'seasick'];
+export const WORRIES = Object.keys(WORRY_JA);
 
 const BOOKING_KEYS = ['tour', 'date', 'people', 'name', 'email', 'lang', 'swim', 'exp', 'dives', 'worries', 'phone', 'note'];
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const str = (v, max) => typeof v === 'string' && v.length <= max;
 const PHONE = /^[0-9+()\- ]{0,30}$/;
+/* 名前はお客さんへのメールの 1 行目に入る。改行・制御文字・URL やドメインらしい字は断る（お店の名前で釣りのメールを出させない。ザクのレビュー 2026-10-27 M-2） */
+const NAME_BAD = /[\u0000-\u001f\u007f\u2028\u2029]|:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}/i;
 
 /* 予約フォームの本文を確かめる。返すのは { ok, booking } か { ok: false, error }（error はログに出す短い名前だけ） */
 export function checkBooking(given, { today }) {
@@ -43,8 +55,8 @@ export function checkBooking(given, { today }) {
   const problems = [
     !tour && 'tour',
     !(str(g.date, 10) && /^\d{4}-\d{2}-\d{2}$/.test(g.date) && g.date >= today && g.date <= last) && 'date',
-    !(Number.isInteger(g.people) && g.people >= 1 && g.people <= R.roster.MAX_PEOPLE) && 'people',
-    !(name && name.length <= 60) && 'name',
+    !(Number.isInteger(g.people) && g.people >= 1 && g.people <= SITE_MAX_PEOPLE) && 'people',
+    !(name && name.length <= 60 && !NAME_BAD.test(name)) && 'name',
     !(email && R.roster.emailOk(email)) && 'email',
     g.lang !== undefined && !R.roster.LANGS.includes(g.lang) && 'lang',
     g.swim !== undefined && !SWIM.includes(g.swim) && 'swim',
@@ -55,8 +67,11 @@ export function checkBooking(given, { today }) {
     g.note !== undefined && !str(g.note, 400) && 'note'
   ].filter(Boolean);
   if (problems.length) return { ok: false, error: problems.slice(0, 3).join(',') };
-  /* 健康のことはサイトでは聞かない。メモに書かれていたら、名簿に入れる前に外す（AI に送る前と同じ決まり） */
-  const note = g.note ? R.healthRedact.redact(g.note).text.slice(0, 400) : '';
+  /* 健康のことはサイトでは聞かない。メモに書かれていたら、名簿に入れる前に外す（AI に送る前と同じ決まり）。
+     泳ぎと心配なこと（船酔いなど）は、お店が当日に気づけるようにメモの頭に残す */
+  const told = [g.swim && `泳ぎ: ${SWIM_JA[g.swim]}`, g.worries && g.worries.length && `心配: ${g.worries.map(w => WORRY_JA[w]).join('・')}`].filter(Boolean).join('／');
+  const typed = g.note ? R.healthRedact.redact(g.note).text : '';
+  const note = [told, typed].filter(Boolean).join('\n').slice(0, 400);
   return {
     ok: true,
     booking: {
@@ -142,6 +157,19 @@ export function mailText(raw) {
   const text = (textOf(splitPart(raw), 0) || '').replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   if (!text) return { ok: false, error: 'no-text' };
   return { ok: true, text: text.slice(0, R.roster.MAX_TEXT) };
+}
+
+/* 届いたメールが送り主のドメインから本当に来たか。Cloudflare が付ける Authentication-Results（無ければ ARC の物）で、
+   spf=pass（smtp.mailfrom）か dkim=pass（header.d）のドメインが送り主のドメインと同じか、その親のときだけ true（ザクのレビュー 2026-10-27 M-5） */
+export function authPassed(results, from) {
+  const domain = String(from || '').trim().toLowerCase().split('@')[1] || '';
+  if (!domain || typeof results !== 'string') return false;
+  const aligned = (d) => !!d && (domain === d || domain.endsWith(`.${d}`));
+  return results.toLowerCase().split(';').some(part => {
+    const spf = /\bspf=pass\b[^]*?\bsmtp\.mailfrom=(?:[^@\s;]*@)?([a-z0-9.-]+)/.exec(part);
+    const dkim = /\bdkim=pass\b[^]*?\bheader\.d=([a-z0-9.-]+)/.exec(part);
+    return (spf && aligned(spf[1])) || (dkim && aligned(dkim[1]));
+  });
 }
 
 /* 届いたメールの送り主（封筒の From）を、許した送り主の表と比べる。表は「,」区切り。大文字小文字は見ない */

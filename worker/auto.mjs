@@ -4,7 +4,9 @@
 import { getRoster, putRoster } from './roster-db.mjs';
 import { checkPut, readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { checkRequest, periods } from './read-core.mjs';
-import { checkBooking, addSiteBooking, mailText, senderAllowed, queuedOf, markResults, runDue, MAX_MAIL_BYTES } from './auto-core.mjs';
+import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, queuedOf, markResults, runDue, roomForPublic,
+  MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX } from './auto-core.mjs';
+import { takeDaily } from './budget.mjs';
 import { mailReady, sendOne } from './mail.mjs';
 import { askModel } from './ask.mjs';
 import { mintLink, dropExpired } from './ask-db.mjs';
@@ -33,8 +35,9 @@ async function withLink(env, io, state, item) {
 }
 
 /* 名簿を読み、直し（名簿 → { state, … }）を当てて、版を確かめて書く。ぶつかったら読み直して当て直す。
-   書く前に、画面から届いた名簿と同じ検査（sync-core.mjs の checkPut）にかける。返すのは { ok, state, out } か { ok: false, why } */
-export async function changeRoster(env, io, change) {
+   書く前に、画面から届いた名簿と同じ検査（sync-core.mjs の checkPut）にかける。返すのは { ok, state, out } か { ok: false, why }。
+   fromOutside（サイトの予約・届いたメール）のときは、名簿が上限の 7 割を超えたら書かない（why: 'full'。お店自身の書き込みの分を残す） */
+export async function changeRoster(env, io, change, { fromOutside = false } = {}) {
   const { at, today } = clockOf(io);
   for (let i = 0; i < TRIES; i += 1) {
     const got = await getRoster(env.DB, SHOP_DEFAULT);
@@ -44,13 +47,15 @@ export async function changeRoster(env, io, change) {
     if (out.state === current) return { ok: true, state: current, out };
     const checked = checkPut({ base: got.version, state: out.state }, { today, at });
     if (!checked.ok) return { ok: false, why: checked.error.slice(0, 40) };
+    if (fromOutside && !roomForPublic(checked.text)) return { ok: false, why: 'full' };
     const put = await putRoster(env.DB, SHOP_DEFAULT, got.version, checked.text, at);
     if (put.ok) return { ok: true, state: checked.state, out };
   }
   return { ok: false, why: 'conflict' };
 }
 
-/* 時刻が来た予定を動かし、送る物を送って、結果を名簿に付ける。
+/* 時刻が来た予定を動かし、送る物を送って、結果を名簿に付ける。呼ぶのは Cron だけ（外からの入口では送らない。
+   重なって走ると同じ連絡を 2 回送り、リンクも作り直されるため。ザクのレビュー 2026-10-27 M-1）。
    送ったあとに結果を書けなかったときは、次の回にもう一度送る（送り損ねるより、重なる方を選ぶ） */
 export async function runAutomation(env, io, note) {
   const { at, nowJst } = clockOf(io);
@@ -114,8 +119,12 @@ export async function receiveMail(message, env, io) {
 
 async function takeMail(message, env, io, note) {
   if (!senderAllowed(message.from, env.MAIL_SENDERS)) { note.why = 'sender'; message.setReject('Sender not accepted'); return; }
+  const results = message.headers.get('authentication-results') || message.headers.get('arc-authentication-results') || '';
+  if (!authPassed(results, message.from)) { note.why = 'auth'; message.setReject('Sender not authenticated'); return; }
   if (!dbReady(env) || !env.ANTHROPIC_API_KEY || !env.BUDGET) { note.why = 'config'; return; }
   if (Number(message.rawSize) > MAX_MAIL_BYTES) { note.why = 'size'; return; }
+  /* メールからの予約の 1 日の上限。AI を呼ぶ前に数える（お店の読み取り /api/read の上限を食い尽くさせない） */
+  if (!(await takeDaily(env.BUDGET, `mail:${clockOf(io).today}`, MAIL_DAILY_MAX))) { note.why = 'mail-daily'; return; }
   const raw = await readRaw(message.raw, MAX_MAIL_BYTES);
   if (raw === null) { note.why = 'size'; return; }
   const mail = mailText(raw);
@@ -129,20 +138,23 @@ async function takeMail(message, env, io, note) {
   /* 画面の「メールを貼る」と同じく、日付が読めた予約だけを自動で入れる（日付が無いものはお店が画面で入れる） */
   if (!got.reading.booking || !got.reading.booking.date) { note.why = 'no-date'; return; }
   const { at, nowJst } = clockOf(io);
-  const added = await changeRoster(env, io, s => R.rosterAuto.addFromReading(s, { reading: got.reading, lang: '', at, nowJst, newId }));
+  const added = await changeRoster(env, io, s => R.rosterAuto.addFromReading(s, { reading: got.reading, lang: '', at, nowJst, newId }), { fromOutside: true });
   if (!added.ok) { note.why = `add-${added.why}`; return; }
-  note.added = 1;
-  await runAutomation(env, io, note);
+  note.added = 1;   // お願いの連絡は次の Cron で送る
 }
 
-/* サイトの予約フォームから届いた本文（守りは handler.mjs が先にかける）。返すのは { status, body } */
+/* サイトの予約フォームから届いた本文（守りは handler.mjs が先にかける）。返すのは { status, body }。
+   お願いの連絡は次の Cron（15 分ごと）で送る */
 export async function takeSiteBooking(given, env, io, note) {
   const { at, nowJst, today } = clockOf(io);
   const checked = checkBooking(given, { today });
   if (!checked.ok) { note.why = `input-${checked.error}`.slice(0, 40); return { status: 400, body: { error: 'input' } }; }
-  const added = await changeRoster(env, io, s => addSiteBooking(s, { booking: checked.booking, at, nowJst, newId }));
-  if (!added.ok) { note.why = `add-${added.why}`; return { status: added.why === 'conflict' ? 503 : 500, body: { error: 'roster' } }; }
+  if (!(await takeDaily(env.BUDGET, `site:${today}`, SITE_DAILY_MAX))) { note.why = 'site-daily'; return { status: 429, body: { error: 'limit' } }; }
+  const added = await changeRoster(env, io, s => addSiteBooking(s, { booking: checked.booking, at, nowJst, newId }), { fromOutside: true });
+  if (!added.ok) {
+    note.why = `add-${added.why}`;
+    return { status: added.why === 'conflict' || added.why === 'full' ? 503 : 500, body: { error: added.why === 'full' ? 'full' : 'roster' } };
+  }
   note.added = 1;
-  await runAutomation(env, io, note);
   return { status: 202, body: { ok: true } };
 }

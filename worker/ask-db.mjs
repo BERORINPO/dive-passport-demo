@@ -15,9 +15,10 @@ export async function keyHash(key) {
   return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, '0')).join('');
 }
 
-/* 鍵を置く。同じ予約・同じ人の前の鍵は消す（作り直したら古いリンクは開けない） */
+/* 鍵を置く。予約のリンク（personId が空）は前の鍵を消す（作り直したら古いリンクは開けない）。
+   1 人ずつのリンクは前の鍵を残す（同行者に送ったリンクを、写し直しで止めない。本数は countLinks で絞る。ザクのレビュー 2026-10-27 M-3） */
 export async function putLink(db, { hash, shop, bookingId, personId, expiresOn, at }) {
-  await db.prepare('DELETE FROM ask_links WHERE shop = ?1 AND booking_id = ?2 AND person_id = ?3').bind(shop, bookingId, personId).run();
+  if (!personId) await db.prepare('DELETE FROM ask_links WHERE shop = ?1 AND booking_id = ?2 AND person_id = ?3').bind(shop, bookingId, personId).run();
   await db.prepare('INSERT INTO ask_links (hash, shop, booking_id, person_id, expires_on, created_at, day, uses) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \'\', 0)')
     .bind(hash, shop, bookingId, personId, expiresOn, at).run();
 }
@@ -26,6 +27,12 @@ export async function putLink(db, { hash, shop, bookingId, personId, expiresOn, 
 export async function findLink(db, hash) {
   const row = await db.prepare('SELECT shop, booking_id, person_id, expires_on FROM ask_links WHERE hash = ?1').bind(hash).first();
   return row ? { shop: String(row.shop), bookingId: String(row.booking_id), personId: String(row.person_id), expiresOn: String(row.expires_on) } : null;
+}
+
+/* 同じ予約・同じ人の、今ある鍵の数 */
+export async function countLinks(db, { shop, bookingId, personId }) {
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM ask_links WHERE shop = ?1 AND booking_id = ?2 AND person_id = ?3').bind(shop, bookingId, personId).first();
+  return row ? Number(row.n) : 0;
 }
 
 /* 1 日に受ける回数を数える。上限を超えたら false（数えない） */

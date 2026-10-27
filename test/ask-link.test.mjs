@@ -163,10 +163,23 @@ test('1 人ずつのリンク: 予約のリンクから作れる。その人の�
   const today = await (await call(s, '/api/ask', { k: pkey, action: 'today', personId: id, answer: 'unwell' })).json();
   assert.deepEqual(today.problems, []);
   assert.equal(stored(s).people.find(x => x.id === id).health.today, 'unwell');
+  const lighter = await (await call(s, '/api/ask', { k: pkey, action: 'today', personId: id, answer: 'ok' })).json();
+  assert.deepEqual(lighter.problems, ['answered'], '答えたあとは軽い方へは書き換えられない（ザクのレビュー M-3）');
+  assert.equal(stored(s).people.find(x => x.id === id).health.today, 'unwell');
   assert.equal((await call(s, '/api/ask', { k: pkey, action: 'send', personId: people[0].id, input: {} })).status, 404, '別の人には入れられない');
   assert.equal((await call(s, '/api/ask', { k: pkey, action: 'person-link', personId: id })).status, 404, '1 人ずつのリンクからはリンクを作れない');
   assert.equal((await call(s, '/api/ask', { k: key, action: 'today', personId: id, answer: 'ok' })).status, 200);
   assert.equal(stored(s).people.find(x => x.id === id).health.today, 'unwell', '予約のリンクからは当日の体調を入れない');
+});
+
+test('1 人ずつのリンクは、作り直しても前の物を止めない。1 人 3 本まで', async () => {
+  const { s, key, people } = await booked();
+  const id = people[1].id;
+  const urls = [];
+  for (let i = 0; i < 3; i += 1) urls.push((await (await call(s, '/api/ask', { k: key, action: 'person-link', personId: id })).json()).url);
+  for (const u of urls) assert.equal((await call(s, '/api/ask', { k: keyOf(u), action: 'view' })).status, 200);
+  assert.equal((await call(s, '/api/ask', { k: key, action: 'person-link', personId: id })).status, 429);
+  assert.equal((await call(s, '/api/ask', { k: key, action: 'person-link', personId: people[0].id })).status, 200, '別の人は別に数える');
 });
 
 test('リンクを作り直したら古い鍵は開けない', async () => {

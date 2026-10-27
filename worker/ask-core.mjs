@@ -85,8 +85,10 @@ export function applyLink(state, link, req, { today, at }) {
     const only = link.personId ? HEALTH : entry.ask.filter(k => !HEALTH.includes(k));
     return G().applyGuest(state, { id: entry.person.id, input: req.input, today, at, only });
   }
-  /* 当日の体調は、1 人ずつのリンクで、Worker の日付が便の日のときだけ */
+  /* 当日の体調は、1 人ずつのリンクで、Worker の日付が便の日のときだけ。答えたあとは「少し調子が悪い」への変更だけ受ける
+     （潜るかの判断にかかわる答えを、リンクを持つ人が軽い方へ書き換えられないように。変更は名簿の記録に残る。ザクのレビュー 2026-10-27 M-3） */
   if (!link.personId || t.v.trip.date !== today) return { state, problems: ['not-today'] };
+  if (!entry.needsToday && req.answer !== 'unwell') return { state, problems: ['answered'] };
   return G().answerToday(state, { id: entry.person.id, answer: req.answer, day: today, consent: req.consent === true, today, demo: false, at });
 }
 

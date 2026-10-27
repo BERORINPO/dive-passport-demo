@@ -92,7 +92,9 @@
     name: { ja: '名前が違っても入れる、の印', en: 'The box for a different name' }, save: { ja: '保存できませんでした', en: 'Could not save' },
     network: { ja: '送れませんでした。電波を確かめて、もう一度押してください', en: 'Could not send. Check your connection and try again' },
     cancelled: { ja: 'このツアーは中止になりました', en: 'This tour is cancelled' }, 'not-today': { ja: '当日の体調は、当日の朝に答えます', en: 'Answer how you feel on the morning of the tour' },
-    gone: { ja: 'このリンクは使えません。お店に聞いてください', en: 'This link does not work. Please ask the shop' } };
+    gone: { ja: 'このリンクは使えません。お店に聞いてください', en: 'This link does not work. Please ask the shop' },
+    answered: { ja: '今日の体調はもう届いています。調子が悪くなったときだけ、選び直して送ってください', en: 'Your answer for today is already in. Send again only if you now feel unwell' },
+    links: { ja: 'この人のリンクはもう 3 本作りました。前に写したリンクを使ってください', en: 'Three links have already been made for this person. Please use one you copied before' } };
 
   /* 開いている予約と、人ごとの書きかけ */
   let bookingId = '';

@@ -152,6 +152,7 @@ async function bookings(request, env, io, note) {
   const miss = BOOKING_NEEDS.filter(k => typeof env[k] !== 'string' || env[k].trim() === '');
   if (!(env.DB && typeof env.DB.prepare === 'function')) miss.push('DB');
   if (!(env.BOOKING_LIMIT && typeof env.BOOKING_LIMIT.limit === 'function')) miss.push('BOOKING_LIMIT');
+  if (!(env.BUDGET && typeof env.BUDGET.get === 'function')) miss.push('BUDGET');
   if (miss.length) { note.why = `config:${miss.join('+')}`; return json(503, { error: 'config' }, cors); }
   if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' }, cors);
   const ip = request.headers.get('cf-connecting-ip') || '';
@@ -160,7 +161,8 @@ async function bookings(request, env, io, note) {
   if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }, cors); }
   let given;
   try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }, cors); }
-  const human = await verifyTurnstile(env, request.headers.get('cf-turnstile-response'), ip, io);
+  const hosts = allowed.map(o => { try { return new URL(o).hostname.toLowerCase(); } catch (e) { return ''; } }).filter(Boolean);
+  const human = await verifyTurnstile(env, request.headers.get('cf-turnstile-response'), ip, io, hosts);
   if (!human.ok) { note.why = human.why; return json(403, { error: 'turnstile' }, cors); }
   const got = await takeSiteBooking(given, env, io, note);
   return json(got.status, got.body, cors);
