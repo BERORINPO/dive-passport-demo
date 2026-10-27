@@ -182,6 +182,9 @@ test('1 人ずつのリンクは、作り直しても前の物を止めない。
   for (const u of urls) assert.equal((await call(s, '/api/ask', { k: keyOf(u), action: 'view' })).status, 200);
   assert.equal((await call(s, '/api/ask', { k: key, action: 'person-link', personId: id })).status, 429);
   assert.equal((await call(s, '/api/ask', { k: key, action: 'person-link', personId: people[0].id })).status, 200, '別の人は別に数える');
+  /* 前の予約のリンクから作った 3 本が期限切れになったら（Cron が消す前でも）、また作れる（Codex のレビュー 2026-10-28） */
+  for (const l of s.db.links.values()) if (l.person_id === id) l.expires_on = '2000-01-01';
+  assert.equal((await call(s, '/api/ask', { k: key, action: 'person-link', personId: id })).status, 200, '期限切れのリンクは数えない');
 });
 
 test('リンクを作り直したら古い鍵は開けない', async () => {

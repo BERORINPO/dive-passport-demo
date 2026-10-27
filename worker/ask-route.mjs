@@ -45,7 +45,7 @@ export async function takeAsk(given, env, io, note, origin) {
     const state = await currentState(env, io, shop);
     const t = state && personLinkTarget(state, link, checked.personId, today);
     if (!t || !t.ok) { note.why = 'gone'; return GONE; }
-    if (await countLinks(env.DB, { shop, bookingId: t.bookingId, personId: t.personId }) >= PERSON_LINKS_MAX) {
+    if (await countLinks(env.DB, { shop, bookingId: t.bookingId, personId: t.personId, today }) >= PERSON_LINKS_MAX) {
       note.why = 'person-links';
       return { status: 429, body: { error: 'links' } };
     }
