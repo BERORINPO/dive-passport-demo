@@ -14,7 +14,7 @@
   const AI_SRC = ['mail', 'paper', 'ccard'];
   const EDIT_WHO = ['staff', 'guest', 'system'];                 // 人やお店が直すときの「した人」
   const EDIT_SRC = ['guest', 'staff', 'passport', 'partner'];    // 人やお店が直すときの「出どころ」
-  const BOOKING_FIELDS = ['source', 'site', 'ref', 'leadName', 'leadPhone', 'people', 'shop', 'note'];
+  const BOOKING_FIELDS = ['source', 'site', 'ref', 'leadName', 'leadPhone', 'leadEmail', 'lang', 'people', 'shop', 'note'];
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
   /* 中身が同じか（key の順は問わない） */
@@ -240,7 +240,7 @@
   /* AI の読み取りから、予約の形を組む */
   function bookingFromReading(reading) {
     const b = reading.booking || {};
-    return { source: 'mail', site: b.site || '', ref: b.ref || '', leadName: b.leadName || '', leadPhone: b.leadPhone || '',
+    return { source: 'mail', site: b.site || '', ref: b.ref || '', leadName: b.leadName || '', leadPhone: b.leadPhone || '', leadEmail: b.leadEmail || '',
       people: Number.isInteger(b.people) && b.people >= 1 ? b.people : 1 };
   }
 
