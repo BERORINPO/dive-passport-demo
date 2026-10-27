@@ -32,7 +32,7 @@
   let shot = blankShot('');
   function blankShot(key) {
     return { key, kind: 'app', src: null, sampleId: null, img: null, done: null, rects: [], confirmed: false, prepared: null,
-      rows: null, open: -1, edit: null, guide: '', loading: false, making: false, busy: false, error: '' };
+      rows: null, readMode: '', open: -1, edit: null, guide: '', loading: false, making: false, busy: false, error: '' };
   }
   function reset(key, keep) {
     if (shot.done) shot.done();
@@ -83,6 +83,7 @@
       ui.save(s => C().logAi(s, { at: now(), sent }));
       if (reading.healthSeen) { backToPaint(); return; }   // 塗り残し。同じ写真をもう一度送らせない
       job.rows = X().fromListReading(reading);
+      job.readMode = sent.mode;   // 読んだときの読み方（あとで見本 / 本物を切り替えても、出す言葉は変えない）
       if (!job.rows.length) job.error = '写真から名前を読み取れませんでした。写真を撮り直してください';
     } catch (e) {
       if (e.sent) ui.save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
@@ -227,7 +228,7 @@
     const missing = rows.filter(r => X().listMissing(r).length).length;
     return [
       el('div', { class: 'rd' }, el('span', { class: 'rd__k', text: '写真' }),
-        el('span', { class: 'rd__v' }, KIND_JA[shot.kind], el('span', { class: 'rd__sub', text: R.aiReader.mode() === 'sample' ? '見本の読み取り' : 'AI が読んだ' }))),
+        el('span', { class: 'rd__v' }, KIND_JA[shot.kind], el('span', { class: 'rd__sub', text: shot.readMode === 'real' ? 'AI が読んだ' : '見本の読み取り' }))),
       el('label', { class: 'pickrow' }, el('span', { class: 'rd__k', text: 'ガイド' }),
         el('input', { class: 'input', type: 'text', maxlength: 40, value: shot.guide, placeholder: '例: 見本 三郎', oninput: (e) => { shot.guide = e.target.value; } })),
       el('p', { class: 'sumline' },
