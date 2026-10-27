@@ -10,7 +10,7 @@
    /api/ask もお客さんのリンク（ask.html）から Access の外で呼ぶ。守りの順番: 道と method → Sec-Fetch-Site → 設定 → 種類 → 1 つの IP の回数 → 大きさ → 形 → 鍵
    （鍵の回数は ask-route.mjs）。/api/ask-link はお店がリンクを作る道で、/api/roster と同じく Access の内。中身は ask-route.mjs、計画は plan/meibo.md */
 import { checkRequest, periods, limitsFrom, MAX_BODY, MODEL } from './read-core.mjs';
-import { checkPut, readStored, MAX_PUT_BODY } from './sync-core.mjs';
+import { checkPut, readStored, shrinkProblem, MAX_PUT_BODY } from './sync-core.mjs';
 import { verifyAccess } from './access.mjs';
 import { remaining } from './budget.mjs';
 import { askModel } from './ask.mjs';
@@ -132,6 +132,15 @@ async function roster(request, env, io, note, who) {
   const text = state === checked.state ? checked.text : JSON.stringify(state);
   note.size = text.length;
   try {
+    /* 人が大きく消える書き込みは、わざと（allowShrink）でなければ断り、今の名簿を返す（端末が空の名簿を送った事故から守る） */
+    if (checked.base > 0 && !checked.allowShrink) {
+      const now = await current();
+      if (now.version === checked.base && shrinkProblem(now.state, state)) {
+        note.why = 'shrink';
+        note.version = now.version;
+        return json(409, { error: 'shrink', version: now.version, state: now.state });
+      }
+    }
     const put = await putRoster(env.DB, shop, checked.base, text, at);
     if (put.ok) { note.version = put.version; return json(200, { version: put.version, state }); }
     const latest = await current();

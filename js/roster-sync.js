@@ -18,6 +18,8 @@
         headers: body === undefined ? {} : { 'content-type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body)
       });
+      /* Access のログインが切れると、ログインの画面への転送になる（redirect: 'manual' では中身の見えない答え）。電波なしと分けて知らせる */
+      if (res.type === 'opaqueredirect') return { status: 'login', data: null };
       let data = null;
       try { data = await res.json(); } catch (e) { data = null; }
       return { status: res.status, data };
@@ -53,12 +55,14 @@
       const got = r.status === 200 ? shapeOf(r.data) : null;
       return got ? { ok: true, ...got } : { ok: false, why: r.status || 'network' };
     },
-    /* { ok: true, version, state }（書けた。state はサーバーが直した後）/ { conflict: true, version, state }（先に別の端末が書いた）/ { ok: false, why } */
-    async push(base, state) {
-      const r = await call('PUT', { base, state });
+    /* { ok: true, version, state }（書けた。state はサーバーが直した後）/ { conflict: true, version, state }（先に別の端末が書いた）/
+       { shrink: true, version, state }（人が大きく消えるので、サーバーが断った）/ { ok: false, why }。
+       why: 'login'（ログイン切れ）・400 / 413（サーバーが中身を断った。送り直しても通らない）・それ以外（届かない・サーバーの誤り） */
+    async push(base, state, { allowShrink = false } = {}) {
+      const r = await call('PUT', allowShrink ? { base, state, allowShrink: true } : { base, state });
       const got = (r.status === 200 || r.status === 409) ? shapeOf(r.data) : null;
       if (got && r.status === 200 && got.state) return { ok: true, ...got };
-      if (got && r.status === 409) return { conflict: true, ...got };
+      if (got && r.status === 409) return r.data && r.data.error === 'shrink' ? { shrink: true, ...got } : { conflict: true, ...got };
       return { ok: false, why: r.status || 'network' };
     },
     /* お客さんに送るリンクを作る（同じ場所の /api/ask-link。Access の内）。作り直すと前のリンクは開けない。

@@ -219,7 +219,11 @@
   const SYNC_KEY = `${ROSTER_KEY}-sync`;          // { version, pending }
   const OFFLINE_KEPT = ROSTER_BACKUP;   // 送れないうちに別の端末が直したとき、この端末の名簿を残す場所（読めない名簿の退避と同じく 1 年で消える）
   const SYNC_TRIES = 5;
-  let sync = null;   // { version, confirmed, queue, flushing } — null はサーバーを使わない（GitHub Pages・手元・D1 がまだ無い）
+  let sync = null;   // { version, confirmed, queue, flushing, allowShrink } — null はサーバーを使わない（GitHub Pages・手元・D1 がまだ無い）
+  /* この端末の名簿を残してから、サーバーの名簿にする（送れなかった・断られた直しを消さないため。読めない名簿の退避と同じく 1 年で消える） */
+  function keepLocal(state) {
+    try { localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, purgeBackup(stripPartnerHealth(JSON.stringify(state)))); } catch (e) { /* 残せなくても続ける */ }
+  }
 
   function readSyncMeta() {
     try { const m = JSON.parse(localStorage.getItem(SYNC_KEY) || 'null'); return m && Number.isInteger(m.version) ? m : null; } catch (e) { return null; }
@@ -258,16 +262,27 @@
       for (let i = 0; i < SYNC_TRIES && sync.queue.length; i += 1) {
         const sent = sync.queue.length;
         const { state } = rebase();
-        const r = await R.rosterSync.push(sync.version, state);
+        const r = await R.rosterSync.push(sync.version, state, { allowShrink: sync.allowShrink });
         if (r.ok || r.conflict) {
           sync.version = r.version;
           sync.confirmed = r.state;
-          if (r.ok) sync.queue = sync.queue.slice(sent);   // 送ったあとに足された直しは残す
-          if (rosterNote === 'sync-offline') rosterNote = null;
+          if (r.ok) { sync.queue = sync.queue.slice(sent); sync.allowShrink = false; }   // 送ったあとに足された直しは残す
+          if (['sync-offline', 'sync-login'].includes(rosterNote)) rosterNote = null;
           adopt();
           continue;
         }
-        rosterNote = 'sync-offline';   // 届かない・サーバーの誤り。直しは端末に残し、次に送る
+        if (r.shrink || r.why === 400 || r.why === 413) {
+          /* サーバーが断った（人が大きく消える・中身が合わない）。送り直しても通らないので、この端末の名簿を残してからサーバーの名簿に戻す */
+          keepLocal(state);
+          sync.queue = [];
+          sync.allowShrink = false;
+          sync.version = r.shrink ? r.version : sync.version;
+          sync.confirmed = r.shrink ? r.state : sync.confirmed;
+          rosterNote = r.shrink ? 'sync-shrink' : 'sync-rejected';
+          adopt();
+          break;
+        }
+        rosterNote = r.why === 'login' ? 'sync-login' : 'sync-offline';   // ログイン切れ・届かない・サーバーの誤り。直しは端末に残し、次に送る
         writeSyncMeta();
         rosterListeners.forEach(fn => fn(roster));
         break;
@@ -306,14 +321,16 @@
     if (!got.ok) return false;
     const local = loadRoster();
     const meta = readSyncMeta();
-    sync = { version: got.version, confirmed: got.state, queue: [], flushing: null };
+    sync = { version: got.version, confirmed: got.state, queue: [], flushing: null, allowShrink: false };
     if (got.state === null) {
       if (!isBlank(local)) sync.queue.push(() => local);   // サーバーにまだ名簿が無い: この端末の名簿を最初の名簿として置く
     } else if (meta && meta.pending) {
-      if (meta.version === got.version) sync.queue.push(() => local);   // 前に送れなかった直しがある。版が同じならそのまま送る
-      else {
+      /* 前に送れなかった直しがある。版が同じならそのまま送る。ただし端末の名簿が空（読めなくて空から始めた、など）なら送らない
+         （空の名簿で、サーバーの名簿をまるごと上書きしない。ジンのレビュー 2026-10-27 CRITICAL） */
+      if (meta.version === got.version && !isBlank(local)) sync.queue.push(() => local);
+      else if (!isBlank(local)) {
         /* 送れないうちに別の端末が直した。この端末の名簿は消さずに退避して、サーバーの名簿にする */
-        try { localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, purgeBackup(stripPartnerHealth(JSON.stringify(local)))); } catch (e) { /* 残せなくても、サーバーの名簿にする */ }
+        keepLocal(local);
         rosterNote = 'sync-kept';
       }
     }
@@ -411,7 +428,8 @@
     rosterStore: {
       get: loadRoster,
       update: updateRoster,
-      reset: () => updateRoster(() => R.roster.blankState(ROSTER_SHOP)),
+      /* デモの予約をすべて消す。サーバーには「わざと消す」と伝える（人が大きく消える書き込みは、これ以外では断られる） */
+      reset: () => { if (sync) sync.allowShrink = true; return updateRoster(() => R.roster.blankState(ROSTER_SHOP)); },
       note: () => rosterNote,
       /* サーバーの名簿（Worker 版だけ）。startSync はつないだら true、refresh は別の端末の直しの取り込み、whenSynced は送り終わるまで待つ */
       startSync,

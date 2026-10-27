@@ -11,6 +11,7 @@ import { checkPut, readStored, MAX_PUT_BODY, SHOP_DEFAULT } from '../worker/sync
 import { fakeKv, fakeAccess, fakeD1, checkRedirect } from '../worker/fakes.mjs';
 
 vm.runInThisContext(readFileSync(new URL('../js/data-samples.js', import.meta.url), 'utf8'));
+vm.runInThisContext(readFileSync(new URL('../js/data-big-sample.js', import.meta.url), 'utf8'));
 const R = globalThis.REDUX;
 const { roster: S, rosterCore: C, rosterShare: X, SAMPLE_READINGS } = R;
 
@@ -212,6 +213,24 @@ test('D1 との境目: base 0 は同じお店が既にあれば書かない。�
   assert.deepEqual(await putRoster(db, 's1', 2, '{"x":1}', AT), { ok: false });
   assert.deepEqual(await putRoster(db, 's1', 1, '{"x":1}', AT), { ok: true, version: 2 });
   assert.deepEqual(await getRoster(db, 's1'), { version: 2, text: '{"x":1}' });
+});
+
+test('人が大きく消える書き込みは 409（shrink）で断り、今の名簿を返す。allowShrink なら通る。数人を消すのは通る', async () => {
+  const s = setup();
+  const big = X.addBigSample(S.blankState(OWN), { day: '2026-10-30', at: AT, newId }).state;
+  await call(s, req('PUT', { body: { base: 0, state: big } }));
+  const n0 = big.people.length;
+  const fewer = { ...big, people: big.people.slice(0, n0 - 3) };
+  const small = await call(s, req('PUT', { body: { base: 1, state: fewer } }));
+  assert.equal(small.status, 200, '数人なら消せる');
+  const empty = S.blankState(OWN);
+  const r = await call(s, req('PUT', { body: { base: 2, state: empty } }));
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'shrink');
+  assert.equal(r.body.state.people.length, n0 - 3);
+  const ok = await call(s, req('PUT', { body: { base: 2, state: empty, allowShrink: true } }));
+  assert.equal(ok.status, 200);
+  assert.equal((await call(s, req('PUT', { body: { base: 3, state: empty, other: 1 } }))).status, 400, '本文の余分な項目は断る');
 });
 
 test('core: checkPut と readStored は時計を読まず、渡した今日で期限を決める', () => {
