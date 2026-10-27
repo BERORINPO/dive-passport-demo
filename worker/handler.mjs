@@ -126,6 +126,13 @@ async function roster(request, env, io, note, who) {
   if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }); }
   let given;
   try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
+  /* 画面は、どのお店の名簿を元に直したか（shop）を付けて送る。ログインから決めたお店と違えば断る（開いたままの画面で別のお店の人がログインし直したとき、
+     前のお店の直しを、このお店の名簿に入れない。ジンのレビュー 2026-10-27 HIGH 8）。付けていない画面（前の版）は今までどおり */
+  if (given && typeof given === 'object' && !Array.isArray(given) && Object.prototype.hasOwnProperty.call(given, 'shop')) {
+    const { shop: sent, ...rest } = given;
+    if (typeof sent !== 'string' || sent !== shop) { note.why = 'shop-changed'; return json(409, { error: 'shop', shop }); }
+    given = rest;
+  }
   const checked = checkPut(given, { today, at });
   if (!checked.ok) {
     note.why = checked.error.slice(0, 40);

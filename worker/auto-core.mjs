@@ -202,7 +202,7 @@ export const UNREAD_KEEP_DAYS = 30;
 export const UNREAD_SHOW_MAX = 50;
 export const UNREAD_DAILY_MAX = 60;
 /* 画面に出す理由の言葉 */
-export const UNREAD_WHY = ['limit', 'size', 'text', 'no-date', 'full', 'roster', 'error', 'ai'];
+export const UNREAD_WHY = ['limit', 'size', 'text', 'no-date', 'full', 'roster', 'error', 'ai', 'many'];   // many: その日は上限を超えて、ほかにもあった
 
 /* 届いたメールを名簿に入れられなかった理由（ログの note.why）を、画面に出す短い言葉にする。
    宛先・送り主・送り主のドメインの確かめで断ったメールと、設定の誤りは残さない（null。お店のメールとは限らないため） */

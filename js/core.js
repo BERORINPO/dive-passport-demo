@@ -272,10 +272,10 @@
 
   /* まだ認められていない直しを送る。同時に 2 つは送らない（送っている間の直しは次の回に入る） */
   /* サーバーの名簿がこの画面より新しい版のとき。送るのを止め、端末だけで続ける（読み込み直すまで） */
-  function stopSync() {
+  function stopSync(note = 'sync-newer') {
     sync.queue = [];
     sync.stopped = true;
-    rosterNote = 'sync-newer';
+    rosterNote = note;
     rosterListeners.forEach(fn => fn(roster));
   }
 
@@ -287,7 +287,14 @@
       for (let i = 0; i < SYNC_TRIES && sync.queue.length; i += 1) {
         const sent = sync.queue.length;
         const { state } = rebase();
-        const r = await R.rosterSync.push(sync.version, state, { allowShrink: sync.allowShrink });
+        const r = await R.rosterSync.push(sync.version, state, { allowShrink: sync.allowShrink, shop: sync.shop });
+        if ((r.ok || r.conflict || r.shrink) && r.shop !== sync.shop) r.why = 'shop';   // 答えの名簿が別のお店の物（念のため）
+        if (r.why === 'shop') {
+          /* ログインしたお店が変わった（開いたままの画面で、別のお店の人がログインし直した）。前のお店の直しを送らず、端末の名簿を残して止める */
+          keepLocal(state);
+          stopSync('sync-shop-changed');
+          break;
+        }
         if (r.ok || r.conflict) {
           sync.version = r.version;
           sync.confirmed = r.state;
@@ -384,6 +391,7 @@
     if (!sync || sync.stopped) return false;
     if (sync.queue.length) { await flushSync(); return true; }
     const got = await R.rosterSync.pull();
+    if (got.ok && got.shop !== sync.shop) { keepLocal(roster); stopSync('sync-shop-changed'); return false; }   // 別のお店の名簿を取り込まない
     if (!got.ok || got.state === null || got.version === sync.version) return got.ok;
     sync.version = got.version;
     sync.confirmed = got.state;

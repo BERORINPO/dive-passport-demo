@@ -60,8 +60,10 @@
     /* { ok: true, version, state }（書けた。state はサーバーが直した後）/ { conflict: true, version, state }（先に別の端末が書いた）/
        { shrink: true, version, state }（人が大きく消えるので、サーバーが断った）/ { ok: false, why }。
        why: 'login'（ログイン切れ）・400 / 413（サーバーが中身を断った。送り直しても通らない）・それ以外（届かない・サーバーの誤り） */
-    async push(base, state, { allowShrink = false } = {}) {
-      const r = await call('PUT', allowShrink ? { base, state, allowShrink: true } : { base, state });
+    async push(base, state, { allowShrink = false, shop } = {}) {
+      const body = { base, state, ...(allowShrink ? { allowShrink: true } : {}), ...(shop ? { shop } : {}) };
+      const r = await call('PUT', body);
+      if (r.status === 409 && r.data && r.data.error === 'shop') return { ok: false, why: 'shop' };   // ログインしたお店が変わった
       /* 426: この画面が古い版（サーバーが断った）。409 で返ってきた名簿が新しい版のときも同じ */
       if (r.status === 426 || ((r.status === 409 || r.status === 200) && r.data && R.roster.isNewer(r.data.state))) return { ok: false, why: 'newer' };
       const got = (r.status === 200 || r.status === 409) ? shapeOf(r.data) : null;

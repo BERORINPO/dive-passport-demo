@@ -141,8 +141,14 @@ async function rememberUnread(env, io, note) {
   const now = io.now();
   const { at, today } = clockOf(io);
   try {
-    if (!(await takeDaily(env.BUDGET, `unread:${note.shop}:${today}`, UNREAD_DAILY_MAX))) { note.unread = 'daily'; return; }
-    await addUnread(env.DB, note.shop, { id: newId(), at, why, before: new Date(now - UNREAD_KEEP_DAYS * 86400000).toISOString() });
+    const before = new Date(now - UNREAD_KEEP_DAYS * 86400000).toISOString();
+    if (!(await takeDaily(env.BUDGET, `unread:${note.shop}:${today}`, UNREAD_DAILY_MAX))) {
+      /* 上限を超えた分は 1 行ずつは残さないが、「この日はほかにもあった」を 1 日 1 行だけ残す（画面に何も出ないまま落とさない） */
+      note.unread = 'daily';
+      if (await takeDaily(env.BUDGET, `unread-over:${note.shop}:${today}`, 1)) await addUnread(env.DB, note.shop, { id: newId(), at, why: 'many', before });
+      return;
+    }
+    await addUnread(env.DB, note.shop, { id: newId(), at, why, before });
     note.unread = why;
   } catch (e) {
     note.unread = 'db';   // 残せなかったことはログに残す

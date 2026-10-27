@@ -352,6 +352,40 @@ test('ジンのレビュー HIGH 8: 端末の名簿が別のお店の物なら�
   assert.equal(JSON.parse(srv.db.rows.get('default').state).trips.length, 1, 'default の名簿はそのまま');
 });
 
+test('ジンのレビュー HIGH 8（開いたままの画面）: ログインしたお店が途中で変わったら、前のお店の直しを送らず、取り込みもせず、端末の名簿を残して止める', async () => {
+  const srv = server();
+  const local = memory();
+  const a = device(srv, local);
+  a.rosterStore.update(addTrip(a));
+  await a.rosterStore.startSync();
+  await a.rosterStore.whenSynced();
+  const before = srv.db.rows.get('default').state;
+  /* 別のタブで、別のお店（shop-a）の人としてログインし直した。shop-a にも同じ版の番号の名簿がある */
+  srv.db.addShop({ id: 'shop-a', name: 'A ダイブ', members: [EMAIL] });
+  srv.db.rows.set('shop-a', { ...srv.db.rows.get('default'), state: JSON.stringify(a.roster.blankState('A ダイブ')) });
+  a.rosterStore.update(addGuide(a, '見本 次郎'));
+  await a.rosterStore.whenSynced();
+  assert.equal(a.rosterStore.note(), 'sync-shop-changed');
+  assert.equal(JSON.parse(srv.db.rows.get('shop-a').state).trips.length, 0, 'shop-a の名簿に A の直しは入らない');
+  assert.equal(srv.db.rows.get('default').state, before);
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の直しは残す');
+  const calls = srv.calls;
+  a.rosterStore.update(addGuide(a, '見本 三郎'));
+  await a.rosterStore.whenSynced();
+  assert.equal(srv.calls, calls, '止めたあとは送らない');
+  /* 取り込み（refresh）も、別のお店の名簿なら取り込まない */
+  const srv2 = server();
+  const b = device(srv2);
+  b.rosterStore.update(addTrip(b));
+  await b.rosterStore.startSync();
+  await b.rosterStore.whenSynced();
+  srv2.db.addShop({ id: 'shop-a', name: 'A ダイブ', members: [EMAIL] });
+  srv2.db.rows.set('shop-a', { version: 5, state: JSON.stringify(b.roster.blankState('A ダイブ')), updated_at: AT });
+  assert.equal(await b.rosterStore.refresh(), false);
+  assert.equal(b.rosterStore.note(), 'sync-shop-changed');
+  assert.equal(b.rosterStore.get().trips.length, 1, '画面は前のお店の名簿のまま（別のお店の名簿に替えない）');
+});
+
 test('ジンのレビュー HIGH 7: サーバーの名簿がこの画面より新しい版なら、つながずに読み込み直しを頼む。送る途中で 426 が来たら、端末の名簿を残して送るのを止める', async () => {
   const srv = server();
   const a = device(srv);
