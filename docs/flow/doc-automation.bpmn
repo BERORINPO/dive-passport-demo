@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Defs_redux" targetNamespace="https://berorinpo.github.io/dive-passport-demo/">
+  <bpmn:message id="Msg_booking" />
+  <bpmn:message id="Msg_request" />
+  <bpmn:message id="Msg_filled" />
+  <bpmn:message id="Msg_today" />
+  <bpmn:message id="Msg_answer" />
+
+  <bpmn:collaboration id="Collab_redux">
+    <bpmn:participant id="Pool_guest" name="お客さん" processRef="Process_guest" />
+    <bpmn:participant id="Pool_shop" name="お店（REDUX を使う）" processRef="Process_shop" />
+    <bpmn:messageFlow id="MF_booking" sourceRef="G_book" targetRef="S_arrive" messageRef="Msg_booking" />
+    <bpmn:messageFlow id="MF_request" sourceRef="T_send" targetRef="G_fill" messageRef="Msg_request" />
+    <bpmn:messageFlow id="MF_filled" sourceRef="G_fill" targetRef="C_filled" messageRef="Msg_filled" />
+    <bpmn:messageFlow id="MF_today" sourceRef="T_today" targetRef="G_answer" messageRef="Msg_today" />
+    <bpmn:messageFlow id="MF_answer" sourceRef="G_answer" targetRef="C_answered" messageRef="Msg_answer" />
+    <bpmn:textAnnotation id="Note_book"><bpmn:text>自社の予約フォーム・予約サイト（メールを転送）・電話のどれでもよい</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_book" sourceRef="G_book" targetRef="Note_book" />
+    <bpmn:textAnnotation id="Note_read"><bpmn:text>健康に触れた行は外してから AI に送る</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_read" sourceRef="T_read" targetRef="Note_read" />
+    <bpmn:textAnnotation id="Note_check"><bpmn:text>お店が手で触るのは、ここと受付だけ</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_check" sourceRef="T_check" targetRef="Note_check" />
+    <bpmn:textAnnotation id="Note_remind"><bpmn:text>待つ間に、2日前に&#10;もう一度お願いを送る（自動）</bpmn:text></bpmn:textAnnotation>
+    <bpmn:association id="Assoc_remind" sourceRef="C_eve" targetRef="Note_remind" />
+  </bpmn:collaboration>
+
+  <bpmn:process id="Process_guest" isExecutable="false">
+    <bpmn:startEvent id="G_start" name="潜りたい">
+      <bpmn:outgoing>GF_1</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="G_book" name="予約する">
+      <bpmn:incoming>GF_1</bpmn:incoming>
+      <bpmn:outgoing>GF_2</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="G_fill" name="項目を入れる">
+      <bpmn:documentation>メールのリンクから、足りない項目だけを入れる（1 人ずつのリンク）</bpmn:documentation>
+      <bpmn:incoming>GF_2</bpmn:incoming>
+      <bpmn:outgoing>GF_3</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="G_answer" name="体調に答える">
+      <bpmn:incoming>GF_3</bpmn:incoming>
+      <bpmn:outgoing>GF_4</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="G_end" name="潜る">
+      <bpmn:incoming>GF_4</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="GF_1" sourceRef="G_start" targetRef="G_book" />
+    <bpmn:sequenceFlow id="GF_2" sourceRef="G_book" targetRef="G_fill" />
+    <bpmn:sequenceFlow id="GF_3" sourceRef="G_fill" targetRef="G_answer" />
+    <bpmn:sequenceFlow id="GF_4" sourceRef="G_answer" targetRef="G_end" />
+  </bpmn:process>
+
+  <bpmn:process id="Process_shop" isExecutable="false">
+    <bpmn:laneSet id="Lanes_shop">
+      <bpmn:lane id="Lane_auto" name="REDUX（自動）">
+        <bpmn:flowNodeRef>S_arrive</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_read</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_put</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gw_unsure</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gw_join1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gw_missing</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_send</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gw_wait</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C_filled</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C_eve</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gw_join2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C_morning</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_today</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>C_answered</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_roster</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_done</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_staff" name="お店のスタッフ">
+        <bpmn:flowNodeRef>T_check</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_ask</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="S_arrive" name="予約が届く">
+      <bpmn:outgoing>SF_1</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="S_arrive_def" messageRef="Msg_booking" />
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="T_read" name="AI が読む">
+      <bpmn:documentation>予約の項目と人を読む。健康に触れた行は外してから送る（js/health-redact.js）</bpmn:documentation>
+      <bpmn:incoming>SF_1</bpmn:incoming>
+      <bpmn:outgoing>SF_2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_put" name="便に入れる">
+      <bpmn:documentation>同じ日・同じ時刻の便へ。無ければ便を作る。自信が無い所は印を付けて入れる</bpmn:documentation>
+      <bpmn:incoming>SF_2</bpmn:incoming>
+      <bpmn:outgoing>SF_3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gw_unsure" name="自信なし？">
+      <bpmn:incoming>SF_3</bpmn:incoming>
+      <bpmn:outgoing>SF_unsure_yes</bpmn:outgoing>
+      <bpmn:outgoing>SF_unsure_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_check" name="確かめる">
+      <bpmn:documentation>自信の無い所だけを見て、直すか、そのまま認める</bpmn:documentation>
+      <bpmn:incoming>SF_unsure_yes</bpmn:incoming>
+      <bpmn:outgoing>SF_checked</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gw_join1">
+      <bpmn:incoming>SF_unsure_no</bpmn:incoming>
+      <bpmn:incoming>SF_checked</bpmn:incoming>
+      <bpmn:outgoing>SF_4</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="Gw_missing" name="足りない？">
+      <bpmn:documentation>条例の名簿の 13 項目のうち、まだ無い項目があるか</bpmn:documentation>
+      <bpmn:incoming>SF_4</bpmn:incoming>
+      <bpmn:outgoing>SF_missing_yes</bpmn:outgoing>
+      <bpmn:outgoing>SF_missing_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:sendTask id="T_send" name="お願いを送る" messageRef="Msg_request">
+      <bpmn:documentation>足りない項目だけを、お客さんにメールで聞く（英語・韓国語・中国語も）</bpmn:documentation>
+      <bpmn:incoming>SF_missing_yes</bpmn:incoming>
+      <bpmn:outgoing>SF_5</bpmn:outgoing>
+    </bpmn:sendTask>
+    <bpmn:eventBasedGateway id="Gw_wait" name="待つ">
+      <bpmn:incoming>SF_5</bpmn:incoming>
+      <bpmn:outgoing>SF_wait_filled</bpmn:outgoing>
+      <bpmn:outgoing>SF_wait_eve</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="C_filled" name="項目が届いた">
+      <bpmn:incoming>SF_wait_filled</bpmn:incoming>
+      <bpmn:outgoing>SF_6</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="C_filled_def" messageRef="Msg_filled" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="C_eve" name="前日の夜まで">
+      <bpmn:incoming>SF_wait_eve</bpmn:incoming>
+      <bpmn:outgoing>SF_7</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="C_eve_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:userTask id="T_ask" name="受付で聞く">
+      <bpmn:documentation>前日の夜までにそろわなかったら、お店に知らせる。当日の受付で聞いて入れる</bpmn:documentation>
+      <bpmn:incoming>SF_7</bpmn:incoming>
+      <bpmn:outgoing>SF_8</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gw_join2">
+      <bpmn:incoming>SF_missing_no</bpmn:incoming>
+      <bpmn:incoming>SF_6</bpmn:incoming>
+      <bpmn:incoming>SF_8</bpmn:incoming>
+      <bpmn:outgoing>SF_9</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:intermediateCatchEvent id="C_morning" name="当日の朝 6:00">
+      <bpmn:incoming>SF_9</bpmn:incoming>
+      <bpmn:outgoing>SF_10</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="C_morning_def" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:sendTask id="T_today" name="体調の質問を送る" messageRef="Msg_today">
+      <bpmn:incoming>SF_10</bpmn:incoming>
+      <bpmn:outgoing>SF_11</bpmn:outgoing>
+    </bpmn:sendTask>
+    <bpmn:intermediateCatchEvent id="C_answered" name="答えが届いた">
+      <bpmn:incoming>SF_11</bpmn:incoming>
+      <bpmn:outgoing>SF_12</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="C_answered_def" messageRef="Msg_answer" />
+    </bpmn:intermediateCatchEvent>
+    <bpmn:serviceTask id="T_roster" name="名簿を作る">
+      <bpmn:documentation>条例の潜水者名簿（13 項目）を作り、1 年残す。印刷と CSV も出せる</bpmn:documentation>
+      <bpmn:incoming>SF_12</bpmn:incoming>
+      <bpmn:outgoing>SF_13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_done" name="名簿がそろった">
+      <bpmn:incoming>SF_13</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="SF_1" sourceRef="S_arrive" targetRef="T_read" />
+    <bpmn:sequenceFlow id="SF_2" sourceRef="T_read" targetRef="T_put" />
+    <bpmn:sequenceFlow id="SF_3" sourceRef="T_put" targetRef="Gw_unsure" />
+    <bpmn:sequenceFlow id="SF_unsure_yes" name="ある" sourceRef="Gw_unsure" targetRef="T_check" />
+    <bpmn:sequenceFlow id="SF_unsure_no" name="ない" sourceRef="Gw_unsure" targetRef="Gw_join1" />
+    <bpmn:sequenceFlow id="SF_checked" sourceRef="T_check" targetRef="Gw_join1" />
+    <bpmn:sequenceFlow id="SF_4" sourceRef="Gw_join1" targetRef="Gw_missing" />
+    <bpmn:sequenceFlow id="SF_missing_yes" name="ある" sourceRef="Gw_missing" targetRef="T_send" />
+    <bpmn:sequenceFlow id="SF_missing_no" name="ない" sourceRef="Gw_missing" targetRef="Gw_join2" />
+    <bpmn:sequenceFlow id="SF_5" sourceRef="T_send" targetRef="Gw_wait" />
+    <bpmn:sequenceFlow id="SF_wait_filled" sourceRef="Gw_wait" targetRef="C_filled" />
+    <bpmn:sequenceFlow id="SF_wait_eve" sourceRef="Gw_wait" targetRef="C_eve" />
+    <bpmn:sequenceFlow id="SF_6" sourceRef="C_filled" targetRef="Gw_join2" />
+    <bpmn:sequenceFlow id="SF_7" sourceRef="C_eve" targetRef="T_ask" />
+    <bpmn:sequenceFlow id="SF_8" sourceRef="T_ask" targetRef="Gw_join2" />
+    <bpmn:sequenceFlow id="SF_9" sourceRef="Gw_join2" targetRef="C_morning" />
+    <bpmn:sequenceFlow id="SF_10" sourceRef="C_morning" targetRef="T_today" />
+    <bpmn:sequenceFlow id="SF_11" sourceRef="T_today" targetRef="C_answered" />
+    <bpmn:sequenceFlow id="SF_12" sourceRef="C_answered" targetRef="T_roster" />
+    <bpmn:sequenceFlow id="SF_13" sourceRef="T_roster" targetRef="E_done" />
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_redux">
+    <bpmndi:BPMNPlane id="Plane_redux" bpmnElement="Collab_redux">
+      <bpmndi:BPMNShape id="Pool_guest_di" bpmnElement="Pool_guest" isHorizontal="true" bioc:fill="#fffaf2" bioc:stroke="#a16207"><dc:Bounds x="150" y="60" width="1860" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Pool_shop_di" bpmnElement="Pool_shop" isHorizontal="true" bioc:fill="#ffffff" bioc:stroke="#475569"><dc:Bounds x="150" y="290" width="1860" height="420" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_auto_di" bpmnElement="Lane_auto" isHorizontal="true" bioc:fill="#f3f8fd" bioc:stroke="#93b4d4"><dc:Bounds x="180" y="290" width="1830" height="240" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_staff_di" bpmnElement="Lane_staff" isHorizontal="true" bioc:fill="#fffaf2" bioc:stroke="#d6b48a"><dc:Bounds x="180" y="530" width="1830" height="180" /></bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="G_start_di" bpmnElement="G_start" bioc:fill="#ffffff" bioc:stroke="#37474f"><dc:Bounds x="202" y="122" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="196" y="162" width="48" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_book_di" bpmnElement="G_book" bioc:fill="#fffaf2" bioc:stroke="#b45309"><dc:Bounds x="262" y="100" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_fill_di" bpmnElement="G_fill" bioc:fill="#fffaf2" bioc:stroke="#b45309"><dc:Bounds x="980" y="100" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_answer_di" bpmnElement="G_answer" bioc:fill="#fffaf2" bioc:stroke="#b45309"><dc:Bounds x="1610" y="100" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_end_di" bpmnElement="G_end" bioc:fill="#ffffff" bioc:stroke="#37474f"><dc:Bounds x="1902" y="122" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1902" y="162" width="36" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="S_arrive_di" bpmnElement="S_arrive" bioc:fill="#ffffff" bioc:stroke="#37474f"><dc:Bounds x="262" y="392" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="244" y="432" width="72" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_read_di" bpmnElement="T_read" bioc:fill="#e3f0fb" bioc:stroke="#2b6cb0"><dc:Bounds x="330" y="370" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_put_di" bpmnElement="T_put" bioc:fill="#e3f0fb" bioc:stroke="#2b6cb0"><dc:Bounds x="490" y="370" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_unsure_di" bpmnElement="Gw_unsure" isMarkerVisible="true" bioc:fill="#fff7cc" bioc:stroke="#b7791f"><dc:Bounds x="650" y="385" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="642" y="364" width="66" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_check_di" bpmnElement="T_check" bioc:fill="#fffaf2" bioc:stroke="#b45309"><dc:Bounds x="615" y="580" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_join1_di" bpmnElement="Gw_join1" isMarkerVisible="true" bioc:fill="#fff7cc" bioc:stroke="#b7791f"><dc:Bounds x="770" y="385" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_missing_di" bpmnElement="Gw_missing" isMarkerVisible="true" bioc:fill="#fff7cc" bioc:stroke="#b7791f"><dc:Bounds x="855" y="385" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="847" y="440" width="66" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_send_di" bpmnElement="T_send" bioc:fill="#e3f0fb" bioc:stroke="#2b6cb0"><dc:Bounds x="950" y="370" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_wait_di" bpmnElement="Gw_wait" bioc:fill="#fff7cc" bioc:stroke="#b7791f"><dc:Bounds x="1110" y="385" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1150" y="372" width="30" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_filled_di" bpmnElement="C_filled" bioc:fill="#ffffff" bioc:stroke="#37474f"><dc:Bounds x="1217" y="392" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1199" y="432" width="72" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_eve_di" bpmnElement="C_eve" bioc:fill="#ffffff" bioc:stroke="#37474f"><dc:Bounds x="1117" y="472" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1032" y="483" width="72" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_ask_di" bpmnElement="T_ask" bioc:fill="#fffaf2" bioc:stroke="#b45309"><dc:Bounds x="1200" y="580" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Gw_join2_di" bpmnElement="Gw_join2" isMarkerVisible="true" bioc:fill="#fff7cc" bioc:stroke="#b7791f"><dc:Bounds x="1385" y="385" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_morning_di" bpmnElement="C_morning" bioc:fill="#ffffff" bioc:stroke="#37474f"><dc:Bounds x="1472" y="392" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1452" y="432" width="76" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_today_di" bpmnElement="T_today" bioc:fill="#e3f0fb" bioc:stroke="#2b6cb0"><dc:Bounds x="1550" y="370" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="C_answered_di" bpmnElement="C_answered" bioc:fill="#ffffff" bioc:stroke="#37474f"><dc:Bounds x="1702" y="392" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1684" y="432" width="72" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_roster_di" bpmnElement="T_roster" bioc:fill="#e3f0fb" bioc:stroke="#2b6cb0"><dc:Bounds x="1780" y="370" width="120" height="80" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_done_di" bpmnElement="E_done" bioc:fill="#ffffff" bioc:stroke="#37474f"><dc:Bounds x="1942" y="392" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1918" y="432" width="84" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="Note_book_di" bpmnElement="Note_book"><dc:Bounds x="420" y="105" width="300" height="40" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Note_read_di" bpmnElement="Note_read"><dc:Bounds x="330" y="470" width="240" height="40" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Note_check_di" bpmnElement="Note_check"><dc:Bounds x="380" y="600" width="200" height="40" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Note_remind_di" bpmnElement="Note_remind"><dc:Bounds x="1180" y="468" width="215" height="44" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Assoc_book_di" bpmnElement="Assoc_book"><di:waypoint x="382" y="125" /><di:waypoint x="420" y="125" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_read_di" bpmnElement="Assoc_read"><di:waypoint x="390" y="450" /><di:waypoint x="390" y="470" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_check_di" bpmnElement="Assoc_check"><di:waypoint x="615" y="620" /><di:waypoint x="580" y="620" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Assoc_remind_di" bpmnElement="Assoc_remind"><di:waypoint x="1153" y="490" /><di:waypoint x="1180" y="490" /></bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="GF_1_di" bpmnElement="GF_1"><di:waypoint x="238" y="140" /><di:waypoint x="262" y="140" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="GF_2_di" bpmnElement="GF_2"><di:waypoint x="382" y="160" /><di:waypoint x="980" y="160" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="GF_3_di" bpmnElement="GF_3"><di:waypoint x="1100" y="140" /><di:waypoint x="1610" y="140" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="GF_4_di" bpmnElement="GF_4"><di:waypoint x="1730" y="140" /><di:waypoint x="1902" y="140" /></bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="MF_booking_di" bpmnElement="MF_booking"><di:waypoint x="280" y="180" /><di:waypoint x="280" y="392" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_request_di" bpmnElement="MF_request"><di:waypoint x="1030" y="370" /><di:waypoint x="1030" y="180" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_filled_di" bpmnElement="MF_filled"><di:waypoint x="1080" y="180" /><di:waypoint x="1080" y="320" /><di:waypoint x="1235" y="320" /><di:waypoint x="1235" y="392" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_today_di" bpmnElement="MF_today"><di:waypoint x="1630" y="370" /><di:waypoint x="1630" y="180" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_answer_di" bpmnElement="MF_answer"><di:waypoint x="1720" y="180" /><di:waypoint x="1720" y="392" /></bpmndi:BPMNEdge>
+
+      <bpmndi:BPMNEdge id="SF_1_di" bpmnElement="SF_1"><di:waypoint x="298" y="410" /><di:waypoint x="330" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_2_di" bpmnElement="SF_2"><di:waypoint x="450" y="410" /><di:waypoint x="490" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_3_di" bpmnElement="SF_3"><di:waypoint x="610" y="410" /><di:waypoint x="650" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_unsure_yes_di" bpmnElement="SF_unsure_yes"><di:waypoint x="675" y="435" /><di:waypoint x="675" y="580" /><bpmndi:BPMNLabel><dc:Bounds x="683" y="500" width="24" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_unsure_no_di" bpmnElement="SF_unsure_no"><di:waypoint x="700" y="410" /><di:waypoint x="770" y="410" /><bpmndi:BPMNLabel><dc:Bounds x="723" y="390" width="24" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_checked_di" bpmnElement="SF_checked"><di:waypoint x="735" y="620" /><di:waypoint x="795" y="620" /><di:waypoint x="795" y="435" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_4_di" bpmnElement="SF_4"><di:waypoint x="820" y="410" /><di:waypoint x="855" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_missing_yes_di" bpmnElement="SF_missing_yes"><di:waypoint x="905" y="410" /><di:waypoint x="950" y="410" /><bpmndi:BPMNLabel><dc:Bounds x="915" y="390" width="24" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_missing_no_di" bpmnElement="SF_missing_no"><di:waypoint x="880" y="385" /><di:waypoint x="880" y="345" /><di:waypoint x="1410" y="345" /><di:waypoint x="1410" y="385" /><bpmndi:BPMNLabel><dc:Bounds x="888" y="352" width="24" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_5_di" bpmnElement="SF_5"><di:waypoint x="1070" y="410" /><di:waypoint x="1110" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_wait_filled_di" bpmnElement="SF_wait_filled"><di:waypoint x="1160" y="410" /><di:waypoint x="1217" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_wait_eve_di" bpmnElement="SF_wait_eve"><di:waypoint x="1135" y="435" /><di:waypoint x="1135" y="472" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_6_di" bpmnElement="SF_6"><di:waypoint x="1253" y="410" /><di:waypoint x="1385" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_7_di" bpmnElement="SF_7"><di:waypoint x="1135" y="508" /><di:waypoint x="1135" y="620" /><di:waypoint x="1200" y="620" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_8_di" bpmnElement="SF_8"><di:waypoint x="1320" y="620" /><di:waypoint x="1410" y="620" /><di:waypoint x="1410" y="435" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_9_di" bpmnElement="SF_9"><di:waypoint x="1435" y="410" /><di:waypoint x="1472" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_10_di" bpmnElement="SF_10"><di:waypoint x="1508" y="410" /><di:waypoint x="1550" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_11_di" bpmnElement="SF_11"><di:waypoint x="1670" y="410" /><di:waypoint x="1702" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_12_di" bpmnElement="SF_12"><di:waypoint x="1738" y="410" /><di:waypoint x="1780" y="410" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="SF_13_di" bpmnElement="SF_13"><di:waypoint x="1900" y="410" /><di:waypoint x="1942" y="410" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
