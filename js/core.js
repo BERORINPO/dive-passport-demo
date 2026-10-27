@@ -180,6 +180,15 @@
   /* 1 年を過ぎた退避を消す。残す退避からも、他のお店のお客さんの健康の答えと、便の日から 1 年を過ぎた便を外す（前の版で退避した物のため） */
   function tidyBackups() {
     try {
+      /* 前の版は、送れなかった直しも -broken- に残していた。名簿の形をしている物（読めた物）は直しの退避なので、同じ時刻のまま -kept- に移してから整理する
+         （端末にしか無い直しを、数の上限で消さない。ジンのレビュー 2026-10-27） */
+      backupKeys().forEach(k => {
+        let o = null;
+        try { o = JSON.parse(localStorage.getItem(k)); } catch (e) { return; }
+        if (!o || typeof o !== 'object' || !R.roster.validateState(R.roster.upgradeState(o)).ok) return;
+        localStorage.setItem(`${OFFLINE_KEPT}${k.slice(ROSTER_BACKUP.length)}`, localStorage.getItem(k));
+        localStorage.removeItem(k);
+      });
       pruneBackups(BACKUP_MAX);
       [ROSTER_BACKUP, OFFLINE_KEPT].forEach(prefix => backupKeys(prefix).forEach(k => {
         if (Date.now() - Number(k.slice(prefix.length)) > BACKUP_KEEP_MS) { localStorage.removeItem(k); return; }

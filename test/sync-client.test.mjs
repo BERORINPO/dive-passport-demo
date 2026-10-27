@@ -168,7 +168,7 @@ test('端末の退避も、便の日から 1 年を過ぎた便は消える（�
   const key = `redux-roster-v1-broken-${Date.now() - 1000}`;
   local.setItem(key, JSON.stringify(backup));
   device(srv, local).rosterStore.get();   // 開き直すと退避を片付ける
-  const tidied = JSON.parse(local.getItem(key));
+  const tidied = JSON.parse(local.getItem(key.replace('-broken-', '-kept-')));   // 名簿の形の退避は -kept- に移る
   assert.deepEqual(tidied.trips.map(t => t.id), ['t1'], '1 年を過ぎた便だけが消える');
 });
 
@@ -468,9 +468,12 @@ test('ジンのレビュー（MEDIUM 9 の直しの穴）: 送れなかった直
   const t0 = Date.now() - 60000;
   [1, 2, 3, 4, 5].forEach(i => local.raw.set(`redux-roster-v1-kept-${t0 + i}`, JSON.stringify({ v: 1, i })));
   [1, 2, 3, 4].forEach(i => local.raw.set(`redux-roster-v1-broken-${t0 + i}`, JSON.stringify({ v: 1, i })));
+  /* 前の版が -broken- に残した、送れなかった直し（名簿の形をしている） */
+  local.raw.set(`redux-roster-v1-broken-${t0}`, JSON.stringify(a.rosterStore.get()));
   device(srv, local).rosterStore.get();   // 開き直すと退避を片付ける
   const keys = (p) => [...local.raw.keys()].filter(k => k.startsWith(p));
-  assert.equal(keys('redux-roster-v1-kept-').length, 5, '送れなかった直しの退避は消さない');
+  assert.equal(keys('redux-roster-v1-kept-').length, 6, '送れなかった直しの退避は消さない（前の版の物も -kept- に移す）');
+  assert.ok(local.raw.has(`redux-roster-v1-kept-${t0}`), '同じ時刻のまま移す');
   assert.equal(keys('redux-roster-v1-broken-').length, 3, '読めなかった名簿の退避は 3 つまで');
   /* 容量切れで本体が書けない: 消すのは読めなかった名簿の退避だけ */
   const set = local.setItem;
@@ -478,7 +481,7 @@ test('ジンのレビュー（MEDIUM 9 の直しの穴）: 送れなかった直
   local.setItem = (k, v) => { if (k === 'redux-roster-v1' && room > 0) { room -= 1; throw new Error('QuotaExceededError'); } set(k, v); };
   a.rosterStore.update(addGuideToFirst(a, '見本 次郎'));
   local.setItem = set;
-  assert.equal(keys('redux-roster-v1-kept-').length, 5);
+  assert.equal(keys('redux-roster-v1-kept-').length, 6);
   assert.ok(keys('redux-roster-v1-broken-').length < 3);
   /* 直しを残せない: sync-lost */
   const lost = memory();
