@@ -133,11 +133,9 @@ export function fakeD1() {
             }
           } else if (/^DELETE FROM mail_unread WHERE shop = \?1 AND at < \?2$/.test(text)) {
             for (const [k, u] of unread) if (u.shop === args[0] && u.at < args[1]) { unread.delete(k); changes += 1; }
-          } else if (/^INSERT INTO mail_unread \(shop, id, at, why\) VALUES \(\?1, \?2, \?3, \?4\)$/.test(text)) {
+          } else if (/^INSERT INTO mail_unread \(shop, id, at, why\) VALUES \(\?1, \?2, \?3, \?4\) ON CONFLICT\(shop, id\) DO NOTHING$/.test(text)) {
             const key = `${args[0]}\n${args[1]}`;
-            if (unread.has(key)) throw new Error('UNIQUE constraint failed: mail_unread.shop, mail_unread.id');
-            unread.set(key, { shop: args[0], id: args[1], at: args[2], why: args[3] });
-            changes = 1;
+            if (!unread.has(key)) { unread.set(key, { shop: args[0], id: args[1], at: args[2], why: args[3] }); changes = 1; }
           } else if (/^DELETE FROM mail_unread WHERE shop = \?1 AND id = \?2$/.test(text)) {
             changes = unread.delete(`${args[0]}\n${args[1]}`) ? 1 : 0;
           } else if (/^DELETE FROM roster_past WHERE shop = \?1 AND keep_until < \?2$/.test(text)) {

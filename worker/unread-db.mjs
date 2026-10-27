@@ -1,11 +1,11 @@
 /* 読めなかった予約メールを Cloudflare D1 に読み書きする（adapter）。表は worker/migrations/0005_mail_unread.sql、決まりは plan/auto.md。
    残すのは届いた時刻と理由の短い言葉だけ。見本は worker/fakes.mjs の fakeD1 */
 
-/* 30 日を過ぎた行を消してから、1 行足す（batch で 1 つの transaction） */
+/* 30 日を過ぎた行を消してから、1 行足す（batch で 1 つの transaction）。同じ id の行が既にあれば足さない（「ほかにもあった」は 1 日 1 行の決まった id） */
 export async function addUnread(db, shop, { id, at, why, before }) {
   await db.batch([
     db.prepare('DELETE FROM mail_unread WHERE shop = ?1 AND at < ?2').bind(shop, before),
-    db.prepare('INSERT INTO mail_unread (shop, id, at, why) VALUES (?1, ?2, ?3, ?4)').bind(shop, id, at, why)
+    db.prepare('INSERT INTO mail_unread (shop, id, at, why) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(shop, id) DO NOTHING').bind(shop, id, at, why)
   ]);
 }
 

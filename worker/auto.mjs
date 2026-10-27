@@ -145,7 +145,7 @@ async function rememberUnread(env, io, note) {
     if (!(await takeDaily(env.BUDGET, `unread:${note.shop}:${today}`, UNREAD_DAILY_MAX))) {
       /* 上限を超えた分は 1 行ずつは残さないが、「この日はほかにもあった」を 1 日 1 行だけ残す（画面に何も出ないまま落とさない） */
       note.unread = 'daily';
-      if (await takeDaily(env.BUDGET, `unread-over:${note.shop}:${today}`, 1)) await addUnread(env.DB, note.shop, { id: newId(), at, why: 'many', before });
+      await addUnread(env.DB, note.shop, { id: `many${today.replace(/-/g, '')}`, at, why: 'many', before });   // 決まった id なので 1 日 1 行。D1 の不調で書けなくても、次の 1 通でまた書く
       return;
     }
     await addUnread(env.DB, note.shop, { id: newId(), at, why, before });

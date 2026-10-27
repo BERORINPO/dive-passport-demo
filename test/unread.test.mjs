@@ -105,6 +105,10 @@ test('30 日を過ぎた行は、次に足すときに消え、口も渡さな�
   s.env.BUDGET.put('unread:default:2026-10-27', '60');
   await receiveMail(message(''), s.env, s.io);
   await receiveMail(message(''), s.env, s.io);
+  s.db.failing = true;
+  await receiveMail(message(''), s.env, s.io);   // D1 の不調で書けなくても、次の 1 通でまた書く
+  s.db.failing = false;
+  await receiveMail(message(''), s.env, s.io);
   const mine = [...s.db.unread.values()].filter(u => u.shop === 'default');
   assert.deepEqual(mine.map(u => u.why).sort(), ['many', 'text'], '1 日 60 件を超えたら、「ほかにもあった」を 1 日 1 行だけ');
   assert.ok(logs.some(l => /"unread":"daily"/.test(l)));
