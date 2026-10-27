@@ -16,7 +16,7 @@
   },
   "d1_databases": [
     // お店の Worker と同じ名簿。database_id は鍵ではない（wrangler d1 create が出した値）
-    { "binding": "DB", "database_name": "redux-rosters", "database_id": "REPLACE_WITH_D1_ID" }
+    { "binding": "DB", "database_name": "redux-rosters", "database_id": "f74f3e8d-7869-4899-9bdf-33c3737a5654" }
   ],
   "ratelimits": [
     // 1 つの IP から /api/ask を呼べる回数（1 分に 30 回）。鍵 1 つの 1 日の回数は D1 で数える

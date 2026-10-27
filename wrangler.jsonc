@@ -19,7 +19,7 @@
   "d1_databases": [
     // お店の名簿の正本（plan/server.md）とお客さんのリンクの鍵。お客さんの Worker（wrangler.ask.jsonc）も同じ物を読む。
     // database_id は鍵ではない（wrangler d1 create が出した値）。表は worker/migrations/ を wrangler d1 migrations apply で作る
-    { "binding": "DB", "database_name": "redux-rosters", "database_id": "REPLACE_WITH_D1_ID", "migrations_dir": "worker/migrations" }
+    { "binding": "DB", "database_name": "redux-rosters", "database_id": "f74f3e8d-7869-4899-9bdf-33c3737a5654", "migrations_dir": "worker/migrations" }
   ],
   "ratelimits": [
     // サイトの予約フォーム（/api/bookings）と、手元の確かめ用の /api/ask の、1 つの IP の回数（plan/auto.md）
