@@ -22,10 +22,11 @@ AquaGate（仲村さんのサイト）の予約フォームから届く予約を
 
 ```json
 { "tour": "dive", "date": "2026-11-03", "people": 2, "name": "見本 花子", "email": "hanako@mail.example",
-  "lang": "ja", "swim": "foot", "exp": "first", "dives": "", "worries": ["ears"] }
+  "lang": "ja", "swim": "shallow", "exp": "first", "dives": "", "worries": ["ears"], "phone": "090-0000-0000", "note": "" }
 ```
 
-- 項目は js/intake.js の送る物にそろえる（tour・date・people・name・lang・swim・exp・dives・worries）に、email を足す。健康の質問はサイトでは聞かない
+- 項目は js/intake.js の送る物にそろえる（tour・date・people・name・lang・swim・exp・dives・worries）に、email と、任意の phone（30 字まで）・note（ご要望・ご質問、400 字まで。予約の note と同じ上限）を足す。健康の質問はサイトでは聞かない
+- Turnstile の答えは本文に入れず、ヘッダー `cf-turnstile-response` で送る
 - 返す物: 202 `{ ok: true }`（予約は名簿の便に入り、お願いの予定が作られる）／ 400 形が合わない ／ 429 回数の上限
 - 守り: 許す origin は env の SITE_ORIGINS に書いた物だけ（CORS）。Turnstile（ロボットよけ）を付ける。1 つの IP からの回数に上限。受けた予約は「自社のサイトの予約フォーム」として入り、お店が見られる
 - 作るのはこの repo の feature/auto-docs（Worker の handler.mjs を書類の自動化でも触るため、同じブランチで作る）。サイト側はこの形で送るだけ
