@@ -221,16 +221,20 @@ async function route(request, env, io, url, note) {
   return url.pathname === '/api/healthz' ? healthz(env, io) : read(request, env, io, note);
 }
 
-/* お客さんのリンクだけの Worker（worker/ask-index.mjs、Access を付けない）の入口。/api/ask の POST だけを受け、ほかの /api は 404。
+/* Access を付けない Worker（worker/ask-index.mjs）の入口。お客さんのリンク（/api/ask の POST）と、お店のサイトの予約フォーム（/api/bookings。
+   守りは bookings と同じ: 許した origin・回数・Turnstile）だけを受け、ほかの /api は 404。
    お店の画面・名簿の道（/api/roster）・リンクを作る道（/api/ask-link）・AI の読み取りは、この Worker には無い */
-export async function handleAsk(request, env, io) {
+const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/bookings': ['POST', 'OPTIONS'] };
+export async function handlePublic(request, env, io) {
   const started = io.now();
   const url = new URL(request.url);
-  const note = { worker: 'ask', route: url.pathname === '/api/ask' ? '/api/ask' : url.pathname.startsWith('/api/') ? '/api/other' : 'other' };
+  const methods = PUBLIC_ROUTES[url.pathname];
+  const note = { worker: 'public', route: methods ? url.pathname : url.pathname.startsWith('/api/') ? '/api/other' : 'other' };
   let res;
   try {
-    if (url.pathname !== '/api/ask') res = json(404, { error: 'path' });
-    else if (request.method !== 'POST') res = json(405, { error: 'method' }, { allow: 'POST' });
+    if (!methods) res = json(404, { error: 'path' });
+    else if (!methods.includes(request.method)) res = json(405, { error: 'method' }, { allow: methods.join(', ') });
+    else if (url.pathname === '/api/bookings') res = await bookings(request, env, io, note);
     else if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; res = json(403, { error: 'site' }); }
     else res = await ask(request, env, io, url, note);
   } catch (e) {

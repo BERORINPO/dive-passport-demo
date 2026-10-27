@@ -1,5 +1,6 @@
-// お客さんのリンクだけの Worker の設定（plan/meibo.md「お客さんのリンク」）。Access を付けない別の Worker で、
-// ask.html と、それが読むファイル（node tools/build-site.mjs が作る dist-ask/）と /api/ask だけを置く。
+// Access を付けない Worker の設定（plan/meibo.md「お客さんのリンク」・plan/auto.md「予約を受ける口」）。
+// ask.html と、それが読むファイル（node tools/build-site.mjs が作る dist-ask/）と、/api/ask と /api/bookings（お店のサイトの予約フォーム）だけを置く。
+// secret: ASK_ORIGIN は使わない。SITE_ORIGINS（予約フォームを置くサイトの住所）と TURNSTILE_SECRET を wrangler secret put -c wrangler.ask.jsonc で入れる
 // お店の画面・名簿の道（/api/roster）は置かない。名簿の D1 はお店の Worker（wrangler.jsonc）と同じ物を使う。
 // 置き方: node tools/build-site.mjs && npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc（docs/deploy.md）
 {
@@ -20,7 +21,13 @@
   ],
   "ratelimits": [
     // 1 つの IP から /api/ask を呼べる回数（1 分に 30 回）。鍵 1 つの 1 日の回数は D1 で数える
-    { "name": "ASK_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }
+    { "name": "ASK_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
+    // サイトの予約フォームの、1 つの IP の回数（1 分に 5 回）
+    { "name": "BOOKING_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } }
+  ],
+  "kv_namespaces": [
+    // サイトの予約の 1 日の件数を数える（お店の Worker と同じ KV。id は鍵ではない）
+    { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" }
   ],
   "observability": { "enabled": false }
 }
