@@ -6,9 +6,9 @@
 | 役割 | パス |
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
-| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/past-core.mjs worker/auto-core.mjs worker/ask-core.mjs worker/shop-core.mjs |
+| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/past-core.mjs worker/backup-core.mjs worker/auto-core.mjs worker/ask-core.mjs worker/shop-core.mjs |
 | adapter | js/ai-reader.js js/roster-sync.js js/ask-api.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/unread-db.mjs worker/mail.mjs worker/site-guard.mjs worker/ask-db.mjs worker/shop-db.mjs worker/fakes.mjs |
-| entry | index.html pass.html ask.html js/ask-page.js js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/auto-flow.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs |
+| entry | index.html pass.html ask.html js/ask-page.js js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/auto-flow.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs worker/backup.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - Worker（worker/）は画面と同じ 4 役割で分ける。core の worker/read-core.mjs は js/roster-schema.js と js/health-redact.js を読んで、画面と同じ検査をもう一度かける。worker/fakes.mjs は Worker の adapter の見本（テストだけが読み、置く物には入らない）
@@ -28,6 +28,7 @@
 | worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS` は secret） | なし |
 | worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | 1 日の回数と今月の費用（目安）だけ |
 | worker/roster-db.mjs | Cloudflare D1（`DB`、表は worker/migrations/） | `fakeD1`（使う文だけを読む）。済んだ便の SQL は test/past.test.mjs が node:sqlite でも流す | — | Worker の binding | お店の名簿の正本（1 お店 1 行、版の番号つき）と、済んで 7 日を過ぎた便（roster_past、便ごとに 1 行。本体と同じ batch で書く）。plan/server.md |
+| worker/backup.mjs（KV `BACKUP`） | Workers KV（名簿の毎日の控え・警報の記録） | `fakeKv` | — | Worker の binding | お店ごと 1 日 1 つの名簿の控え（1 年）、済んだ便の行の写し、警報。plan/server.md |
 | worker/unread-db.mjs | Cloudflare D1（`DB`、表 mail_unread） | `fakeD1` | — | Worker の binding | 読めなかった予約メールの届いた時刻と理由だけ（件名・本文・送り主は残さない。30 日）。plan/auto.md |
 | worker/mail.mjs | Cloudflare Email Service（Workers binding `EMAIL`） | `fakeMail` | — | binding（鍵なし）。送り元 `MAIL_FROM` はお店のドメインを Email Service に載せてから | お客さんへの連絡（お願い・もう一度・当日の質問）。設定がそろうまでは送らず unsent |
 | worker/site-guard.mjs | Turnstile（`https://challenges.cloudflare.com/turnstile/v0/siteverify`）と Workers Rate Limiting（`BOOKING_LIMIT`） | `fakeTurnstile`・`fakeRateLimit` | — | `TURNSTILE_SECRET`（secret） | なし（答えの成否と回数だけ） |

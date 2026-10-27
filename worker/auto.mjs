@@ -8,6 +8,7 @@ import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, mark
   MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX, SITE_DAILY_MAX_ALL, MAIL_DAILY_MAX_ALL, unreadWhy, UNREAD_KEEP_DAYS, UNREAD_DAILY_MAX } from './auto-core.mjs';
 import { takeDaily } from './budget.mjs';
 import { addUnread } from './unread-db.mjs';
+import { dailyBackup } from './backup.mjs';
 import { listShops, rosterShops } from './shop-db.mjs';
 import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName } from './shop-core.mjs';
 import { mailReady, sendOne } from './mail.mjs';
@@ -100,6 +101,10 @@ export async function scheduled(env, io) {
       for (const shop of shops) {
         const one = {};
         try { await runAutomation(env, io, one, shop); } catch (e) { one.why = 'crash'; }
+        /* 毎日の控えと警報（1 日 1 回。送る物と別に、失敗しても止めない） */
+        try { await dailyBackup(env, io, shop, one); } catch (e) { one.backup = 'crash'; }
+        if (one.alert) note.alerts = (note.alerts || 0) + 1;
+        if (one.backup === 'crash') note.backupFailed = (note.backupFailed || 0) + 1;
         note.queued += one.queued || 0;
         note.sent += one.sent || 0;
         if (one.why) note.why = `${note.why ? `${note.why},` : ''}${shop}:${one.why}`.slice(0, 120);

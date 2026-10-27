@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import vm from 'node:vm';
 import { sqliteD1 } from './d1-sqlite.mjs';
 import { fakeD1, fakeKv, fakeAccess, checkRedirect } from '../worker/fakes.mjs';
-import { getRoster, putRoster, getPast } from '../worker/roster-db.mjs';
+import { getRoster, putRoster, getPast, getMovedSince } from '../worker/roster-db.mjs';
 import { putLink, findLink, countLinks, useLink, dropExpired } from '../worker/ask-db.mjs';
 import { listShops, rosterShops } from '../worker/shop-db.mjs';
 import { addUnread, listUnread, dropUnread } from '../worker/unread-db.mjs';
@@ -55,6 +55,8 @@ async function scenario(db) {
   await log('past', getPast(db, 'shop-a', '2026-09-27', TODAY, TODAY, 400).then(rows => rows.map(r => [r.part.split(':')[0], r.day, r.body.length])));
   await log('past-other-shop', getPast(db, 'shop-b', '2026-09-27', TODAY, TODAY, 400));
   await log('past-limit', getPast(db, 'shop-a', '2026-09-27', TODAY, TODAY, 1).then(rows => rows.length));
+  await log('moved-since', getMovedSince(db, 'shop-a', '2026-10-26T00:00:00.000Z', 100).then(rows => rows.map(r => [r.part.split(':')[0], r.day, r.keepUntil])));
+  await log('moved-later', getMovedSince(db, 'shop-a', '2026-10-28T00:00:00.000Z', 100));
   await log('link-put', putLink(db, { hash: 'h1', shop: 'shop-a', bookingId: 'b1', personId: '', expiresOn: '2026-10-30', at: AT }));
   await log('link-put-again', putLink(db, { hash: 'h2', shop: 'shop-a', bookingId: 'b1', personId: '', expiresOn: '2026-10-30', at: AT }));
   await log('link-person', putLink(db, { hash: 'h3', shop: 'shop-a', bookingId: 'b1', personId: 'p1', expiresOn: '2026-10-26', at: AT }));

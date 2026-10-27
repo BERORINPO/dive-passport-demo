@@ -45,3 +45,10 @@ export async function getPast(db, shop, from, to, today, limit) {
     .bind(shop, from, to, today, limit).all();
   return (got && got.results ? got.results : []).map(r => ({ part: String(r.part), day: String(r.day), body: String(r.body) }));
 }
+
+/* 済んだ便のうち、since（ISO の時刻）より後に移した行（毎日の控えが 1 回だけ写す。worker/backup.mjs）。返すのは [{ part, day, keepUntil, body }] */
+export async function getMovedSince(db, shop, since, limit) {
+  const got = await db.prepare('SELECT part, day, keep_until, body FROM roster_past WHERE shop = ?1 AND moved_at >= ?2 ORDER BY moved_at, part LIMIT ?3')
+    .bind(shop, since, limit).all();
+  return (got && got.results ? got.results : []).map(r => ({ part: String(r.part), day: String(r.day), keepUntil: String(r.keep_until), body: String(r.body) }));
+}
