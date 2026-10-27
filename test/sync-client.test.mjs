@@ -44,6 +44,8 @@ function server() {
     if (srv.down) throw new TypeError('Failed to fetch');
     /* Access のログインが切れたとき: ログインの画面への転送になり、redirect: 'manual' では中身の見えない答えになる */
     if (srv.loginExpired) return { type: 'opaqueredirect', status: 0, json: async () => { throw new Error('opaque'); } };
+    /* 送る直前に別の端末が書く、を作る（1 回だけ） */
+    if (srv.beforePut && init.method === 'PUT') { const f = srv.beforePut; srv.beforePut = null; await f(); }
     const headers = { ...(init.headers || {}), 'sec-fetch-site': 'same-origin', 'cf-access-jwt-assertion': jwt };
     /* Worker の 1 行のログは出さない（同時に呼んでも、元の console.log に戻す） */
     quiet += 1;
@@ -282,6 +284,47 @@ test('サーバーが中身を断った直し（400）は送り直さず、端�
   a.rosterStore.update(addGuide(a, '見本 次郎'));
   await a.rosterStore.whenSynced();
   assert.deepEqual(JSON.parse(srv.db.rows.get('default').state).trips[0].guides, ['見本 ガイド', '見本 次郎'], '後の直しは止まらない');
+});
+
+test('済んで 7 日を過ぎた便は、送るとサーバーが便ごとに分けて置き、端末の名簿から外れる。済んだ便の画面の口で読める（ジンのレビュー CRITICAL）', async () => {
+  const srv = server();
+  const a = device(srv);
+  a.rosterStore.update(s => a.rosterShare.addBigSample(s, { day: '2026-10-01', at: AT, newId: a.newId }).state);
+  a.rosterStore.update(addTrip(a));
+  const kept = a.rosterStore.get().trips.find(t => t.date !== '2026-10-01').id;
+  await a.rosterStore.startSync();
+  await a.rosterStore.whenSynced();
+  assert.deepEqual(a.rosterStore.get().trips.map(t => t.id), [kept], '端末には先の便だけ');
+  assert.equal(a.rosterStore.note(), null);
+  const past = await a.rosterStore.past('2026-10-01', '2026-10-20');   // サーバーの今日は 10/27。今日より先は断る
+  assert.equal(past.ok, true);
+  assert.equal(past.state.people.length, 30);
+  assert.equal(past.skipped, 0);
+  assert.equal((await a.rosterStore.past('2026-10-01', '2027-01-31')).ok, false, '長すぎる範囲・今日より先はサーバーが断る');
+  /* サーバーを使わない端末では読めない */
+  const local = device({ fetch: async () => new Response('{}', { status: 404 }) });
+  await local.rosterStore.startSync();
+  assert.equal(JSON.stringify(await local.rosterStore.past('2026-10-01', '2026-10-20')), JSON.stringify({ ok: false, why: 'local' }));
+});
+
+test('開き直した端末の送れていなかった名簿は、送る間に別の端末が書いていたら当てない。別の端末の直しを消さず、端末の名簿は残す（ジンのレビュー 2026-10-27）', async () => {
+  const srv = server();
+  const local = memory();
+  const a = device(srv, local);
+  a.rosterStore.update(addTrip(a));
+  await a.rosterStore.startSync();
+  await a.rosterStore.whenSynced();
+  const meta = JSON.parse(local.getItem('redux-roster-v1-sync'));
+  local.setItem('redux-roster-v1-sync', JSON.stringify({ ...meta, pending: true }));   // 送れなかった直しがある印
+  const b = device(srv);
+  await b.rosterStore.startSync();
+  srv.beforePut = async () => { b.rosterStore.update(addGuide(b, '見本 次郎')); await b.rosterStore.whenSynced(); };
+  const reopened = device(srv, local);
+  await reopened.rosterStore.startSync();
+  await reopened.rosterStore.whenSynced();
+  assert.deepEqual(JSON.parse(srv.db.rows.get('default').state).trips[0].guides, ['見本 ガイド', '見本 次郎'], '別の端末の直しが残る');
+  assert.equal(reopened.rosterStore.note(), 'sync-kept');
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の名簿は別の場所に残す');
 });
 
 test('/api/roster が無い（GitHub Pages・D1 がまだ無い Worker）ときは、端末だけで今までどおり動く', async () => {

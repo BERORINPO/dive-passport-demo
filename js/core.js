@@ -234,6 +234,17 @@
   const isBlank = (s) => !s.trips.length && !s.bookings.length && !s.people.length;
 
   /* confirmed に queue を当てる。今の名簿に当てられなくなった直し（別の端末が便を消した、など）は外し、外した数を返す */
+  /* 端末の名簿まるごとで置き換える直し（開き直したときの、送れていなかった名簿）。元にした版 v からサーバーの版が進んでいたら当てない
+     （別の端末の直しを古い名簿で消さない。済んだ便も古い中身で移さない。ジンのレビュー 2026-10-27）。当てないときは、端末の名簿を別の場所に残す */
+  function replaceWith(local, v) {
+    let kept = false;
+    return () => {
+      if (sync.version === v) return local;
+      if (!kept) { keepLocal(local); kept = true; rosterNote = 'sync-kept'; }
+      throw new Error('replaceWith: 版が進んだ');
+    };
+  }
+
   function rebase() {
     let s = sync.confirmed || R.roster.blankState(ROSTER_SHOP);
     const kept = [];
@@ -246,7 +257,7 @@
   }
   function adopt() {
     const { state, dropped } = rebase();
-    if (dropped) rosterNote = 'sync-dropped';
+    if (dropped && rosterNote !== 'sync-kept') rosterNote = 'sync-dropped';
     roster = state;
     writeRoster(state);
     writeSyncMeta();
@@ -323,11 +334,11 @@
     const meta = readSyncMeta();
     sync = { version: got.version, confirmed: got.state, queue: [], flushing: null, allowShrink: false };
     if (got.state === null) {
-      if (!isBlank(local)) sync.queue.push(() => local);   // サーバーにまだ名簿が無い: この端末の名簿を最初の名簿として置く
+      if (!isBlank(local)) sync.queue.push(replaceWith(local, got.version));   // サーバーにまだ名簿が無い: この端末の名簿を最初の名簿として置く
     } else if (meta && meta.pending) {
       /* 前に送れなかった直しがある。版が同じならそのまま送る。ただし端末の名簿が空（読めなくて空から始めた、など）なら送らない
          （空の名簿で、サーバーの名簿をまるごと上書きしない。ジンのレビュー 2026-10-27 CRITICAL） */
-      if (meta.version === got.version && !isBlank(local)) sync.queue.push(() => local);
+      if (meta.version === got.version && !isBlank(local)) sync.queue.push(replaceWith(local, got.version));
       else if (!isBlank(local)) {
         /* 送れないうちに別の端末が直した。この端末の名簿は消さずに退避して、サーバーの名簿にする */
         keepLocal(local);
@@ -436,6 +447,8 @@
       refresh: refreshSync,
       whenSynced: flushSync,
       synced: () => !!sync,
+      /* 済んで 7 日を過ぎた便（サーバーが便ごとに分けて置いた物。読むだけ）。サーバーを使わないときは { ok: false, why: 'local' } */
+      past: (from, to) => (sync ? R.rosterSync.past(from, to) : Promise.resolve({ ok: false, why: 'local' })),
       subscribe: (fn) => { rosterListeners.push(fn); }
     },
     today: () => ymd(new Date(Date.now() + clockOffset)),

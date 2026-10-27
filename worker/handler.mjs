@@ -5,19 +5,21 @@
    ログは 1 要求 1 行。残すのは知っている道の名前・状態・doc・量・時間・外した行の数・健康が見えたか・止まった理由だけ
    （中身・メールアドレス・JWT は出さない）。
    /api/roster はお店の名簿の正本（D1）。決まりは sync-core.mjs、D1 との境目は roster-db.mjs、計画は plan/server.md。
+   /api/roster/past は済んで 7 日を過ぎた便（読むだけ）。分ける決まりは past-core.mjs。
    /api/bookings は Access の外（お店のサイトの予約フォームから）。守りの順番: 許した origin（CORS）→ method → 設定 → 種類 → 1 つの IP の回数 → 大きさ
    → Turnstile → 形。中身は auto.mjs、計画は plan/auto.md。
    /api/ask もお客さんのリンク（ask.html）から Access の外で呼ぶ。守りの順番: 道と method → Sec-Fetch-Site → 設定 → 種類 → 1 つの IP の回数 → 大きさ → 形 → 鍵
    （鍵の回数は ask-route.mjs）。/api/ask-link はお店がリンクを作る道で、/api/roster と同じく Access の内。中身は ask-route.mjs、計画は plan/meibo.md */
 import { checkRequest, periods, limitsFrom, MAX_BODY, MODEL } from './read-core.mjs';
 import { checkPut, readStored, shrinkProblem, MAX_PUT_BODY } from './sync-core.mjs';
+import { liveOf, checkPastRange, readPast, MAX_PAST_ROWS } from './past-core.mjs';
 import { verifyAccess } from './access.mjs';
 import { remaining } from './budget.mjs';
 import { askModel } from './ask.mjs';
 import { takeSiteBooking } from './auto.mjs';
 import { verifyTurnstile, underLimit } from './site-guard.mjs';
 import { MAX_BOOKING_BODY } from './auto-core.mjs';
-import { getRoster, putRoster } from './roster-db.mjs';
+import { getRoster, putRoster, getPast } from './roster-db.mjs';
 import { takeAsk, makeAskLink } from './ask-route.mjs';
 import { MAX_ASK_BODY } from './ask-core.mjs';
 import { listShops } from './shop-db.mjs';
@@ -26,7 +28,7 @@ import { shopForEmail, shopForOrigin, sitesOf, nameOf, withShopName } from './sh
 /* どれか欠けたら置き方の誤り。欠けた名前はログにだけ出す。直し方は docs/deploy.md */
 const REQUIRED_SECRETS = ['ANTHROPIC_API_KEY', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS'];
 const REQUIRED_VARS = ['DAILY_LIMIT', 'MONTHLY_USD'];
-const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': ['GET', 'PUT'], '/api/bookings': ['POST', 'OPTIONS'],
+const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': ['GET', 'PUT'], '/api/roster/past': ['GET'], '/api/bookings': ['POST', 'OPTIONS'],
   '/api/ask': ['POST'], '/api/ask-link': ['POST'] };
 
 const API_HEADERS = {
@@ -135,13 +137,15 @@ async function roster(request, env, io, note, who) {
     /* 人が大きく消える書き込みは、わざと（allowShrink）でなければ断り、今の名簿を返す（端末が空の名簿を送った事故から守る） */
     if (checked.base > 0 && !checked.allowShrink) {
       const now = await current();
-      if (now.version === checked.base && shrinkProblem(now.state, state)) {
+      /* 今の名簿からも済んだ便を除いてから比べる（済んだ便を分けた日の書き込みを、人が消えたと見ない） */
+      if (now.version === checked.base && now.state && shrinkProblem(liveOf(now.state, today), state)) {
         note.why = 'shrink';
         note.version = now.version;
         return json(409, { error: 'shrink', version: now.version, state: now.state });
       }
     }
-    const put = await putRoster(env.DB, shop, checked.base, text, at);
+    const put = await putRoster(env.DB, shop, checked.base, text, at, { parts: checked.parts, today });
+    note.moved = checked.parts.length;
     if (put.ok) { note.version = put.version; return json(200, { version: put.version, state }); }
     const latest = await current();
     if (latest.version !== 0 && !latest.state) { note.why = 'stored'; return json(500, { error: 'stored' }); }
@@ -152,6 +156,26 @@ async function roster(request, env, io, note, who) {
     note.why = 'db';
     return json(503, { error: 'db' });
   }
+}
+
+/* 済んだ便（plan/server.md の「済んだ便を分けて置く」）。GET ?from=YYYY-MM-DD&to=YYYY-MM-DD で、その日の範囲の済んだ便を、読むだけの 1 つの名簿にして返す。
+   お店はログインしたメールで決める（/api/roster と同じ）。形が合わずに外した行の数は skipped で知らせる（黙って消さない） */
+async function rosterPast(request, env, io, url, note, who) {
+  const now = io.now();
+  const today = periods(now).day;
+  const range = checkPastRange(url.searchParams.get('from') || '', url.searchParams.get('to') || '', { today });
+  if (!range.ok || [...url.searchParams.keys()].some(k => !['from', 'to'].includes(k))) { note.why = range.error || 'keys'; return json(400, { error: 'input' }); }
+  let shops;
+  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
+  const shop = shopForEmail(shops, who.email);
+  if (!shop) { note.why = 'no-shop'; return json(403, { error: 'shop' }); }
+  note.shop = shop;
+  let rows;
+  try { rows = await getPast(env.DB, shop, range.from, range.to, today, MAX_PAST_ROWS); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
+  const name = nameOf(shops, shop, '');
+  const got = readPast(rows, name);
+  Object.assign(note, { rows: rows.length, skipped: got.skipped });
+  return json(200, { from: range.from, to: range.to, state: got.state, skipped: got.skipped, full: rows.length >= MAX_PAST_ROWS });
 }
 
 /* サイトの予約フォーム（Access の外）。許すのは SITE_ORIGINS に書いた origin だけで、その origin にだけ CORS のヘッダを返す */
@@ -235,7 +259,7 @@ async function route(request, env, io, url, note) {
 
   const miss = missingConfig(env);
   /* D1 は名簿の道だけが使う。無くても読み取り（/api/read）と /api/healthz は止めない */
-  if (['/api/roster', '/api/ask-link'].includes(url.pathname) && !(env.DB && typeof env.DB.prepare === 'function')) miss.push('DB');
+  if (['/api/roster', '/api/roster/past', '/api/ask-link'].includes(url.pathname) && !(env.DB && typeof env.DB.prepare === 'function')) miss.push('DB');
   if (miss.length) { note.why = `config:${miss.join('+')}`; return json(503, { error: 'config' }); }
   const who = await verifyAccess(request, env, io);
   if (!who.ok) {
@@ -244,6 +268,7 @@ async function route(request, env, io, url, note) {
   }
 
   if (url.pathname === '/api/roster') return roster(request, env, io, note, who);
+  if (url.pathname === '/api/roster/past') return rosterPast(request, env, io, url, note, who);
   if (url.pathname === '/api/ask-link') return askLink(request, env, io, url, note, who);
   return url.pathname === '/api/healthz' ? healthz(env, io) : read(request, env, io, note);
 }
