@@ -115,7 +115,7 @@ test('外からの予約の守り: 名簿が上限の 7 割を超えたら外か
   s.turnstile.action = 'login';
   assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 403, 'action が booking でない答えは通さない');
   s.turnstile.action = 'booking';
-  s.env.BUDGET.put('site:2026-10-27', '30');
+  s.env.BUDGET.put('site:default:2026-10-27', '30');
   const full = await handle(booking(GOOD, { ip: '198.51.100.20' }), s.env, s.io);
   assert.equal(full.status, 429, 'サイトからの予約は 1 日 30 件まで');
   assert.equal(s.db.writes, 0);
@@ -300,7 +300,7 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   s.api.answer = JSON.stringify({ participants: [{ name: '見本 三郎' }], booking: { people: 1 }, health_info_visible: false });
   await receiveMail(message(MAIL_RAW('日付の無いメール')), s.env, s.io);
   assert.equal(stored(s.db).bookings.length, 1, '日付が読めないメールは自動では入れない（お店が画面で入れる）');
-  s.env.BUDGET.put('mail:2026-10-27', '30');
+  s.env.BUDGET.put('mail:default:2026-10-27', '30');
   const calls = s.api.calls.length;
   await receiveMail(message(MAIL_RAW('31 通目')), s.env, s.io);
   assert.equal(s.api.calls.length, calls, 'メールからの予約は 1 日 30 件まで。超えたら AI を呼ばない');

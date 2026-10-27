@@ -21,6 +21,9 @@ const MAX_DAYS_AHEAD = 400;
 export const SITE_MAX_PEOPLE = 10;
 export const SITE_DAILY_MAX = 30;
 export const MAIL_DAILY_MAX = 30;
+/* 全店あわせた 1 日の上限。メールは AI を呼ぶので、AI の 1 日の回数（DAILY_LIMIT 200）より十分小さく（ザクのレビュー 2026-10-27） */
+export const SITE_DAILY_MAX_ALL = 300;
+export const MAIL_DAILY_MAX_ALL = 60;
 const PUBLIC_FILL = 0.7;
 export const roomForPublic = (text) => new TextEncoder().encode(text).byteLength <= MAX_ROSTER_BYTES * PUBLIC_FILL;
 

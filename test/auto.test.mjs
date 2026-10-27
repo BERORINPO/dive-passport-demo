@@ -159,6 +159,22 @@ test('日付を時計なしで数える（月・年・うるう年の境目）',
   assert.equal(A.dayAdd('2026-12-30', 2), '2027-01-01');
 });
 
+test('名簿の掃除: 終わって 1 週間を過ぎた便だけ、済んだ予定を消し、送った連絡の本文を空にする。宛先と結果は残す', () => {
+  const first = A.addFromReading(blank(), { reading: reading(), lang: 'ja', at: AT, nowJst: NOW, newId });
+  const due = A.runDue(first.state, { nowJst: NOW, at: AT, newId, askBase: ASK }).state;
+  const sent = A.markSent(due, { id: due.outbox[0].id, result: 'sent', why: '', at: AT });
+  assert.equal(A.compactPast(sent, { today: '2026-11-07' }), sent, '便（10/31）から 7 日目までは何も変えない');
+  const later = A.compactPast(sent, { today: '2026-11-08' });
+  assert.ok(later.jobs.every(j => j.status === 'waiting'), '済んだ予定は消える。まだの予定は残す');
+  assert.equal(later.jobs.length, sent.jobs.filter(j => j.status === 'waiting').length);
+  assert.equal(later.outbox[0].body, '');
+  assert.equal(later.outbox[0].to, sent.outbox[0].to);
+  assert.equal(later.outbox[0].status, 'sent');
+  assert.ok(S.validateState(later).ok);
+  assert.equal(A.compactPast(later, { today: '2026-11-09' }), later, '2 回目は何も変えない');
+  assert.ok(JSON.stringify(later).length < JSON.stringify(sent).length);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

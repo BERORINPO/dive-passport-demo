@@ -213,6 +213,25 @@
     };
   }
 
+  /* 終わって KEEP_DONE_DAYS 日を過ぎた便の、済んだ予定を消し、送った連絡の本文を空にする（名簿を軽く保つ。名簿の 1 MB の上限への備え）。
+     宛先・件名・送った結果と時刻は残す（いつ誰に何を送ったかは、名簿と同じく 1 年残る）。何も変わらなければ同じ state を返す */
+  const KEEP_DONE_DAYS = 7;
+  function compactPast(state, { today }) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(today || '')) throw new Error(`compactPast: today は YYYY-MM-DD (${today})`);
+    const cut = dayAdd(today, -KEEP_DONE_DAYS);
+    const past = new Set(state.trips.filter(t => t.date && t.date < cut).map(t => t.id));
+    if (!past.size) return state;
+    const jobs = (state.jobs || []).filter(j => !(past.has(j.tripId) && j.status !== 'waiting'));
+    let changed = jobs.length !== (state.jobs || []).length;
+    const outbox = (state.outbox || []).map(o => {
+      if (!past.has(o.tripId) || o.status === 'queued' || o.body === '') return o;
+      changed = true;
+      return { ...o, body: '' };
+    });
+    if (!changed) return state;
+    return { ...state, ...(state.jobs ? { jobs } : {}), ...(state.outbox ? { outbox } : {}) };
+  }
+
   /* 次に予定がある時刻（デモの「時刻を進める」）。無ければ '' */
   function nextDue(state, nowJst) {
     const later = (state.jobs || []).filter(j => j.status === 'waiting' && j.due > nowJst).map(j => j.due).sort();
@@ -232,5 +251,5 @@
     return items.sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : 0));
   }
 
-  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline };
+  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS };
 })();
