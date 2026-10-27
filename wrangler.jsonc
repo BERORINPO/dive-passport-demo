@@ -31,7 +31,10 @@
   // メールを本当に送るとき（plan/auto.md）に、ほかの Worker の Cron を減らすか Workers Paid にして入れる
   "kv_namespaces": [
     // 回数と費用の目安を数える。id は wrangler kv namespace create BUDGET が出した値（2026-10-22。id は鍵ではない）
-    { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" }
+    { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" },
+    // 名簿の毎日の控え（1 年）と警報の記録（worker/backup.mjs。plan/server.md の「毎日の控えと警報」）。D1 とは別の保存場所。
+    // id は Cloudflare の API で作った値（2026-10-28、redux-roster-backup。id は鍵ではない）。警報のメールの宛先は secret の ALERT_TO
+    { "binding": "BACKUP", "id": "6ce229d7e08d412184cdf7fd8fa7e664" }
   ],
   "vars": {
     // 1 日に AI を呼ぶ回数の上限（日本の日付）と、今月の費用の上限（ドル、目安）。本当の上限は Anthropic のワークスペースで付ける

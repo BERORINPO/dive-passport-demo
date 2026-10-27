@@ -110,6 +110,40 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 - メールの送り受けは、まだ設定を入れない（無ければ止まる作り。入れる物は plan/auto.md の「置くときの設定」）
 - 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
 
+## 8. 毎日の控えと警報、控えから戻す（2026-10-28 から。Cron が動いてから効く）
+
+- 控えの置き場所: Workers KV の `redux-roster-backup`（binding は BACKUP。wrangler.jsonc に入れてある）。Cron が 1 日 1 回、お店ごとに名簿の本体を `day:<お店>:<日付>` に置く（1 年）。済んだ便の行は `past:<お店>:<part>`、警報は `alert:<お店>:<日付>`
+- 警報の宛先（運営）: `npx wrangler@4.151.0 secret put ALERT_TO`（メールの設定 MAIL_FROM・APP_URL と Email Service がそろうまでは、KV とログだけに残る）
+- Cron は Workers Paid にしてから `"triggers": { "crons": ["*/15 * * * *"] }` を入れる（draft PR #15）
+
+控えから戻す（名簿が消えた・壊れたとき。約 15 分）:
+1. どの日の控えに戻すかを決める（`alert:<お店>:<日付>` があれば、その中の数を見て、減る前の日）
+   ```bash
+   npx wrangler@4.151.0 kv key list --binding BACKUP --remote --prefix "day:default:"
+   ```
+2. 控えを取り出す
+   ```bash
+   npx wrangler@4.151.0 kv key get --binding BACKUP --remote "day:default:2026-10-28" > snap.json
+   ```
+3. 今の名簿を書き出して残す（戻すと消える予約を後で入れ直すため。版も、戻す 1 文の守りに使う）
+   ```bash
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data '{"sql":"SELECT shop, version, state FROM rosters WHERE shop = ?1","params":["default"]}' > current.json
+   ```
+4. 戻す 1 文を作る。控えのお店と --shop が違えば止まる。戻すと消える予約と人の数が出るので確かめる
+   ```bash
+   node tools/restore.mjs snap.json --shop default --current current.json > restore-body.json
+   ```
+5. D1 の API に送る（名簿は 100 KB を超えるので、D1 のコンソールには貼れない。トークンは D1 の編集の権限だけの物を、その場で作って使う）
+   ```bash
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data @restore-body.json
+   ```
+6. 答えの changes が 0 なら、3 のあとに予約が入って版が進んだ（予約フォーム・届いたメールは戻す間も書く）。3 からやり直す
+7. 戻すと版が 1 つ進む。開いている画面は戻した名簿を受け取る。4 で出た「消える分」と「控えの時点に戻る分」（健康の答え・確かめた印など）は、current.json を見て入れ直す
+8. 終わったら snap.json・current.json・restore-body.json を消す（お客さんの情報そのもの）
+- 済んだ便（roster_past）が消えたときは、`past:<お店>:<part>` の body を、その行に入れ直す（今は手で。要るとなったら道具にする）
+- 名簿の行が消えたまま 7 日たつと、比べる控えが無くなり警報は止まる。メールが送れるようになるまで（KV にだけ残るあいだ）は、`alert:` を週に 1 度見る
+- お客さんから「消して」と頼まれたときは、名簿から消したうえで、控え（`day:` と `past:`）にも残っていることを伝え、要るなら控えも消す（控えは最長 1 年残る）
+
 ## 置き直したら（2 回目から）
 - 開いているタブを全部読み込み直す（スマホ・PC とも）。古い版の画面が残ったまま保存すると、古い形の名簿を書く
 - be0b404 から後の版は、別のタブが新しい形で保存したのに気づくと、その画面からは書かなくなる（「この画面より新しい版の名簿が保存されました」と出る）。921da0e までの版にはこの守りが無いので、置き直した日は特に読み込み直しを先にする
