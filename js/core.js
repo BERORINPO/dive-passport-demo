@@ -199,6 +199,119 @@
     return saved;
   }
 
+  /* ---------- サーバーの名簿（plan/server.md）。Worker 版で /api/roster が答えたときだけ使う（js/roster-sync.js） ----------
+     confirmed はサーバーが最後に認めた名簿と版、queue はまだ認められていない直し（名簿を受けて新しい名簿を返す関数）。
+     画面の名簿は confirmed に queue を順に当てた物。サーバーが別の端末の直しで先に進んでいたら、最新に queue を当て直して送り直す。
+     電波が無いときは端末に貯め、次に送れたときに送る。読み込み直して関数が消えたあとは、版が同じときだけ端末の名簿をそのまま送る */
+  const SYNC_KEY = `${ROSTER_KEY}-sync`;          // { version, pending }
+  const OFFLINE_KEPT = ROSTER_BACKUP;   // 送れないうちに別の端末が直したとき、この端末の名簿を残す場所（読めない名簿の退避と同じく 1 年で消える）
+  const SYNC_TRIES = 5;
+  let sync = null;   // { version, confirmed, queue, flushing } — null はサーバーを使わない（GitHub Pages・手元・D1 がまだ無い）
+
+  function readSyncMeta() {
+    try { const m = JSON.parse(localStorage.getItem(SYNC_KEY) || 'null'); return m && Number.isInteger(m.version) ? m : null; } catch (e) { return null; }
+  }
+  function writeSyncMeta() {
+    try { localStorage.setItem(SYNC_KEY, JSON.stringify({ version: sync.version, pending: sync.queue.length > 0 })); } catch (e) { /* 書けなくても次に送るときに直る */ }
+  }
+  const isBlank = (s) => !s.trips.length && !s.bookings.length && !s.people.length;
+
+  /* confirmed に queue を当てる。今の名簿に当てられなくなった直し（別の端末が便を消した、など）は外し、外した数を返す */
+  function rebase() {
+    let s = sync.confirmed || R.roster.blankState(ROSTER_SHOP);
+    const kept = [];
+    sync.queue.forEach(fn => {
+      try { const next = fn(s); if (R.roster.validateState(next).ok) { s = next; kept.push(fn); } } catch (e) { /* 外す */ }
+    });
+    const dropped = sync.queue.length - kept.length;
+    sync.queue = kept;
+    return { state: s, dropped };
+  }
+  function adopt() {
+    const { state, dropped } = rebase();
+    if (dropped) rosterNote = 'sync-dropped';
+    roster = state;
+    writeRoster(state);
+    writeSyncMeta();
+    rosterListeners.forEach(fn => fn(state));
+  }
+
+  /* まだ認められていない直しを送る。同時に 2 つは送らない（送っている間の直しは次の回に入る） */
+  function flushSync() {
+    if (!sync) return Promise.resolve();
+    if (sync.flushing) return sync.flushing;
+    if (!sync.queue.length) return Promise.resolve();
+    sync.flushing = (async () => {
+      for (let i = 0; i < SYNC_TRIES && sync.queue.length; i += 1) {
+        const sent = sync.queue.length;
+        const { state } = rebase();
+        const r = await R.rosterSync.push(sync.version, state);
+        if (r.ok || r.conflict) {
+          sync.version = r.version;
+          sync.confirmed = r.state;
+          if (r.ok) sync.queue = sync.queue.slice(sent);   // 送ったあとに足された直しは残す
+          if (rosterNote === 'sync-offline') rosterNote = null;
+          adopt();
+          continue;
+        }
+        rosterNote = 'sync-offline';   // 届かない・サーバーの誤り。直しは端末に残し、次に送る
+        writeSyncMeta();
+        rosterListeners.forEach(fn => fn(roster));
+        break;
+      }
+    })().finally(() => { sync.flushing = null; });
+    return sync.flushing;
+  }
+
+  function updateRoster(fn) {
+    const next = fn(loadRoster());
+    if (!sync) return saveRoster(next);
+    const saved = saveRoster(next);   // 先に画面と端末に出す（形の検査もここで）
+    sync.queue.push(fn);
+    writeSyncMeta();
+    flushSync();
+    return saved;
+  }
+
+  /* サーバーにつなぐ。答えなければ端末だけで続ける */
+  async function startSync() {
+    if (sync || !R.rosterSync || rosterLocked) return false;
+    const got = await R.rosterSync.pull();
+    if (!got.ok) return false;
+    const local = loadRoster();
+    const meta = readSyncMeta();
+    sync = { version: got.version, confirmed: got.state, queue: [], flushing: null };
+    if (got.state === null) {
+      if (!isBlank(local)) sync.queue.push(() => local);   // サーバーにまだ名簿が無い: この端末の名簿を最初の名簿として置く
+    } else if (meta && meta.pending) {
+      if (meta.version === got.version) sync.queue.push(() => local);   // 前に送れなかった直しがある。版が同じならそのまま送る
+      else {
+        /* 送れないうちに別の端末が直した。この端末の名簿は消さずに退避して、サーバーの名簿にする */
+        try { localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, stripPartnerHealth(JSON.stringify(local))); } catch (e) { /* 残せなくても、サーバーの名簿にする */ }
+        rosterNote = 'sync-kept';
+      }
+    }
+    adopt();
+    await flushSync();
+    return true;
+  }
+
+  /* 別の端末の直しを取り込む（画面に戻ってきたとき）。送っていない直しがある間は、送るのを先にする */
+  async function refreshSync() {
+    if (!sync) return false;
+    if (sync.queue.length) { await flushSync(); return true; }
+    const got = await R.rosterSync.pull();
+    if (!got.ok || got.state === null || got.version === sync.version) return got.ok;
+    sync.version = got.version;
+    sync.confirmed = got.state;
+    adopt();
+    return true;
+  }
+
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('online', () => { flushSync(); });
+  }
+
   /* 別のタブで名簿が変わったら読み直す（後から保存した方で上書きしない）。テスト（Node）には無いので、あるときだけ */
   if (typeof window.addEventListener === 'function') {
     window.addEventListener('storage', (e) => {
@@ -271,9 +384,14 @@
     },
     rosterStore: {
       get: loadRoster,
-      update: (fn) => saveRoster(fn(loadRoster())),
-      reset: () => saveRoster(R.roster.blankState(ROSTER_SHOP)),
+      update: updateRoster,
+      reset: () => updateRoster(() => R.roster.blankState(ROSTER_SHOP)),
       note: () => rosterNote,
+      /* サーバーの名簿（Worker 版だけ）。startSync はつないだら true、refresh は別の端末の直しの取り込み、whenSynced は送り終わるまで待つ */
+      startSync,
+      refresh: refreshSync,
+      whenSynced: flushSync,
+      synced: () => !!sync,
       subscribe: (fn) => { rosterListeners.push(fn); }
     },
     today: () => ymd(new Date())

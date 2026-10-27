@@ -79,5 +79,11 @@
   markAi();
   /* /api/healthz を確かめるのは Worker 版だけ（置く物を作る tools/build-site.mjs が meta を足す）。
      GitHub Pages では berorinpo.github.io の一番上が同じ場所なので、そこへは聞かない（ザクのレビュー） */
-  if (document.querySelector('meta[name="redux-worker"]')) R.aiReader.probe();
+  if (document.querySelector('meta[name="redux-worker"]')) {
+    R.aiReader.probe();
+    /* お店の名簿をサーバーとそろえる（plan/server.md）。D1 がまだ無い Worker では答えず、端末だけで続ける。
+       画面に戻ってきたら、別の端末の直しを取り込む */
+    R.rosterStore.startSync();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') R.rosterStore.refresh(); });
+  }
 })();

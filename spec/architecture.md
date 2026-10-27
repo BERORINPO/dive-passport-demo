@@ -7,12 +7,12 @@
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
 | core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js worker/read-core.mjs worker/sync-core.mjs |
-| adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/fakes.mjs |
+| adapter | js/ai-reader.js js/roster-sync.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/fakes.mjs |
 | entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - Worker（worker/）は画面と同じ 4 役割で分ける。core の worker/read-core.mjs は js/roster-schema.js と js/health-redact.js を読んで、画面と同じ検査をもう一度かける。worker/fakes.mjs は Worker の adapter の見本（テストだけが読み、置く物には入らない）
-- 外へ通信してよいのは、画面では js/ai-reader.js だけ、Worker では worker/access.mjs（Access の鍵）と worker/anthropic.mjs（Claude API）だけ（本物の fetch は worker/index.mjs が渡す。9 番が検査する）。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）
+- 外へ通信してよいのは、画面では js/ai-reader.js と js/roster-sync.js（同じ場所の /api/roster だけ）だけ、Worker では worker/access.mjs（Access の鍵）と worker/anthropic.mjs（Claude API）だけ（本物の fetch は worker/index.mjs が渡す。9 番が検査する）。HTML と CSS から外を読むのは、3. の表「外から読む先」に書いた先だけ（`test/arch.check.mjs` の 8 番が検査する）
 - 字体（BIZ UD ゴシック）は index.html だけが、repo の fonts/ から自前で配る（css/fonts.css）。外の字体は読まない
   - 日本語の字体は約 50 字ずつのファイルに分けて配られ（unicode-range）、端末は画面に出た字・打った字を含むファイルだけを取りに行く。どのファイルを取ったかで、配っている所に字の一部が分かる
   - Google Fonts から読むと、それが IP・端末の種類・時刻・サイトの origin と一緒に Google に伝わる（字体ファイルの要求には Origin ヘッダが付き、referrer を止めても消えない）。自前で配れば Google には伝わらない。分け方は Google と同じ（取得と作り方は fonts/README.md）
@@ -23,6 +23,7 @@
 |---|---|---|---|---|---|
 | js/ai-reader.js | 同じ場所の Worker `/api/read` → Claude API（Haiku） | `readSample`（同じファイル）+ js/data-samples.js | AI の読み取り試験 2026-10-21 の Haiku の答え（tools/make-samples.mjs が作る） | Cloudflare Access の cookie（合言葉は 2026-10-22 に外した）。API キーは Worker の secret だけ（この Worker 専用の 1 本） | なし |
 | js/core.js | localStorage | 無し（ブラウザの中だけ） | — | なし | このブラウザだけ |
+| js/roster-sync.js | 同じ場所の Worker `/api/roster`（お店の名簿の正本、D1） | 無し（test/sync-client.test.mjs は本物の worker/handler.mjs と fakeD1 につなぐ） | — | Access のログイン（Cookie） | お店の名簿。版の番号つきで、ぶつかったら最新を返す |
 | worker/anthropic.mjs | Claude API（claude-haiku-5-5、/v1/messages） | `fakeAnthropic`（worker/fakes.mjs） | AI の読み取り試験 2026-10-21 の答え（予約の項目は試験していない。置いたあとに確かめる） | `ANTHROPIC_API_KEY`（この Worker 専用の 1 本、並行 1 本。Anthropic のこの Worker 専用ワークスペースで発行し、そこで月の上限） | なし |
 | worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS` は secret） | なし |
 | worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | 1 日の回数と今月の費用（目安）だけ |

@@ -7,7 +7,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, extname, normalize, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handle } from '../worker/handler.mjs';
-import { fakeKv, fakeAccess, fakeAnthropic, checkRedirect } from '../worker/fakes.mjs';
+import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, checkRedirect } from '../worker/fakes.mjs';
 import '../js/data-samples.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
@@ -32,7 +32,7 @@ const access = await fakeAccess(TEAM);
 const api = fakeAnthropic();
 const kv = fakeKv();
 const env = { ANTHROPIC_API_KEY: 'local-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-  DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv };
+  DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, DB: fakeD1() };   // お店の名簿は、この道具が動いている間だけ覚える（止めると消える）
 /* 見本の答え: 予約メールは見本の読み取り（data-samples.js）を、モデルの形（snake_case）に戻して返す */
 const SAMPLES = globalThis.REDUX.SAMPLE_READINGS;
 const MAILS = globalThis.REDUX.SAMPLE_MAILS;
