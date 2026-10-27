@@ -101,13 +101,17 @@ export async function scheduled(env, io) {
       for (const shop of shops) {
         const one = {};
         try { await runAutomation(env, io, one, shop); } catch (e) { one.why = 'crash'; }
-        /* 毎日の控えと警報（1 日 1 回。送る物と別に、失敗しても止めない） */
-        try { await dailyBackup(env, io, shop, one); } catch (e) { one.backup = 'crash'; }
-        if (one.alert) note.alerts = (note.alerts || 0) + 1;
-        if (one.backup === 'crash') note.backupFailed = (note.backupFailed || 0) + 1;
         note.queued += one.queued || 0;
         note.sent += one.sent || 0;
         if (one.why) note.why = `${note.why ? `${note.why},` : ''}${shop}:${one.why}`.slice(0, 120);
+      }
+      /* 毎日の控えと警報（1 日 1 回。送る物と別に、失敗しても止めない）。名簿の行が消えたお店にも気付けるよう、一覧のお店（一覧が空なら default）も回る */
+      const listed = directory.length ? directory.map(s => s.id) : ['default'];
+      for (const shop of [...new Set([...shops, ...listed])]) {
+        const one = {};
+        try { await dailyBackup(env, io, shop, one); } catch (e) { one.backup = 'crash'; }
+        if (one.alert) note.alerts = (note.alerts || 0) + 1;
+        if (one.backup === 'crash') note.backupFailed = (note.backupFailed || 0) + 1;
       }
       await dropExpired(env.DB, clockOf(io).today);
     }

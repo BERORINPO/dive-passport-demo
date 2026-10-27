@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { scheduled } from '../worker/auto.mjs';
-import { dropAlert, snapshotOf, dayKey } from '../worker/backup-core.mjs';
+import { dropAlert, snapshotOf, baseOf, dayKey } from '../worker/backup-core.mjs';
 import { checkPut } from '../worker/sync-core.mjs';
 import { fakeKv, fakeD1, fakeMail } from '../worker/fakes.mjs';
 
@@ -43,14 +43,18 @@ const big = (day) => X.addBigSample(S.blankState('B マリン（見本）'), { d
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 
-test('core: 5 人より多く、かつ 3 割より多く減ったら警報。済んだ便に移った人は数えない。読めない控えとは比べない', () => {
-  const snap = (people) => ({ people });
+test('core: 直近でいちばん多い日と比べる。5 人より多く、かつ 3 割より多く減ったら。名簿が無い・読めない・0 人なら数に関係なく。済んだ便に移った人は数えない', () => {
+  const snap = (people) => ({ people, at: 'x' });
   assert.equal(dropAlert(snap(30), snap(24), 0), null, '6 人減は 3 割に届かない');
-  assert.deepEqual(dropAlert(snap(30), snap(5), 0), { before: 30, after: 5, moved: 0, gone: 25 });
+  assert.deepEqual(dropAlert(snap(30), snap(5), 0), { kind: 'drop', before: 30, after: 5, moved: 0, gone: 25 });
   assert.equal(dropAlert(snap(30), snap(5), 25), null, '済んだ便に移った分');
-  assert.equal(dropAlert(null, snap(0), 0), null);
-  assert.equal(dropAlert(snap(-1), snap(0), 0), null);
-  assert.equal(snapshotOf('{broken', { version: 1, at: 'x' }).people, -1);
+  assert.equal(dropAlert(null, snap(0), 0), null, '比べる控えが無い');
+  assert.equal(dropAlert(snap(5), snap(0), 0).kind, 'empty', '小さいお店でも 0 人は警報');
+  assert.equal(dropAlert(snap(5), null, 0).kind, 'missing', '名簿の行が消えた');
+  assert.equal(dropAlert(snap(5), snap(-1), 0).kind, 'unreadable');
+  assert.equal(baseOf([snap(20), null, snap(-1), snap(30), snap(25)]).people, 30, 'じわじわ減っても、直近でいちばん多い日と比べる');
+  assert.equal(snapshotOf('{broken', { shop: 'default', version: 1, at: 'x' }).people, -1);
+  assert.equal(snapshotOf('{"people":[]}', { shop: 'shop-a', version: 1, at: 'x' }).shop, 'shop-a');
 });
 
 test('Cron: 1 日 1 つ控えを取り、1 年残す。同じ日にはもう取らない', async () => {
@@ -62,6 +66,7 @@ test('Cron: 1 日 1 つ控えを取り、1 年残す。同じ日にはもう取�
   assert.equal(put.opts.expirationTtl, 366 * 86400);
   const snap = JSON.parse(put.v);
   assert.equal(snap.people, 30);
+  assert.equal(snap.shop, 'default');
   assert.equal(JSON.parse(snap.text).people.length, 30, '名簿の本体をそのまま');
   const count = s.kv.puts.length;
   s.io.clock = T0 + 15 * 60000;
@@ -73,7 +78,6 @@ test('人数が急に減ったら、運営にメールで知らせ、警報を�
   const s = setup();
   const st = store(s, big('2026-11-05'));
   await scheduled(s.env, s.io);
-  /* 翌日までに、何かの事故で 25 人が消えた */
   s.io.clock = T0 + DAY;
   store(s, { ...st, people: st.people.slice(0, 5) }, { version: 2, today: '2026-10-29' });
   await scheduled(s.env, s.io);
@@ -85,24 +89,60 @@ test('人数が急に減ったら、運営にメールで知らせ、警報を�
   assert.ok(logs.some(l => /"alerts":1/.test(l)));
 });
 
-test('済んだ便に移った人は、減ったと数えない。移った行は 1 回だけ、消える日まで写す', async () => {
+test('ジンのレビュー: 名簿の行が消えた・じわじわ減った・Cron が止まっていた、でも気付く。同じ日に何度も鳴らさない', async () => {
+  /* 行が消えた（一覧が空なので default を回る） */
+  const a = setup();
+  store(a, big('2026-11-05'));
+  await scheduled(a.env, a.io);
+  a.db.rows.delete('default');
+  a.io.clock = T0 + DAY;
+  await scheduled(a.env, a.io);
+  assert.equal(JSON.parse(a.kv.peek('alert:default:2026-10-29')).kind, 'missing');
+  const sent = a.mail.sent.length;
+  a.io.clock += 15 * 60000;
+  await scheduled(a.env, a.io);
+  assert.equal(a.mail.sent.length, sent, '同じ日は 1 回だけ');
+  /* 3 日かけて 30 → 24 → 19 → 15。1 日ずつは小さいが、直近でいちばん多い日（30）とは 15 人減 */
+  const b = setup();
+  let st = store(b, big('2026-11-05'));
+  await scheduled(b.env, b.io);
+  for (const [i, keep] of [[1, 24], [2, 19], [3, 15]]) {
+    b.io.clock = T0 + i * DAY;
+    st = store(b, { ...st, people: st.people.slice(0, keep) }, { version: i + 1, today: `2026-10-${28 + i}` });
+    await scheduled(b.env, b.io);
+  }
+  assert.ok(b.kv.peek('alert:default:2026-10-31'), 'じわじわ減っても気付く');
+  /* Cron が 3 日止まっていた後でも、残っている控えと比べる */
+  const c = setup();
+  const st2 = store(c, big('2026-11-05'));
+  await scheduled(c.env, c.io);
+  c.io.clock = T0 + 4 * DAY;
+  store(c, { ...st2, people: st2.people.slice(0, 3) }, { version: 2, today: '2026-11-01' });
+  await scheduled(c.env, c.io);
+  assert.ok(c.kv.peek('alert:default:2026-11-01'));
+});
+
+test('済んだ便に移った人は、減ったと数えない。移った行は続きから 1 回だけ、消える日まで写す。Cron を動かす前からの行も写す', async () => {
   const s = setup();
-  s.io.clock = Date.parse('2026-10-02T15:30:00Z');   // 日本で 10/3
-  store(s, big('2026-10-01'), { today: '2026-10-03' });
+  s.io.clock = Date.parse('2026-10-08T15:30:00Z');   // 日本で 10/9。10/01 の便は Cron を動かす前に済んだ便へ移っている
+  store(s, big('2026-10-01'), { today: '2026-10-09' });
+  s.db.past.forEach(p => { p.moved_at = '2026-10-05T00:00:00.000Z'; });
   await scheduled(s.env, s.io);
-  /* 10/9 に便が済んで 7 日を過ぎ、済んだ便へ移った */
-  s.io.clock = Date.parse('2026-10-08T15:30:00Z');   // 日本で 10/9
-  const prevDay = JSON.parse(s.kv.peek(dayKey('default', '2026-10-03')));
-  store(s, JSON.parse(prevDay.text), { version: 2, today: '2026-10-09' });
-  s.kv.put(dayKey('default', '2026-10-08'), JSON.stringify(prevDay));   // 前の日の控えがある形（間の日は Cron が動いていた）
-  await scheduled(s.env, s.io);
-  assert.equal(s.mail.sent.length, 0, '移った分は警報にしない');
-  const pasts = s.kv.puts.filter(p => p.k.startsWith('past:default:trip:'));
-  assert.equal(pasts.length, 1);
-  assert.ok(pasts[0].opts.expiration >= Date.parse('2027-10-01T00:00:00Z') / 1000, '消える日まで残す');
+  const pasts = () => s.kv.puts.filter(p => p.k.startsWith('past:default:trip:'));
+  assert.equal(pasts().length, 1, '前からの行も写す');
+  assert.ok(pasts()[0].opts.expiration >= Date.parse('2027-10-01T00:00:00Z') / 1000, '消える日まで残す');
   s.io.clock += DAY;
   await scheduled(s.env, s.io);
-  assert.equal(s.kv.puts.filter(p => p.k.startsWith('past:default:trip:')).length, 1, '2 回は写さない');
+  assert.equal(pasts().length, 1, '2 回は写さない');
+  /* 前の日の控え（30 人）のあとで 30 人が済んだ便に移った */
+  const t = setup();
+  t.io.clock = Date.parse('2026-10-07T15:30:00Z');   // 日本で 10/8
+  const st = store(t, big('2026-10-01'), { today: '2026-10-08' });
+  await scheduled(t.env, t.io);
+  t.io.clock = Date.parse('2026-10-08T15:30:00Z');   // 10/9: 移る
+  store(t, st, { version: 2, today: '2026-10-09' });
+  await scheduled(t.env, t.io);
+  assert.equal(t.mail.sent.length, 0, '移った分は警報にしない');
 });
 
 test('控えの置き場所（BACKUP）が無ければ何もしない。メールの設定が無ければ警報は KV とログだけ', async () => {
@@ -118,30 +158,42 @@ test('控えの置き場所（BACKUP）が無ければ何もしない。メー�
   store(s, { ...st, people: [] }, { version: 2, today: '2026-10-29' });
   await scheduled(s.env, s.io);
   assert.ok(s.kv.peek('alert:default:2026-10-29'));
-  assert.equal(s.mail.sent.filter(m => m.subject.includes('急に減りました')).length, 0);
+  assert.equal(s.mail.sent.filter(m => m.subject.includes('REDUX')).length, 0);
 });
 
-test('控えから戻す（tools/restore.mjs）: 控えの名簿を検査してから、D1 に戻す 1 文を作る。本物の SQLite で流すと版が進んで名簿が戻る。壊れた控えは止める', async () => {
-  const { restoreBody } = await import('../tools/restore.mjs');
+test('控えから戻す（tools/restore.mjs）: お店が違えば止め、今の版でだけ書き、戻すと消える数を出す。本物の SQLite で流すと版が進んで名簿が戻る', async () => {
+  const { restoreBody, currentOf } = await import('../tools/restore.mjs');
   const { sqliteD1 } = await import('./d1-sqlite.mjs');
   const s = setup();
-  store(s, big('2026-11-05'));
+  const st = store(s, big('2026-11-05'));
   await scheduled(s.env, s.io);
   const snapText = s.kv.peek(dayKey('default', '2026-10-28'));
-  const body = restoreBody(snapText, { shop: 'default', at: '2026-10-29T00:00:00.000Z' });
+  const at = '2026-10-29T00:00:00.000Z';
+  /* 今の名簿: 控えのあとに 1 人足され、その後に 20 人が消えた（版 7） */
+  const extra = { ...st.people[0], id: 'later1', name: '見本 あと' };
+  const now = { ...st, people: [...st.people.slice(0, 10), extra] };
+  const current = currentOf(JSON.stringify({ result: [{ results: [{ version: 7, state: JSON.stringify(now) }] }] }));
+  assert.equal(current.version, 7);
+  const body = restoreBody(snapText, { shop: 'default', at, current });
   assert.equal(body.people, 30);
+  assert.deepEqual(body.lost, { bookings: 0, people: 1 }, '戻すと消える 1 人を知らせる');
   assert.ok(!body.sql.includes('見本'), '名簿は SQL に埋めない');
+  assert.throws(() => restoreBody(snapText, { shop: 'shop-b', at, current }), /お店/, '別のお店へは戻さない');
+  assert.throws(() => restoreBody(snapText, { shop: 'default', at }), /current/);
+  assert.throws(() => restoreBody('{broken', { shop: 'default', at, current }), /JSON/);
+  assert.throws(() => restoreBody(JSON.stringify({ shop: 'default', text: '{"v":1}' }), { shop: 'default', at, current }), /検査/);
+  assert.throws(() => restoreBody(snapText, { shop: "x'; DROP", at, current }), /id/);
   const db = await sqliteD1();
   if (db) {
-    db.raw.prepare("INSERT INTO rosters (shop, version, state, updated_at) VALUES ('default', 7, '{}', 'x')").run();
+    db.raw.prepare("INSERT INTO rosters (shop, version, state, updated_at) VALUES ('default', 8, '{}', 'x')").run();
+    const stale = await db.prepare(body.sql).bind(...body.params).run();
+    assert.equal(stale.meta.changes, 0, '書き出したあとに版が進んでいたら書かない');
+    db.raw.prepare("UPDATE rosters SET version = 7 WHERE shop = 'default'").run();
     await db.prepare(body.sql).bind(...body.params).run();
     const row = await db.prepare('SELECT version, state FROM rosters WHERE shop = ?1').bind('default').first();
     assert.equal(row.version, 8, '版が進む（開いている画面は戻した名簿を受け取る）');
     assert.equal(JSON.parse(row.state).people.length, 30);
   }
-  assert.throws(() => restoreBody('{broken', { shop: 'default', at: 'x' }), /JSON/);
-  assert.throws(() => restoreBody(JSON.stringify({ text: '{"v":1}' }), { shop: 'default', at: '2026-10-29T00:00:00.000Z' }), /検査/);
-  assert.throws(() => restoreBody(snapText, { shop: "x'; DROP", at: 'x' }), /id/);
 });
 
 let failed = 0;

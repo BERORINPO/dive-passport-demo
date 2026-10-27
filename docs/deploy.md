@@ -116,8 +116,8 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 - 警報の宛先（運営）: `npx wrangler@4.151.0 secret put ALERT_TO`（メールの設定 MAIL_FROM・APP_URL と Email Service がそろうまでは、KV とログだけに残る）
 - Cron は Workers Paid にしてから `"triggers": { "crons": ["*/15 * * * *"] }` を入れる（draft PR #15）
 
-控えから戻す（名簿が消えた・壊れたとき。約 10 分）:
-1. どの日の控えに戻すかを決める（`alert:<お店>:<日付>` があれば、その前の日）
+控えから戻す（名簿が消えた・壊れたとき。約 15 分）:
+1. どの日の控えに戻すかを決める（`alert:<お店>:<日付>` があれば、その中の数を見て、減る前の日）
    ```bash
    npx wrangler@4.151.0 kv key list --binding BACKUP --remote --prefix "day:default:"
    ```
@@ -125,16 +125,22 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 kv key get --binding BACKUP --remote "day:default:2026-10-28" > snap.json
    ```
-3. 戻す 1 文を作る（形の検査に通らない控えは止める。人の数が出るので確かめる）
+3. 今の名簿を書き出して残す（戻すと消える予約を後で入れ直すため。版も、戻す 1 文の守りに使う）
    ```bash
-   node tools/restore.mjs snap.json --shop default > restore-body.json
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data '{"sql":"SELECT version, state FROM rosters WHERE shop = ?1","params":["default"]}' > current.json
    ```
-4. D1 の API に送る（名簿は 100 KB を超えるので、D1 のコンソールには貼れない。トークンは D1 の編集の権限だけの物を、その場で作って使う）
+4. 戻す 1 文を作る。控えのお店と --shop が違えば止まる。戻すと消える予約と人の数が出るので確かめる
+   ```bash
+   node tools/restore.mjs snap.json --shop default --current current.json > restore-body.json
+   ```
+5. D1 の API に送る（名簿は 100 KB を超えるので、D1 のコンソールには貼れない。トークンは D1 の編集の権限だけの物を、その場で作って使う）
    ```bash
    curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data @restore-body.json
    ```
-5. 戻すと版が 1 つ進む。開いている画面は戻した名簿を受け取る（送れていなかった直しは、当て直すか、端末の別の場所に残る）
+6. 答えの changes が 0 なら、3 のあとに予約が入って版が進んだ（予約フォーム・届いたメールは戻す間も書く）。3 からやり直す
+7. 戻すと版が 1 つ進む。開いている画面は戻した名簿を受け取る。4 で出た「消える分」は current.json を見て入れ直す
 - 済んだ便（roster_past）が消えたときは、`past:<お店>:<part>` の body を、その行に入れ直す（今は手で。要るとなったら道具にする）
+- お客さんから「消して」と頼まれたときは、名簿から消したうえで、控え（`day:` と `past:`）にも残っていることを伝え、要るなら控えも消す（控えは最長 1 年残る）
 
 ## 置き直したら（2 回目から）
 - 開いているタブを全部読み込み直す（スマホ・PC とも）。古い版の画面が残ったまま保存すると、古い形の名簿を書く

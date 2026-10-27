@@ -158,10 +158,13 @@ export function fakeD1() {
             return { results: [...shops.values()] };
           }
           if (/^SELECT shop FROM rosters$/.test(text)) return { results: [...rows.keys()].map(shop => ({ shop })) };
-          if (/^SELECT part, day, keep_until, body FROM roster_past WHERE shop = \?1 AND moved_at >= \?2 ORDER BY moved_at, part LIMIT \?3$/.test(text)) {
-            const hit = [...past.values()].filter(p => p.shop === args[0] && p.moved_at >= args[1])
-              .sort((a, b) => (a.moved_at < b.moved_at ? -1 : a.moved_at > b.moved_at ? 1 : a.part < b.part ? -1 : 1)).slice(0, args[2]);
-            return { results: hit.map(p => ({ part: p.part, day: p.day, keep_until: p.keep_until, body: p.body })) };
+          const MOVED_SQL = 'SELECT part, day, keep_until, body, moved_at FROM roster_past WHERE shop = ?1 AND (moved_at > ?2 OR (moved_at = ?2 AND part > ?4)) ' +
+            'ORDER BY moved_at, part LIMIT ?3';
+          if (text === MOVED_SQL) {
+            const [shop, since, limit, afterPart] = args;
+            const hit = [...past.values()].filter(p => p.shop === shop && (p.moved_at > since || (p.moved_at === since && p.part > afterPart)))
+              .sort((a, b) => (a.moved_at < b.moved_at ? -1 : a.moved_at > b.moved_at ? 1 : a.part < b.part ? -1 : 1)).slice(0, limit);
+            return { results: hit.map(p => ({ part: p.part, day: p.day, keep_until: p.keep_until, body: p.body, moved_at: p.moved_at })) };
           }
           if (/^SELECT id, at, why FROM mail_unread WHERE shop = \?1 AND at >= \?2 ORDER BY at DESC LIMIT \?3$/.test(text)) {
             const hit = [...unread.values()].filter(u => u.shop === args[0] && u.at >= args[1]).sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, args[2]);
