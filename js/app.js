@@ -13,6 +13,8 @@
   R.showTab = (name) => {
     document.body.classList.remove('print-roster');   // 名簿の紙を出したまま別の画面に移っても、印刷が白紙にならないように（予約の画面に戻れば付け直す）
     document.documentElement.dataset.layer = STAFF.includes(name) ? 'staff' : 'guest';
+    /* お客さんに聞く画面の #ask= は、ほかの画面に移ったら外す（残すと、読み込み直したときにお客さんの画面へ戻る。小禄さんの不具合さがし 2026-10-27） */
+    if (name !== 'guest' && location.hash.startsWith('#ask=')) history.replaceState(null, '', location.pathname + location.search);
     /* お客さんの画面はお店の名前、店員の画面は REDUX（design.md の形: お客さんの帯にタブを出さない） */
     document.getElementById('brandName').textContent = STAFF.includes(name) ? 'REDUX' : R.rosterStore.get().shop.name;
     closeDemo();

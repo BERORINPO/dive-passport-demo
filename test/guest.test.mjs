@@ -110,6 +110,18 @@ test('入力の誤り: 直してほしい項目の名前を返し、state は変
   assert.ok(G.guestProblems(fullInput({ address: 'あ'.repeat(121) }), ['address']).includes('address'), '住所の上限は名簿の形と同じ 120 字');
 });
 
+test('「なし（体験）」の人は、潜った本数が空なら 0 本と読む（欄の説明は「0 本なら空のまま」）', () => {
+  const ask = ['certDate', 'courses', 'dives', 'lastDive'];
+  const none = fullInput({ cert: { course: 'NONE', date: '' }, dives: '', lastDive: '' });
+  assert.deepEqual(G.guestProblems(none, ask), [], 'C カードの欄で「なし（体験）」を選んだとき');
+  assert.equal(G.guestPatch(none, ask, TODAY).dives, 0);
+  assert.ok(!('lastDive' in G.guestPatch(none, ask, TODAY)));
+  const known = { emergency: S.SUB.emergency, cert: [], course: 'NONE' };
+  assert.deepEqual(G.guestProblems(none, ['dives', 'lastDive'], known), [], '名簿に「なし（体験）」が入っているとき');
+  assert.equal(G.guestPatch(none, ['dives', 'lastDive'], TODAY, known).dives, 0);
+  assert.ok(G.guestProblems(fullInput({ cert: { course: 'OW', date: '2020-01' }, dives: '' }), ask).includes('dives'), 'C カードありなら本数は要る');
+});
+
 test('聞いていない項目は、入力に入っていても書き換えない', () => {
   const known = staffEdit(base, hanako.id, { address: 'お店が入れた住所' });
   const r = G.applyGuest(known, { id: hanako.id, input: fullInput({ address: '別の住所' }), today: TODAY, at: AT });

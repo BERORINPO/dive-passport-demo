@@ -641,4 +641,57 @@
   "text": "件名: Fwd: Re: 24日の体験ダイビング\n送信者: 見本 大輔 <daisuke@mail.example>\n\n来週24日に3人でお願いします。メンバーは 見本 大輔、見本 さやか、見本 蓮（息子、12歳）です。\n私（大輔）はCカード持ってます（オープンウォーター）。さやかと蓮は初めてです。\n連絡は 090-0101-2323 までお願いします。\nPS 蓮は24日が誕生日なんです！\n\n> 2026/10/18 B マリン（見本） 山田 <info@bmarine.example> のメッセージ:\n> お問い合わせありがとうございます。担当の山田です。\n> 24日は空きがございます。参加される方のお名前をお知らせください。"
  }
 };
+
+  /* 見本のメールはどれも 2026-10-24（土）の予約。画面では、開いた日の 2 日後以降で最初の土曜日にずらして出す
+     （過去の便に入らないように。小禄さんの不具合さがし 2026-10-27）。生年月日・予約番号・最後に潜った月は動かさない。
+     today は 'YYYY-MM-DD'。時計は読まない（呼ぶ側が今日を渡す） */
+  const SAMPLE_DAY = '2026-10-24';
+  /* 日付の数（1970-01-01 からの日数）と、その逆。時計を使わずに数える（暦の式。roster-guest.js の dayNumber と同じ） */
+  function dayNumber(ymd) {
+    const [y0, m, d] = ymd.split('-').map(Number);
+    const y = m <= 2 ? y0 - 1 : y0;
+    const era = Math.floor(y / 400);
+    const yoe = y - era * 400;
+    const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+    return era * 146097 + yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy - 719468;
+  }
+  function ymdOf(n) {
+    const z = n + 719468;
+    const era = Math.floor(z / 146097);
+    const doe = z - era * 146097;
+    const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
+    const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+    const mp = Math.floor((5 * doy + 2) / 153);
+    const d = doy - Math.floor((153 * mp + 2) / 5) + 1;
+    const m = mp < 10 ? mp + 3 : mp - 9;
+    return { y: yoe + era * 400 + (m <= 2 ? 1 : 0), m, d };
+  }
+  const pad = (n) => String(n).padStart(2, '0');
+  const weekday = (n) => (((n + 4) % 7) + 7) % 7;   // 1970-01-01 は木曜日。0 が日曜日
+  const WEEK_JA = ['日', '月', '火', '水', '木', '金', '土'];
+  const WEEK_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const MONTH_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  R.sampleMailDay = (today) => {
+    const from = dayNumber(today) + 2;
+    const { y, m, d } = ymdOf(from + (6 - weekday(from) + 7) % 7);
+    return `${y}-${pad(m)}-${pad(d)}`;
+  };
+  R.sampleMail = (id, today) => {
+    const day = R.sampleMailDay(today);
+    const n = dayNumber(day);
+    const { y, m, d } = ymdOf(n);
+    const w = weekday(n);
+    const a = ymdOf(n - 6);
+    const asked = `${a.y}/${pad(a.m)}/${pad(a.d)}`;   // e4 で、お店が「24日は空き」と返した日（予約の 6 日前）
+    const swaps = {
+      e1: [['10/24（土）', `${m}/${d}（${WEEK_JA[w]}）`], ['2026年10月24日（土）', `${y}年${m}月${d}日（${WEEK_JA[w]}）`]],
+      e2: [['Saturday, October 24, 2026', `${WEEK_EN[w]}, ${MONTH_EN[m - 1]} ${d}, ${y}`], ['Oct 24, 2026', `${MONTH_EN[m - 1].slice(0, 3)} ${d}, ${y}`]],
+      e3: [['ご希望日: 10月24日', `ご希望日: ${m}月${d}日`]],
+      e4: [['2026/10/18', asked], ['24日', `${d}日`]]
+    }[id] || [];
+    const text = swaps.reduce((s, [a, b]) => s.split(a).join(b), R.SAMPLE_MAILS[id].text);
+    const reading = JSON.parse(JSON.stringify(R.SAMPLE_READINGS[id]));
+    if (reading.booking && reading.booking.date === SAMPLE_DAY) reading.booking.date = day;
+    return { text, reading };
+  };
 })();

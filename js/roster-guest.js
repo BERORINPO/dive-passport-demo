@@ -90,6 +90,13 @@
   /* ---------- 入力の欄 ---------- */
   /* 入力の形: { birthDate, address, emergency: { name, relation, phone }, cert: { course, date }, courses, dives, lastDive, answers, consent }
      聞いた項目（ask）と、一部だけ入っている欄の空の所（parts）だけを見る。返すのは、直してほしい項目の名前の一覧 */
+  /* 「なし（体験）」の人は、潜った本数が空なら 0 本と読む（欄の説明は「0 本なら空のまま」。小禄さんの不具合さがし 2026-10-27） */
+  function divesIn(x, ask, open) {
+    const courseOpen = (ask.includes('certDate') || ask.includes('courses')) && open.cert.includes('course');
+    const course = courseOpen ? (x.cert || {}).course : open.course;
+    return course === 'NONE' && (x.dives === '' || x.dives == null) ? 0 : x.dives;
+  }
+
   function guestProblems(input, ask, parts) {
     const x = input || {};
     const e = x.emergency || {};
@@ -99,6 +106,7 @@
     const openE = (k) => open.emergency.includes(k);
     const courseOpen = (wants('certDate') || wants('courses')) && open.cert.includes('course');
     const course = courseOpen ? c.course : open.course;
+    const dives = divesIn(x, ask, open);
     return [
       wants('birthDate') && !isDay(x.birthDate) && 'birthDate',
       wants('address') && !text(x.address, ADDRESS_MAX) && 'address',
@@ -108,8 +116,8 @@
       courseOpen && !(S().COURSES.includes(c.course) && c.course !== '' && !(c.course === 'NONE' && isMonth(open.date))) && 'cert',
       wants('certDate') && open.cert.includes('date') && course !== 'NONE' && !isMonth(c.date) && 'certDate',
       wants('courses') && typeof x.courses === 'string' && x.courses.length > COURSES_MAX && 'courses',
-      wants('dives') && !(Number.isInteger(x.dives) && x.dives >= 0 && x.dives <= DIVES_MAX) && 'dives',
-      wants('lastDive') && !(x.dives === 0 && wants('dives')) && !isMonth(x.lastDive) && 'lastDive',
+      wants('dives') && !(Number.isInteger(dives) && dives >= 0 && dives <= DIVES_MAX) && 'dives',
+      wants('lastDive') && !(dives === 0 && wants('dives')) && !isMonth(x.lastDive) && 'lastDive',
       wants('history') && !(Array.isArray(x.answers) && x.answers.length === S().HEALTH_QUESTIONS &&
         x.answers.every(a => a === 'yes' || a === 'no')) && 'history',
       wants('history') && x.consent !== true && 'consent'
@@ -134,7 +142,7 @@
       if (Object.keys(cert).length) patch.cert = cert;
     }
     if (ask.includes('courses') && typeof x.courses === 'string' && x.courses.trim()) patch.courses = x.courses.trim();
-    if (ask.includes('dives')) patch.dives = x.dives;
+    if (ask.includes('dives')) patch.dives = divesIn(x, ask, open);
     if (ask.includes('lastDive') && isMonth(x.lastDive)) patch.lastDive = x.lastDive;
     if (ask.includes('history')) patch.health = { answers: [...x.answers], historyAt: today, consentAt: today, consentVer: CONSENT_VER };
     return patch;
