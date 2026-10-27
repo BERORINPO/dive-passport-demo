@@ -110,6 +110,22 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 - メールの送り受けは、まだ設定を入れない（無ければ止まる作り。入れる物は plan/auto.md の「置くときの設定」）
 - 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
 
+## 8. ドメイン reduxdive.com とメール（2026-10-28 予定。このブランチの設定はこの日に置く）
+1. ★ Yosuke: reduxdive.com を Cloudflare Registrar で買う（1 年 10.46 ドル、自動更新オフ）。買うと Cloudflare に zone ができる
+2. ★ Yosuke: Workers & Pages → Plans で Workers Paid（月 5 ドル）に切り替える（メールの送信と Cron に要る）
+3. Email Sending を有効にする: Email Service → Email Sending → Onboard Domain で reduxdive.com（SPF・DKIM の DNS は自動で足される）
+4. Email Routing を有効にする: Email Service → Email Routing で reduxdive.com を有効にし、受け口のアドレス（お店ごとの inbox、例 a@reduxdive.com）をお店の Worker（dive-passport-demo）へ送る rule を作る。お店の一覧（shops）の inbox と senders を埋める
+5. お店の Worker の secret ASK_ORIGIN を https://ask.reduxdive.com に変える
+6. 置く（このブランチを merge したあと）:
+   ```bash
+   node tools/build-site.mjs
+   npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc
+   npx wrangler@4.151.0 deploy
+   ```
+   - custom_domain の route で app.reduxdive.com と ask.reduxdive.com の DNS は Worker が足す
+7. 確かめ: app.reduxdive.com が Access のログインへ飛ぶ／ask.reduxdive.com/ask が開く／予約メールを inbox に転送 → 名簿に入る → 次の Cron でお願いのメールが届く（自分の受け取れるアドレスで）
+- サイト（AquaGate）は見本のまま workers.dev に置いておく（Turnstile の widget の hostname もそのまま）
+
 ## 置き直したら（2 回目から）
 - 開いているタブを全部読み込み直す（スマホ・PC とも）。古い版の画面が残ったまま保存すると、古い形の名簿を書く
 - be0b404 から後の版は、別のタブが新しい形で保存したのに気づくと、その画面からは書かなくなる（「この画面より新しい版の名簿が保存されました」と出る）。921da0e までの版にはこの守りが無いので、置き直した日は特に読み込み直しを先にする
