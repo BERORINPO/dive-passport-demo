@@ -47,6 +47,7 @@ function server() {
     /* 送る直前に別の端末が書く、を作る（1 回だけ） */
     if (srv.beforePut && init.method === 'PUT') { const f = srv.beforePut; srv.beforePut = null; await f(); }
     const headers = { ...(init.headers || {}), 'sec-fetch-site': 'same-origin', 'cf-access-jwt-assertion': jwt };
+    if (headers['content-encoding'] === 'gzip') srv.gzipped = (srv.gzipped || 0) + 1;
     /* Worker の 1 行のログは出さない（同時に呼んでも、元の console.log に戻す） */
     quiet += 1;
     try { return await handle(new Request(ORIGIN + path, { method: init.method || 'GET', headers, body: init.body }), env, io); } finally { quiet -= 1; }
@@ -57,6 +58,7 @@ function server() {
 /* 端末 1 台。同じ localStorage で読み直せば、開き直したのと同じ */
 function device(srv, local = memory()) {
   const ctx = vm.createContext({ localStorage: local, sessionStorage: memory(), setTimeout, clearTimeout, AbortController, TextEncoder, btoa, console,
+    CompressionStream, Blob, Response,
     addEventListener: () => {}, fetch: (p, init) => srv.fetch(p, init) });
   ctx.window = ctx;
   SCRIPTS.forEach(f => vm.runInContext(readFileSync(new URL(`../js/${f}`, import.meta.url), 'utf8'), ctx, { filename: f }));
@@ -72,6 +74,7 @@ const addTrip = (R) => (s) => {
   const reading = JSON.parse(JSON.stringify(R.SAMPLE_READINGS.e1));
   return R.rosterCore.addBooking({ ...s, trips: [...s.trips, trip] }, { trip, booking: { source: 'mail', people: 2 }, reading, src: 'mail', at: AT, newId });
 };
+const addGuideToFirst = (R, name) => (s) => R.rosterCore.editTrip(s, { tripId: s.trips[0].id, patch: { guides: [...s.trips[0].guides, name] }, at: AT });
 const addGuide = (R, name) => (s) => R.rosterCore.editTrip(s, { tripId: 't1', patch: { guides: [...s.trips.find(t => t.id === 't1').guides, name] }, at: AT });
 const addShop = (R) => (s) => R.rosterShare.addPartner(s, { tripId: 't1', name: PARTNER, at: AT }).state;
 const tripOf = (R) => R.rosterStore.get().trips.find(t => t.id === 't1');
@@ -412,6 +415,50 @@ test('ジンのレビュー HIGH 7: サーバーの名簿がこの画面より�
   c.rosterStore.update(addGuide(c, '見本 三郎'));
   await c.rosterStore.whenSynced();
   assert.equal(srv.calls, calls, '止めたあとは送らない');
+});
+
+test('ジンのレビュー MEDIUM 10: 大きな名簿は gzip で縮めて送り、サーバーがほどいて書く。壊れた gzip は 400、ほどくと大きすぎる物は 413', async () => {
+  const srv = server();
+  const a = await bigSynced(srv);
+  assert.ok(srv.gzipped >= 1, '30 人の名簿は縮めて送った');
+  a.rosterStore.update(addGuideToFirst(a, '見本 次郎'));
+  await a.rosterStore.whenSynced();
+  assert.equal(a.rosterStore.note(), null);
+  assert.ok(JSON.parse(srv.db.rows.get('default').state).trips[0].guides.includes('見本 次郎'), 'サーバーに届いた');
+  const put = (body, enc) => srv.fetch('/api/roster', { method: 'PUT', headers: { 'content-type': 'application/json', 'content-encoding': enc }, body });
+  const bad = new Uint8Array([0x1f, 0x8b, 1, 2, 3, 4]);
+  assert.equal((await put(bad, 'gzip')).status, 400);
+  const bomb = await new Response(new Blob([JSON.stringify({ base: 1, state: { pad: ' '.repeat(2000000) } })]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+  assert.ok(bomb.byteLength < 20000);
+  assert.equal((await put(bomb, 'gzip')).status, 413, 'ほどいた後の大きさで止める');
+});
+
+test('ジンのレビュー MEDIUM 9: 退避は新しい 3 つまで。容量切れのときは、古い退避から消して名簿の本体を保存する', async () => {
+  /* 中身の文字数の合計が limit を超えると書けない保存場所（ブラウザの 5 MB の見本） */
+  const limited = (limit) => {
+    const m = memory();
+    const size = () => [...m.raw.entries()].reduce((n, [k, v]) => n + k.length + v.length, 0);
+    const set = m.setItem;
+    m.setItem = (k, v) => {
+      const old = m.raw.has(k) ? k.length + m.raw.get(k).length : 0;
+      if (size() - old + k.length + String(v).length > limit) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; }
+      set(k, v);
+    };
+    return m;
+  };
+  const local = limited(60000);
+  const big = (n) => JSON.stringify({ v: 1, filler: 'x'.repeat(n) });
+  const t0 = Date.now() - 60000;
+  [1, 2, 3, 4, 5].forEach(i => local.raw.set(`redux-roster-v1-broken-${t0 + i}`, big(9000)));
+  const a = device({ fetch: async () => new Response('{}', { status: 404 }) }, local);
+  a.rosterStore.get();
+  const kept = () => [...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).sort();
+  assert.deepEqual(kept(), [3, 4, 5].map(i => `redux-roster-v1-broken-${t0 + i}`), '開いたときに、新しい 3 つだけ残す');
+  /* 名簿の本体が大きくなって入らない: 古い退避から消して書く */
+  const saved = a.rosterStore.update(s => a.rosterShare.addBigSample(s, { day: a.ymd(a.addDays(new Date(), 3)), at: AT, newId: a.newId }).state);
+  assert.equal(saved, true, '本体を保存できた');
+  assert.ok(kept().length < 3, '古い退避を消した');
+  assert.ok(local.raw.get('redux-roster-v1').length > 30000);
 });
 
 test('/api/roster が無い（GitHub Pages・D1 がまだ無い Worker）ときは、端末だけで今までどおり動く', async () => {

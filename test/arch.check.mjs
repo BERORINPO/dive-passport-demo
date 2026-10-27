@@ -389,6 +389,24 @@ if (importProblems(IMPORT_CLEAN, MAP).length) fail(`検査が厳しすぎる: ${
 CLEAN.forEach(code => { if (violations(code, rulesFor.core).length) fail(`検査が厳しすぎる: 「${code}」を違反と見た`); });
 allowed = before;
 
+/* 長い行（ジンのレビュー 2026-10-27 MEDIUM 12）。js/ と worker/ の 180 字を超える行の数を、ファイルごとに test/long-lines.json の数より増やさない。
+   減ったら json の数を下げる（下げ忘れは知らせるだけ）。新しいファイルは 0。数えるのは文字（日本語も 1 字） */
+const LONG = 180;
+const longCount = (text) => text.split(/\r?\n/).filter(l => [...l].length > LONG).length;
+if (longCount(`${'x'.repeat(LONG + 1)}\n${'あ'.repeat(LONG)}`) !== 1) fail('検査が甘い/厳しすぎる: 長い行の数え方');
+const longBase = JSON.parse(readFileSync(new URL('test/long-lines.json', root), 'utf8'));
+let longTotal = 0;
+const lower = [];
+['js', 'worker'].forEach(d => readdirSync(new URL(`${d}/`, root)).filter(f => /\.m?js$/.test(f)).forEach(f => {
+  const rel = `${d}/${f}`;
+  const n = longCount(readFileSync(new URL(rel, root), 'utf8'));
+  longTotal += n;
+  const base = longBase[rel] || 0;
+  if (n > base) fail(`長い行（${LONG} 字超）が増えた: ${rel} ${base} → ${n}。行を折る`);
+  else if (n < base) lower.push(`${rel} ${base}→${n}`);
+}));
+console.log(`long lines: ${longTotal}${lower.length ? `（test/long-lines.json を下げられる: ${lower.join(', ')}）` : ''}`);
+
 console.log(`files: shared ${roles.shared?.length || 0} / core ${roles.core?.length || 0} / adapter ${roles.adapter?.length || 0} / entry ${roles.entry?.length || 0}`);
 console.log(`names: adapter ${ADAPTER.length} / core ${CORE.length} / probes: ${PROBES.length} + outside ${probeCount} / arch-allow: ${allowed}`);
 console.log(`outside: ${Object.entries(ALLOW || {}).map(([f, r]) => `${f} ${r.allow.length}`).join(' / ')}`);

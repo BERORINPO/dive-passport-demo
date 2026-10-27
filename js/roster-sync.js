@@ -8,15 +8,24 @@
   const R = window.REDUX;
   const URL_PATH = '/api/roster';
   const TIMEOUT_MS = 10000;
+  /* これより大きい名簿は gzip で縮めて送る（船の上の回線で、直し 1 回ごとに名簿まるごとを送るため。JSON は 1/5〜1/10 ほどになる。ジンのレビュー MEDIUM 10）。
+     受け取る名簿は Cloudflare が縮めて返す。縮められないブラウザ（CompressionStream が無い）はそのまま送る */
+  const GZIP_FROM = 8192;
+  async function packed(text) {
+    if (text.length < GZIP_FROM || typeof CompressionStream !== 'function' || typeof Blob !== 'function' || typeof Response !== 'function') return null;
+    try { return await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer(); } catch (e) { return null; }
+  }
 
   async function call(method, body, path = URL_PATH) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
     try {
+      const text = body === undefined ? undefined : JSON.stringify(body);
+      const gz = method === 'PUT' && text !== undefined ? await packed(text) : null;
       const res = await fetch(path, {
         method, credentials: 'same-origin', redirect: 'manual', cache: 'no-store', signal: ctl.signal,
-        headers: body === undefined ? {} : { 'content-type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body)
+        headers: text === undefined ? {} : { 'content-type': 'application/json', ...(gz ? { 'content-encoding': 'gzip' } : {}) },
+        body: gz || text
       });
       /* Access のログインが切れると、ログインの画面への転送になる（redirect: 'manual' では中身の見えない答え）。電波なしと分けて知らせる */
       if (res.type === 'opaqueredirect') return { status: 'login', data: null };

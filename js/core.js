@@ -98,19 +98,48 @@
   const ROSTER_SHOP = 'B マリン（見本）';
   const ROSTER_BACKUP = `${ROSTER_KEY}-broken-`;
   const BACKUP_KEEP_MS = 366 * 24 * 60 * 60 * 1000;   // 退避した名簿も 1 年で消す
+  /* 退避は新しい 3 つまで。端末の保存場所は 5 MB ほどしか無く、退避がたまると名簿の本体を保存できなくなる（ジンのレビュー 2026-10-27 MEDIUM 9） */
+  const BACKUP_MAX = 3;
   const rosterListeners = [];
   let roster = null;
   let rosterNote = null;        // recovered（退避して空から始めた）/ unreadable（退避できず元のまま）/ conflict（別のタブと食い違い）/ newer（別のタブがこの版の知らない形で保存した）
   let rosterLocked = false;     // 読めない名簿を退避できなかった。元の名簿を上書きしないよう、この端末には書かない
   let rosterUnsaved = false;    // 最後の保存が端末に書けなかった
 
+  /* 退避の名前を古い順に（名前の後ろは退避した時刻） */
+  function backupKeys() {
+    const keys = [];
+    try {
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(ROSTER_BACKUP)) keys.push(k);
+      }
+    } catch (e) { /* 保存場所が使えない */ }
+    return keys.sort((a, b) => Number(a.slice(ROSTER_BACKUP.length)) - Number(b.slice(ROSTER_BACKUP.length)));
+  }
+  /* 新しい keep 個だけ残す */
+  function pruneBackups(keep) {
+    const keys = backupKeys();
+    keys.slice(0, Math.max(0, keys.length - keep)).forEach(k => { try { localStorage.removeItem(k); } catch (e) { /* 消せなくても続ける */ } });
+  }
+
   function writeRoster(next) {
     if (rosterLocked) return false;
+    const text = JSON.stringify(next);
     try {
-      localStorage.setItem(ROSTER_KEY, JSON.stringify(next));
+      localStorage.setItem(ROSTER_KEY, text);
       rosterUnsaved = false;
       return true;
     } catch (e) {
+      /* 容量切れ: 名簿の本体を先に守る。古い退避から 1 つずつ消して、もう一度書く（本体はサーバーにもある。退避は端末にしか無いが、本体より後に回す） */
+      for (const k of backupKeys()) {
+        try {
+          localStorage.removeItem(k);
+          localStorage.setItem(ROSTER_KEY, text);
+          rosterUnsaved = false;
+          return true;
+        } catch (e2) { /* まだ足りない */ }
+      }
       rosterUnsaved = true;
       return false;   // 容量切れや、保存を止めているブラウザ。呼ぶ側が知らせる
     }
@@ -147,12 +176,8 @@
   /* 1 年を過ぎた退避を消す。残す退避からも、他のお店のお客さんの健康の答えと、便の日から 1 年を過ぎた便を外す（前の版で退避した物のため） */
   function tidyBackups() {
     try {
-      const keys = [];
-      for (let i = 0; i < localStorage.length; i += 1) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith(ROSTER_BACKUP)) keys.push(k);
-      }
-      keys.forEach(k => {
+      pruneBackups(BACKUP_MAX);
+      backupKeys().forEach(k => {
         if (Date.now() - Number(k.slice(ROSTER_BACKUP.length)) > BACKUP_KEEP_MS) { localStorage.removeItem(k); return; }
         const v = localStorage.getItem(k);
         const tidied = v === null ? v : purgeBackup(stripPartnerHealth(v));
@@ -193,6 +218,7 @@
         try {
           localStorage.setItem(`${ROSTER_BACKUP}${Date.now()}`, stripPartnerHealth(raw));
           kept = true;
+          pruneBackups(BACKUP_MAX);
         } catch (e) {
           kept = false;
         }
@@ -229,6 +255,7 @@
   /* この端末の名簿を残してから、サーバーの名簿にする（送れなかった・断られた直しを消さないため。読めない名簿の退避と同じく 1 年で消える） */
   function keepLocal(state) {
     try { localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, purgeBackup(stripPartnerHealth(JSON.stringify(state)))); } catch (e) { /* 残せなくても続ける */ }
+    pruneBackups(BACKUP_MAX);
   }
 
   function readSyncMeta() {

@@ -234,6 +234,30 @@ test('Cron: 時刻が来た予定（2 日前・前日の夜・当日の朝）が
   assert.ok(s.mail.sent.length >= 2);
 });
 
+test('ジンのレビュー MEDIUM 10: 送ったあとに結果を書けなくても、次の回にもう一度は送らない。30 分たっても印が残っていれば「送れたか分からない」にする', async () => {
+  const s = setup();
+  await handle(booking(GOOD), s.env, s.io);
+  /* 送った直後に D1 が止まり、結果を書けない */
+  const send = s.mail.send;
+  s.mail.send = async (msg) => { const r = await send(msg); s.db.failing = true; return r; };
+  await scheduled(s.env, s.io);
+  s.db.failing = false;
+  s.mail.send = send;
+  assert.equal(s.mail.sent.length, 1);
+  let out = stored(s.db).outbox.find(o => o.kind === 'request');
+  assert.equal(out.status, 'queued');
+  assert.ok(out.why.startsWith('sending:'), '送る前の印が残っている');
+  s.io.clock = NOW + 10 * 60000;
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 1, '印のある連絡は、もう一度は送らない');
+  s.io.clock = NOW + 31 * 60000;
+  await scheduled(s.env, s.io);
+  out = stored(s.db).outbox.find(o => o.kind === 'request');
+  assert.equal(out.status, 'failed');
+  assert.equal(out.why, 'maybe-sent');
+  assert.equal(s.mail.sent.length, 1);
+});
+
 /* 届いたメールの見本（Email Routing が渡す形） */
 const PASS = 'mx.cloudflare.net; dkim=pass header.d=shop.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass';
 function message(raw, from = 'forward@shop.example', auth = PASS) {

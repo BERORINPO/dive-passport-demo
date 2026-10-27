@@ -185,7 +185,25 @@ export function senderAllowed(from, list) {
 
 /* 送る物（status が queued のもの）。1 回に送る数の上限つき */
 export const MAX_SEND_PER_RUN = 50;
-export const queuedOf = (state) => (state.outbox || []).filter(o => o.status === 'queued' && o.to).slice(0, MAX_SEND_PER_RUN);
+export const queuedOf = (state) => (state.outbox || []).filter(o => o.status === 'queued' && o.to && !o.why.startsWith(SENDING)).slice(0, MAX_SEND_PER_RUN);
+
+/* 送る前の印（ジンのレビュー 2026-10-27 MEDIUM 10）。送る前に why を「sending:<時刻>#<この回の印>」にして名簿に書き、送った後で結果を書く。
+   結果を書けなかった連絡は、印が残ったまま queuedOf に選ばれないので、もう一度は送らない。SENDING_STALE_MS を過ぎても印が残っている物は
+   「送れたか分からない」（failed / maybe-sent）にして、お店に確かめてもらう（2 回送るより、お店に見せる方を選ぶ） */
+export const SENDING = 'sending:';
+export const SENDING_STALE_MS = 30 * 60 * 1000;
+export function claimQueued(state, { token }) {
+  const ids = new Set(queuedOf(state).map(o => o.id));
+  if (!ids.size) return state;
+  return { ...state, outbox: state.outbox.map(o => (ids.has(o.id) ? { ...o, why: `${SENDING}${token}` } : o)) };
+}
+export const claimedBy = (state, token) => (state.outbox || []).filter(o => o.status === 'queued' && o.why === `${SENDING}${token}`);
+/* before は「YYYY-MM-DDTHH:MM:SSZ」。印の時刻（同じ形）がそれより前の物を、送れたか分からないにする（core は時計を使わないので、文字のまま比べる） */
+export function releaseStale(state, { before, at }) {
+  const stale = (state.outbox || []).filter(o => o.status === 'queued' && o.why.startsWith(SENDING) &&
+    o.why.slice(SENDING.length, SENDING.length + 20) < before);
+  return stale.reduce((s, o) => R.rosterAuto.markSent(s, { id: o.id, result: 'failed', why: 'maybe-sent', at }), state);
+}
 
 /* 送った結果を名簿に付ける直し。results は [{ id, result, why }] */
 export function markResults(state, { results, at }) {
