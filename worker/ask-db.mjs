@@ -30,8 +30,10 @@ export async function findLink(db, hash) {
 }
 
 /* 同じ予約・同じ人の、今ある鍵の数 */
-export async function countLinks(db, { shop, bookingId, personId }) {
-  const row = await db.prepare('SELECT COUNT(*) AS n FROM ask_links WHERE shop = ?1 AND booking_id = ?2 AND person_id = ?3').bind(shop, bookingId, personId).first();
+/* 期限が切れた行は数えない（消すのは Cron 頼み。Cron が止まっていても作り直せるように。Codex のレビュー 2026-10-28） */
+export async function countLinks(db, { shop, bookingId, personId, today }) {
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM ask_links WHERE shop = ?1 AND booking_id = ?2 AND person_id = ?3 AND expires_on >= ?4')
+    .bind(shop, bookingId, personId, today).first();
   return row ? Number(row.n) : 0;
 }
 

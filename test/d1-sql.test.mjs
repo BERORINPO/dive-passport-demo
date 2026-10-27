@@ -63,7 +63,7 @@ async function scenario(db) {
   await log('link-dup', putLink(db, { hash: 'h3', shop: 'shop-a', bookingId: 'b1', personId: 'p1', expiresOn: '2026-10-26', at: AT }));
   await log('link-find-old', findLink(db, 'h1'));
   await log('link-find', findLink(db, 'h2'));
-  await log('link-count', countLinks(db, { shop: 'shop-a', bookingId: 'b1', personId: '' }));
+  await log('link-count', countLinks(db, { shop: 'shop-a', bookingId: 'b1', personId: '', today: '2026-10-01' }));
   for (let i = 0; i < 4; i += 1) await log(`link-use-${i}`, useLink(db, 'h2', TODAY, 3));
   await log('link-use-next-day', useLink(db, 'h2', '2026-10-28', 3));
   await log('link-drop', dropExpired(db, TODAY));

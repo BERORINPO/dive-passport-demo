@@ -95,8 +95,8 @@ export function fakeD1() {
       const statement = (args) => ({
         async first() {
           if (db.failing) throw new Error('d1 down');
-          if (/^SELECT COUNT\(\*\) AS n FROM ask_links WHERE shop = \?1 AND booking_id = \?2 AND person_id = \?3$/.test(text)) {
-            return { n: [...links.values()].filter(l => l.shop === args[0] && l.booking_id === args[1] && l.person_id === args[2]).length };
+          if (/^SELECT COUNT\(\*\) AS n FROM ask_links WHERE shop = \?1 AND booking_id = \?2 AND person_id = \?3 AND expires_on >= \?4$/.test(text)) {
+            return { n: [...links.values()].filter(l => l.shop === args[0] && l.booking_id === args[1] && l.person_id === args[2] && l.expires_on >= args[3]).length };
           }
           if (/^SELECT shop, booking_id, person_id, expires_on FROM ask_links WHERE hash = \?1$/.test(text)) {
             const l = links.get(args[0]);
