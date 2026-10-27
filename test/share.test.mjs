@@ -1,4 +1,4 @@
-// 乗り合い便（他のお店のお客さん・合同名簿・札・ポイントを離れる前）を確かめる（P5）。
+// 乗り合い便（他のお店のお客さん・写真で渡す・合同名簿・船の上で店ごとに戻った）を確かめる（P5、2026-10-27 に札をやめた）。
 // 実行: node test/share.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -13,7 +13,7 @@ load('../js/roster-day.js');
 load('../js/roster-share.js');
 load('../js/data-samples.js');
 load('../js/data-big-sample.js');
-const { roster: S, rosterCore: C, rosterGuest: G, rosterDay: D, rosterShare: X, SAMPLE_READINGS, BIG_SAMPLE } = globalThis.REDUX;
+const { roster: S, rosterCore: C, rosterGuest: G, rosterDay: D, rosterShare: X, SAMPLE_READINGS, SAMPLE_LIST_READINGS, BIG_SAMPLE } = globalThis.REDUX;
 
 const AT = '2026-10-21T09:00:00.000Z';
 const TODAY = '2026-10-21';
@@ -200,27 +200,16 @@ test('ガイドを替えると、そのお店の全員に入る。空にはで�
   assert.equal(X.setPartnerGuide(st, { tripId: 't1', shop: PARTNER, guide: '', at: AT }).problem, 'guide');
 });
 
-test('札を付けた後にガイドの名前を直しても、札の番号は変わらない', () => {
-  const tagged = X.assignTags(addTwo(withPartner).state, { tripId: 't1', at: AT });
+test('前の版で付けた札は、ガイドの名前を直すと付け替わる（新しく札は付けない）', () => {
+  const old = [{ guide: '見本 ガイド', shop: '', no: 'B-1' }, { guide: '見本 三郎', shop: PARTNER, no: 'C-1' }];
+  const st = { ...addTwo(withPartner).state };
+  const tagged = { ...st, trips: st.trips.map(t => ({ ...t, tags: old })) };
   const r = X.setPartnerGuide(tagged, { tripId: 't1', shop: PARTNER, guide: '見本 四郎', at: AT });
-  const t = tripOf(r.state);
-  assert.deepEqual(t.tags.find(x => x.no === 'C-1'), { guide: '見本 四郎', shop: PARTNER, no: 'C-1' });
-  assert.equal(t.tags.length, 6, '札は増えない');
-  const g = X.boatGroups(r.state, 't1');
-  assert.deepEqual([g.groups[1].members[0].tag, g.untagged, g.tagged], ['C-1', 0, 6]);
-  assert.ok(S.validateState(r.state).ok);
-});
-
-test('自分の店のガイドの名前を直しても、札の番号は変わらない（今日の名簿の画面から）', () => {
-  const tagged = X.assignTags(addTwo(withPartner).state, { tripId: 't1', at: AT });
-  const st = C.editTrip(tagged, { tripId: 't1', patch: { guides: ['見本 ガイド二'] }, at: AT });
-  assert.deepEqual(tripOf(st).tags.find(x => x.no === 'B-1'), { guide: '見本 ガイド二', shop: '', no: 'B-1' });
-  const g = X.boatGroups(st, 't1');
-  assert.deepEqual([g.groups[0].members[0].name, g.groups[0].members[0].tag, g.untagged], ['見本 ガイド二', 'B-1', 0]);
-  const e = st.log[st.log.length - 1];
-  assert.deepEqual([e.act, e.after], ['tags', { renamed: 1, tags: 6 }]);
-  const two = C.editTrip(tagged, { tripId: 't1', patch: { guides: ['見本 ガイド', '見本 ガイド三'] }, at: AT });
-  assert.equal(tripOf(two).tags.length, 6, 'ガイドを足しただけなら付け替えない');
+  assert.deepEqual(tripOf(r.state).tags.find(x => x.no === 'C-1'), { guide: '見本 四郎', shop: PARTNER, no: 'C-1' });
+  const own = C.editTrip(tagged, { tripId: 't1', patch: { guides: ['見本 ガイド二'] }, at: AT });
+  assert.deepEqual(tripOf(own).tags.find(x => x.no === 'B-1'), { guide: '見本 ガイド二', shop: '', no: 'B-1' });
+  assert.equal(tripOf(own).tags.length, 2, '札は増えない');
+  assert.ok(S.validateState(r.state).ok && S.validateState(own).ok);
 });
 
 test('予約の一覧: 他のお店が当日の体調を確かめるのを待っている予約は、その印が付く', () => {
@@ -255,41 +244,18 @@ test('今日の名簿と条例の名簿（P4）は、自分の店のお客さん
   assert.equal(C.tripSummary(st, 't1').booked, 4, '便の人数は船の全員');
 });
 
-test('船に乗る人: この店が先、お店ごとにガイドが先。札の番号はまだ', () => {
+test('船に乗る人: この店が先、お店ごとにガイドが先。他のお店のお客さんは、体験と書かれていなければファン', () => {
   const st = addTwo(withPartner).state;
   const g = X.boatGroups(st, 't1');
   assert.deepEqual(g.groups.map(x => [x.name, x.own, x.owner]), [[OWN, true, true], [PARTNER, false, false]]);
   assert.deepEqual(g.groups[0].members.map(m => [m.kind, m.name]), [['guide', '見本 ガイド'], ['person', '見本 花子'], ['person', '見本 太郎']]);
   assert.deepEqual(g.groups[1].members.map(m => [m.name, m.label]), [['見本 三郎', 'ガイド'], ['見本 一郎', 'ファン'], ['見本 さくら', '体験']]);
-  assert.deepEqual([g.aboard, g.tagged, g.untagged], [6, 0, 6]);
-});
-
-test('札の番号: お店の頭文字と番号。足した人は続きの番号で、前の番号は変えない', () => {
-  const st = X.assignTags(addTwo(withPartner).state, { tripId: 't1', at: AT });
-  const t = tripOf(st);
-  assert.deepEqual(t.tags.map(x => x.no), ['B-1', 'B-2', 'B-3', 'C-1', 'C-2', 'C-3']);
-  assert.deepEqual(t.tags[0], { guide: '見本 ガイド', shop: '', no: 'B-1' });
-  assert.deepEqual(t.tags[3], { guide: '見本 三郎', shop: PARTNER, no: 'C-1' });
-  const e = st.log[st.log.length - 1];
-  assert.deepEqual([e.act, e.after], ['tags', { added: 6, tags: 6 }]);
-  assert.equal(X.assignTags(st, { tripId: 't1', at: AT }), st, '全員に付いていれば何もしない');
+  assert.equal(g.aboard, 6);
   const more = X.addPartnerPeople(st, { tripId: 't1', shop: PARTNER, people: [{ name: 'Lena Fischer' }], guide: '見本 三郎', at: AT, newId }).state;
-  const again = X.assignTags(more, { tripId: 't1', at: AT });
-  assert.deepEqual(tripOf(again).tags.map(x => x.no), ['B-1', 'B-2', 'B-3', 'C-1', 'C-2', 'C-3', 'C-4']);
-  const g = X.boatGroups(again, 't1');
-  assert.deepEqual(g.groups[1].members.map(m => m.tag), ['C-1', 'C-2', 'C-3', 'C-4']);
-  assert.equal(g.untagged, 0);
-  assert.ok(S.validateState(again).ok);
+  assert.equal(X.boatGroups(more, 't1').groups[1].members[3].label, 'ファン', 'C カードの分からない他のお店のお客さん');
 });
 
-test('札の頭文字はお店ごとに重ならない（同じ字で始まるお店）', () => {
-  const st = X.addPartner(base, { tripId: 't1', name: 'B ダイブ', at: AT }).state;
-  const two = X.addPartnerPeople(st, { tripId: 't1', shop: 'B ダイブ', people: [{ name: 'x' }], guide: 'y', at: AT, newId }).state;
-  const tags = tripOf(X.assignTags(two, { tripId: 't1', at: AT })).tags.map(x => x.no);
-  assert.deepEqual(tags, ['B-1', 'B-2', 'B-3', 'ダ-1', 'ダ-2']);
-});
-
-test('札の形: 番号の重なり・名前の無いガイドの札は合わない', () => {
+test('札の形（2026-10-27 までの版の便）: 番号の重なり・名前の無いガイドの札は合わない', () => {
   const t = tripOf(base);
   assert.equal(S.validateTrip({ ...t, tags: [{ personId: 'a', no: 'B-1' }, { personId: 'b', no: 'B-1' }] }).ok, false);
   assert.equal(S.validateTrip({ ...t, tags: [{ guide: '', shop: '', no: 'B-1' }] }).ok, false);
@@ -297,40 +263,119 @@ test('札の形: 番号の重なり・名前の無いガイドの札は合わな
   assert.ok(S.validateTrip({ ...t, tags: [{ personId: 'a', no: 'B-1' }, { guide: 'x', shop: '', no: 'B-2' }] }).ok);
 });
 
-test('ポイントを離れる前: 押すたびに時刻と札の枚数を足す（消さない）', () => {
-  const tagged = X.assignTags(addTwo(withPartner).state, { tripId: 't1', at: AT });
-  const once = X.recordLeave(tagged, { tripId: 't1', at: '2026-10-24T01:31:00.000Z' }).state;
-  const twice = X.recordLeave(once, { tripId: 't1', at: '2026-10-24T03:02:00.000Z' }).state;
-  assert.deepEqual(X.leaveChecks(tripOf(twice)).map(c => [c.at, c.tags, c.missing]),
-    [['2026-10-24T01:31:00.000Z', 6, []], ['2026-10-24T03:02:00.000Z', 6, []]]);
-  const e = twice.log[twice.log.length - 1];
-  assert.deepEqual([e.act, e.kind, e.after], ['aboard', 'trip', { stage: 'leave', tags: 6 }]);
-  assert.ok(S.validateState(twice).ok);
+/* ---------- 写真で渡す（予約の一覧・紙の名簿） ---------- */
+const listRows = () => X.fromListReading(JSON.parse(JSON.stringify(SAMPLE_LIST_READINGS.l1)));
+
+test('写真の読み取りから船に渡す形: 名前・体験かどうか・緊急時の連絡先だけ。電話・住所・生年月日は渡さない。名前の無い行は入れない', () => {
+  const reading = JSON.parse(JSON.stringify(SAMPLE_LIST_READINGS.l1));
+  assert.ok(S.validateReading(reading).ok, '見本の読み取りは形に合う');
+  reading.people[1] = { ...reading.people[1], phone: '090-1111-2222', address: '見本県 1-1', birthDate: '1990-01-01', dives: 30, unsure: ['address', 'name'] };
+  reading.people.push({ ...reading.people[0], name: '' });
+  const rows = X.fromListReading(reading);
+  assert.equal(rows.length, 7, '名前の無い行は入れない');
+  assert.deepEqual(Object.keys(rows[1]).sort(), ['cert', 'emergency', 'name', 'unsure']);
+  assert.deepEqual(rows[1].unsure, ['name'], '船に渡さない項目の自信なしは持たない');
+  assert.deepEqual(rows.map(r => r.cert.course), ['NONE', '', 'NONE', 'NONE', '', '', 'NONE']);
+  assert.deepEqual(rows[2].unsure, ['cert'], '見本 大地 は体験かが読みにくい');
+  assert.deepEqual(rows.map(r => X.listMissing(r).length), [0, 0, 0, 1, 0, 0, 0], 'Lena Fischer は緊急時の連絡先が無い');
 });
 
-test('ポイントを離れる前: 札の番号が無い人がいる・誰もいないときは残さない', () => {
-  const tagged = X.assignTags(addTwo(withPartner).state, { tripId: 't1', at: AT });
-  const more = X.addPartnerPeople(tagged, { tripId: 't1', shop: PARTNER, people: [{ name: 'Lena Fischer' }], guide: '見本 三郎', at: AT, newId }).state;
-  const r = X.recordLeave(more, { tripId: 't1', at: AT });
-  assert.deepEqual([r.problem, r.state], ['untagged', more]);
-  const empty = X.recordLeave({ ...S.blankState(OWN), trips: [{ ...trip, guides: [] }] }, { tripId: 't1', at: AT });
-  assert.equal(empty.problem, 'empty');
+test('写真から渡す: もういる名前は入れない（同じ写真を 2 回渡しても増えない）。健康は持たず、そのお店が確かめた印だけ', () => {
+  const one = X.addPartnerList(withPartner, { tripId: 't1', shop: PARTNER, rows: listRows(), guide: '見本 三郎', at: AT, newId });
+  assert.deepEqual([one.problem, one.ids.length, one.skipped], [null, 7, 0]);
+  const people = X.shopPeople(one.state, 't1', PARTNER);
+  assert.ok(people.every(p => p.health.heldBy === PARTNER && p.health.answers.every(a => a === null) && p.guide === '見本 三郎'));
+  assert.ok(people.every(p => p.phone === '' && p.address === '' && p.birthDate === ''), '船の店は電話・住所・生年月日を持たない');
+  const g = X.boatGroups(one.state, 't1').groups[1];
+  assert.deepEqual(g.members.filter(m => m.kind === 'person').map(m => m.label), ['体験', 'ファン', '体験', '体験', 'ファン', 'ファン', '体験']);
+  const lena = X.jointRows(one.state, 't1').groups[1].rows[3];
+  assert.deepEqual([lena.cells.name, lena.cells.emergency, lena.blank], ['Lena Fischer', '', 1]);
+  const two = X.addPartnerList(one.state, { tripId: 't1', shop: PARTNER, rows: listRows(), guide: '見本 三郎', at: AT, newId });
+  assert.deepEqual([two.ids.length, two.skipped, X.shopPeople(two.state, 't1', PARTNER).length], [0, 7, 7]);
+  assert.ok(S.validateState(one.state).ok);
 });
 
-test('ポイントを離れる前: 前の記録から 10 秒たたずに押したのは 2 回目と数えない', () => {
-  const t0 = Date.parse('2026-10-24T01:31:00.000Z');
-  assert.equal(X.leaveRepeat(null, t0), false, 'まだ記録が無い');
-  assert.equal(X.leaveRepeat(t0, t0 + 9999), true);
-  assert.equal(X.leaveRepeat(t0, t0 + 10000), false);
-  assert.equal(X.leaveRepeat(t0, t0 - 1), false, '端末の時計が戻っても止めない');
+test('写真から渡す: ガイドが要る。乗り合いに入っていないお店は入れない', () => {
+  assert.equal(X.addPartnerList(withPartner, { tripId: 't1', shop: PARTNER, rows: listRows(), guide: ' ', at: AT, newId }).problem, 'guide');
+  assert.equal(X.addPartnerList(withPartner, { tripId: 't1', shop: 'D マリン', rows: listRows(), guide: '見本 四郎', at: AT, newId }).problem, 'shop');
 });
 
-test('合同名簿: お店ごとに、札の番号と船の上で要る 5 項目だけ。住所・生年月日と健康の 2 欄は載せない。ガイドは名簿に入れない', () => {
-  const st = X.assignTags(addTwo(withPartner).state, { tripId: 't1', at: AT });
+/* ---------- 船の上: お店ごとに「全員戻った」 ---------- */
+const T1 = '2026-10-24T01:31:00.000Z';
+const T2 = '2026-10-24T01:33:00.000Z';
+const T3 = '2026-10-24T01:35:00.000Z';
+
+test('船の上: お店ごとに「全員戻った」を 1 回押す。全部のお店が戻るまでポイントを離れられない', () => {
+  const st = addTwo(withPartner).state;
+  const r0 = X.returns(st, 't1');
+  assert.deepEqual([r0.dive, r0.shops.map(x => x.name), r0.waiting.length, r0.allBack, r0.people], [1, [OWN, PARTNER], 2, false, 4]);
+  const early = X.recordLeave(st, { tripId: 't1', at: T1 });
+  assert.deepEqual([early.problem, early.state], ['waiting', st]);
+  const own = X.recordReturn(st, { tripId: 't1', shop: '', at: T1 }).state;
+  assert.equal(X.recordReturn(own, { tripId: 't1', shop: '', at: T2 }).state, own, '続けて押しても 1 回');
+  const both = X.recordReturn(own, { tripId: 't1', shop: PARTNER, at: T2 }).state;
+  const r1 = X.returns(both, 't1');
+  assert.deepEqual([r1.shops.map(x => x.backAt), r1.allBack], [[T1, T2], true]);
+  const left = X.recordLeave(both, { tripId: 't1', at: T3 });
+  assert.equal(left.problem, null);
+  assert.deepEqual(X.leaves(tripOf(left.state)).map(c => [c.at, c.dive]), [[T3, 1]]);
+  const e = left.state.log[left.state.log.length - 1];
+  assert.deepEqual([e.act, e.kind, e.after], ['aboard', 'trip', { stage: 'leave', dive: 1 }]);
+  const r2 = X.returns(left.state, 't1');
+  assert.deepEqual([r2.dive, r2.waiting.length], [2, 2], '2 本目は、また全部のお店を待つ');
+  assert.ok(S.validateState(left.state).ok);
+});
+
+test('押し間違いの「戻った」は取り消せる（記録は消さず、取り消しを足す）', () => {
+  const st = X.recordReturn(addTwo(withPartner).state, { tripId: 't1', shop: PARTNER, at: T1 }).state;
+  const undone = X.undoReturn(st, { tripId: 't1', shop: PARTNER, at: T2 }).state;
+  assert.equal(X.returns(undone, 't1').shops[1].backAt, '');
+  assert.deepEqual(tripOf(undone).checks.map(c => c.stage), ['return', 'undo']);
+  assert.equal(X.undoReturn(undone, { tripId: 't1', shop: PARTNER, at: T3 }).state, undone, '戻っていなければ何もしない');
+  const again = X.recordReturn(undone, { tripId: 't1', shop: PARTNER, at: T3 }).state;
+  assert.equal(X.returns(again, 't1').shops[1].backAt, T3);
+});
+
+test('人数が合わないとき: そのお店のお客さんだけ「いた」を押せる。続けて押しても 1 回', () => {
+  const st = addTwo(withPartner).state;
+  const [ichiro] = X.shopPeople(st, 't1', PARTNER);
+  const [hanako] = X.shopPeople(st, 't1', '');
+  const one = X.recordHere(st, { tripId: 't1', shop: PARTNER, personId: ichiro.id, at: T1 });
+  assert.equal(one.problem, null);
+  assert.ok(X.returns(one.state, 't1').shops[1].here.has(ichiro.id));
+  assert.equal(X.recordHere(one.state, { tripId: 't1', shop: PARTNER, personId: ichiro.id, at: T2 }).state, one.state);
+  assert.equal(X.recordHere(st, { tripId: 't1', shop: PARTNER, personId: hanako.id, at: T1 }).problem, 'person', '他のお店のお客さん');
+  assert.equal(X.recordHere(st, { tripId: 't1', shop: 'D マリン', personId: ichiro.id, at: T1 }).problem, 'shop');
+  const e = one.state.log[one.state.log.length - 1];
+  assert.deepEqual(e.after, { stage: 'here', shop: PARTNER, dive: 1, person: ichiro.id }, '記録は人の id だけ（名前は残さない）');
+  assert.ok(S.validateState(one.state).ok);
+});
+
+test('船の上: お客さんのいないお店は数えない。誰も乗っていなければ離れられない', () => {
+  assert.deepEqual(X.returns(withPartner, 't1').shops.map(x => x.name), [OWN], 'まだ 0 人のお店は待たない');
+  const empty = { ...S.blankState(OWN), trips: [{ ...trip, guides: [] }] };
+  assert.equal(X.recordLeave(empty, { tripId: 't1', at: T1 }).problem, 'empty');
+});
+
+test('船の上の確かめの形: return・undo・here はお店と何本目かが要る。here は人が要る。札で数えた前の版の記録も読める', () => {
+  const t = tripOf(base);
+  const check = (c) => S.validateTrip({ ...t, checks: [{ at: T1, missing: [], ...c }] }).ok;
+  assert.equal(check({ stage: 'return', dive: 1 }), false, 'お店が無い');
+  assert.equal(check({ stage: 'here', shop: '', dive: 1 }), false, '人が無い');
+  assert.equal(check({ stage: 'return', shop: '', dive: 0 }), false, '0 本目は無い');
+  assert.equal(check({ stage: 'gone', shop: '', dive: 1 }), false);
+  assert.ok(check({ stage: 'here', shop: PARTNER, dive: 2, person: 'id1' }));
+  const old = { ...base, trips: [{ ...t, checks: [{ at: T1, stage: 'leave', missing: [], tags: 6 }] }] };
+  assert.ok(S.validateState(old).ok);
+  assert.equal(X.returns(old, 't1').dive, 2, '札で数えて離れた分も 1 本と数える');
+});
+
+test('合同名簿: お店ごとに、船の上で要る 5 項目だけ。住所・生年月日と健康の 2 欄は載せない。ガイドは名簿に入れない', () => {
+  const st = addTwo(withPartner).state;
   const j = X.jointRows(st, 't1');
   assert.deepEqual([j.people, j.guides, j.owner], [4, 2, OWN]);
   assert.deepEqual(j.items.map(i => i.ja), ['氏名', '店', '種類', 'ガイド', '緊急時の連絡先']);
-  assert.deepEqual(j.groups.map(g => g.rows.map(r => r.tag)), [['B-2', 'B-3'], ['C-2', 'C-3']]);
+  assert.deepEqual(j.groups.map(g => g.rows.map(r => r.cells.name)), [['見本 花子', '見本 太郎'], ['見本 一郎', '見本 さくら']]);
   const ichiro = j.groups[1].rows[0].cells;
   assert.deepEqual(Object.keys(ichiro), X.JOINT_KEYS, '載せる項目のほかは、行にも持たない');
   assert.deepEqual([ichiro.name, ichiro.shop, ichiro.kind, ichiro.guide, ichiro.emergency],
@@ -398,13 +443,14 @@ test('中止中に相乗りのお店を外したら、そのお店の「確か�
   assert.ok(S.validateState(st).ok);
 });
 
-test('見本の乗り合い便: 1 隻に 4 店・30 人、ガイド 4 人に札、形も合う', () => {
+test('見本の乗り合い便: 1 隻に 4 店・30 人・ガイド 4 人、形も合う。札は付けない', () => {
   const r = X.addBigSample(S.blankState(OWN), { day: TODAY, at: AT, newId });
   const t = r.state.trips.find(x => x.id === r.tripId);
   assert.ok(S.validateState(r.state).ok);
   assert.equal(r.state.people.length, 30);
   assert.deepEqual(t.partners, BIG_SAMPLE.partners.map(p => p.shop));
-  assert.equal(t.tags.length, 34, 'お客さん 30 人とガイド 4 人');
+  assert.equal(t.tags.length, 0, '札は 2026-10-27 にやめた');
+  assert.equal(X.boatGroups(r.state, r.tripId).aboard, 34, 'お客さん 30 人とガイド 4 人');
   assert.equal(C.rosterRows(r.state, r.tripId, HEALTH_SHORT, { own: true }).rows.length, 9);
   for (const p of BIG_SAMPLE.partners) assert.equal(C.rosterRows(r.state, r.tripId, HEALTH_SHORT, { shop: p.shop }).rows.length, 7, p.shop);
   assert.ok(r.state.people.every(p => p.health.historyAt === '' && p.health.answers.every(a => a === null)), '健康の答えは入れない');

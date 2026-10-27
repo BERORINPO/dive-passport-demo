@@ -77,6 +77,8 @@ test('送る物は決まった項目だけ。健康の項目を紛れ込ませ�
   assert.equal(S.validateRequest({ doc: 'paper', image: 'QUJD' }).ok, false, '塗った印が無い');
   assert.ok(S.validateRequest({ doc: 'paper', image: 'QUJD', masked: true }).ok);
   assert.ok(S.validateRequest({ doc: 'ccard', image: 'QUJD' }).ok);
+  assert.ok(S.validateRequest({ doc: 'list', image: 'QUJD', masked: false }).ok, '予約の一覧は塗らなくても送れる');
+  assert.equal(S.validateRequest({ doc: 'list', image: 'QUJD', note: 'x' }).ok, false, '知らない項目');
   assert.equal(S.validateRequest({ doc: 'mail', text: '   ' }).ok, false);
   assert.equal(S.validateRequest({ doc: 'paper', image: 'not base64!', masked: true }).ok, false);
 });

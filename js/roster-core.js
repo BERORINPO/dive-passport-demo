@@ -450,15 +450,8 @@
     };
   }
 
-  /* 札の番号を足す。一度付けた番号は変えない。記録には枚数だけを残す */
-  function addTags(state, { tripId, tags, at }) {
-    if (!tags.length) return state;
-    const before = tripOrThrow(state, tripId, 'addTags');
-    const after = checkedTrip({ ...before, tags: [...before.tags, ...tags] }, 'addTags');
-    return withLog(replaceTrip(state, after), entry(at, 'staff', 'tags', 'trip', tripId, { after: { added: tags.length, tags: after.tags.length } }));
-  }
-
-  /* ガイドの名前を直したとき、その人の札を新しい名前に付け替える（番号は変えない）。新しい名前の札がもうあれば何もしない */
+  /* ガイドの名前を直したとき、その人の札を新しい名前に付け替える（番号は変えない）。新しい名前の札がもうあれば何もしない。
+     札は 2026-10-27 に新しく付けなくなった（決定ログ photo-shopcheck）。前の版で付けた札だけが対象 */
   function renameGuideTag(state, { tripId, shop, from, to, at }) {
     const before = tripOrThrow(state, tripId, 'renameGuideTag');
     const guideTag = (name) => (t) => !t.personId && t.shop === shop && t.guide === name;
@@ -467,11 +460,13 @@
     return withLog(replaceTrip(state, after), entry(at, 'staff', 'tags', 'trip', tripId, { after: { renamed: 1, tags: after.tags.length } }));
   }
 
-  /* 札ボードで全員そろったのを確かめた（leave: ポイントを離れる前 / return: 港に着いた）。時刻と札の枚数だけを残す */
-  function addCheck(state, { tripId, stage, tags, at }) {
+  /* 船の上の確かめを 1 件足す（roster-schema.js の CHECK_STAGES）。決まり（何本目か・そろったか）は roster-share.js。
+     check は { stage, shop, dive, person }（使う物だけ）。記録には同じ物を残す（名前は残さず、人は id で） */
+  function addCheck(state, { tripId, check, at }) {
     const before = tripOrThrow(state, tripId, 'addCheck');
-    const after = checkedTrip({ ...before, checks: [...before.checks, { at, stage, missing: [], tags }] }, 'addCheck');
-    return withLog(replaceTrip(state, after), entry(at, 'staff', 'aboard', 'trip', tripId, { after: { stage, tags } }));
+    const keep = Object.fromEntries(['stage', 'shop', 'dive', 'person'].filter(k => check[k] !== undefined).map(k => [k, check[k]]));
+    const after = checkedTrip({ ...before, checks: [...before.checks, { at, missing: [], ...keep }] }, 'addCheck');
+    return withLog(replaceTrip(state, after), entry(at, 'staff', 'aboard', 'trip', tripId, { after: keep }));
   }
 
   /* 乗り合いの他のお店から、お客さんを受け取った。人数と、健康の欄を受け取ったかだけを残す */
@@ -586,7 +581,7 @@
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
-    addPerson, addTags, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,
+    addPerson, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
   };
 })();

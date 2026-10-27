@@ -1,9 +1,11 @@
 /* 乗り合い便の決まり（純ロジック）。保存・通信・画面・時計は知らない。
    1 隻に、この店と他のお店（trip.partners）のお客さんとガイドが乗る。他のお店のお客さんは、出どころ partner の予約（shop にそのお店の名前）に入れる。
-   札は 1 人 1 枚（ガイドも）。番号は「お店の頭文字-番号」で、一度付けたら変えない。
+   他のお店は、予約の一覧か紙の名簿を写真 1 枚撮って渡す（AI が読み、そのお店が確かめる）。
+   船の上では、ガイドが口で伝えたら、お店ごとに「全員戻った」を 1 回押す。人数が合わないときだけ、そのお店の名前で呼ぶ
+   （札と札ボードは 2026-10-27 にやめた。決定ログ photo-shopcheck）。
    健康の 2 欄（既往症・当日の健康状態）は船にも他のお店にも渡さない。そのお客さんのお店だけが確かめ、ここには「確かめた」印（heldBy）だけを持つ
    （2026-10-22。店から船へ渡すには本人の同意が要り、船の全員の一覧に載せる理由が無い。報告「乗り合い便の名簿と横断の勝ち筋」）。
-   便と人を直して記録に残すのは roster-core.js（editTrip・addPerson・editPerson・addTags・addCheck・logHandover） */
+   便と人を直して記録に残すのは roster-core.js（editTrip・addPerson・editPerson・addCheck・logHandover） */
 (() => {
   'use strict';
 
@@ -14,7 +16,6 @@
   const MAX_PARTNERS = 10;
   const SHOP_MAX = 60;
   const GUIDE_MAX = 40;
-  const LEAVE_GUARD_MS = 10000;   // 「全員戻った」を続けて押したのを、2 回目と数えない間
   /* 他のお店が入れてよい人の項目（健康は別に扱う） */
   const PERSON_FIELDS = ['name', 'birthDate', 'phone', 'address', 'emergency', 'cert', 'courses', 'dives', 'lastDive'];
 
@@ -77,7 +78,7 @@
   }
 
   /* ---------- 見本の乗り合い便（11/9 の見せ場。中身は js/data-big-sample.js） ---------- */
-  /* day の便を 1 つ作り、この店のお客さんを 1 つの予約に、他のお店を 3 店足して、札も付ける */
+  /* day の便を 1 つ作り、この店のお客さんを 1 つの予約に、他のお店を 3 店足す */
   function addBigSample(state, { day, at, newId, sample = R.BIG_SAMPLE }) {
     const made = C().addTrip(state, { trip: { date: day, ...sample.trip }, at, newId });
     const tripId = made.trip.id;
@@ -94,7 +95,7 @@
       if (people.problem) throw new Error(`addBigSample: お客さんを足せない (${p.shop}: ${people.problem})`);
       st = people.state;
     });
-    return { state: assignTags(st, { tripId, at }), tripId };
+    return { state: st, tripId };
   }
 
   /* ---------- 他のお店のお客さん ---------- */
@@ -169,79 +170,65 @@
     return C().logHandover(st, { bookingId: b.id, people: shopPeople(st, tripId, shop).length, health: false, at });
   }
 
-  /* ---------- 船に乗る人と札 ---------- */
-  /* 人の種類（合同名簿の小さい字） */
+  /* ---------- 写真で渡す（予約の一覧・紙の名簿） ---------- */
+  /* AI の読み取りから、船に渡す人の形にする。渡すのは合同名簿に要る物だけ（名前・体験かどうか・緊急時の連絡先）。
+     電話・住所・生年月日などを読んでいても渡さない（店から船へ渡す物を少なくする。決定ログ photo-shopcheck）。
+     名前の無い行は入れない。unsure は、その 3 つのうち AI に自信が無かった物（お店が確かめてから渡す） */
+  const LIST_KEYS = ['name', 'emergency', 'cert'];
+  function fromListReading(reading) {
+    return reading.people.filter(p => p.name).map(p => ({
+      name: p.name,
+      emergency: { ...p.emergency },
+      cert: { course: p.cert.course === 'NONE' ? 'NONE' : '', date: '' },
+      unsure: p.unsure.filter(k => LIST_KEYS.includes(k))
+    }));
+  }
+  /* 渡す前に足りない物。緊急時の連絡先の電話が無い（足りなくても渡せる。合同名簿に空の欄で出る） */
+  const listMissing = (row) => (String(row.emergency.phone || '').trim() ? [] : ['emergency']);
+
+  /* 写真から読んだ人を、そのお店のお客さんとして入れる。もういる名前は入れない（同じ写真を 2 回渡しても増えない）。
+     rows は fromListReading の形。unsure は入れない（お店が確かめてから渡す） */
+  function addPartnerList(state, { tripId, shop, rows, guide, at, newId }) {
+    const have = shopPeople(state, tripId, shop);
+    const fresh = rows.filter(r => r.name && !have.some(p => C().sameName(p.name, r.name)));
+    const people = fresh.map(r => ({ name: r.name, emergency: r.emergency, cert: r.cert }));
+    const out = addPartnerPeople(state, { tripId, shop, people, guide, at, newId });
+    return { ...out, skipped: rows.length - fresh.length };
+  }
+
+  /* ---------- 船に乗る人 ---------- */
+  /* 人の種類（合同名簿の小さい字）。他のお店のお客さんは、体験と書かれていなければファン（そのお店が予約の一覧で分けている） */
   function kindLabel(p, trip) {
     if (trip.kind === 'snorkel') return 'スノーケル';
     if (p.cert.course === 'NONE') return '体験';
-    return p.cert.course ? 'ファン' : '';
-  }
-  const tagKey = (t) => (t.personId ? `p:${t.personId}` : `g:${t.shop}\u0000${t.guide}`);
-  const tagNumber = (no) => Number(String(no).split('-').pop()) || 0;
-  const prefixOf = (no) => String(no).split('-').slice(0, -1).join('-');
-
-  /* 札の番号の順。番号の無い人はその後ろに、元の順で */
-  function byTag(a, b) {
-    if (a.tag && b.tag) return tagNumber(a.tag) - tagNumber(b.tag);
-    return a.tag ? -1 : b.tag ? 1 : 0;
+    return p.cert.course || p.health.heldBy ? 'ファン' : '';
   }
 
-  /* 船に乗る人を、お店ごとに。ガイドが先、次にお客さん。札の番号があればその順 */
+  /* 船に乗る人を、お店ごとに。ガイドが先、次にお客さん */
   function boatGroups(state, tripId) {
     const trip = tripById(state, tripId);
     if (!trip) return null;
-    const tagOf = new Map(trip.tags.map(t => [tagKey(t), t.no]));
     const owner = boatOwner(state, trip);
     const groups = shopsOf(state, trip).map(shop => {
       const people = shopPeople(state, tripId, shop.key);
       const guides = shop.own ? unique([...trip.guides, ...people.map(p => p.guide)]) : unique(people.map(p => p.guide));
       const members = [
-        ...guides.map(name => ({ kind: 'guide', name, label: 'ガイド', tag: tagOf.get(tagKey({ guide: name, shop: shop.key })) || '' })),
-        ...people.map(p => ({ kind: 'person', name: p.name, person: p, label: kindLabel(p, trip), status: C().status(p, trip),
-          tag: tagOf.get(tagKey({ personId: p.id })) || '' }))
-      ].map((m, i) => ({ ...m, order: i })).sort((a, b) => byTag(a, b) || a.order - b.order);
+        ...guides.map(name => ({ kind: 'guide', name, label: 'ガイド' })),
+        ...people.map(p => ({ kind: 'person', name: p.name, person: p, label: kindLabel(p, trip), status: C().status(p, trip) }))
+      ];
       return { ...shop, owner: shop.name === owner, members, guides: guides.length, people: people.length };
     });
-    const all = groups.flatMap(g => g.members);
-    return { trip, owner, groups, aboard: all.length, tagged: all.filter(m => m.tag).length, untagged: all.filter(m => !m.tag).length };
-  }
-
-  /* お店の札の頭文字。もう付けた札があればそれ、無ければ名前の字で、ほかのお店と重ならない物。まだ人のいないお店は取らない */
-  function prefixes(groups) {
-    const fixed = groups.map(g => { const t = g.members.find(m => m.tag); return t ? prefixOf(t.tag) : ''; });
-    const used = new Set(fixed.filter(Boolean));
-    return groups.map((g, i) => {
-      if (fixed[i] || !g.members.length) return fixed[i];
-      const chars = [...String(g.name).normalize('NFKC').toUpperCase()].filter(c => /[\p{L}\p{N}]/u.test(c));
-      const p = chars.find(c => !used.has(c)) || [...Array(groups.length + 1).keys()].map(n => String(n + 1)).find(c => !used.has(c));
-      used.add(p);
-      return p;
-    });
-  }
-
-  /* 番号の無い人に札を付ける。お店ごとに、今ある番号の続きから */
-  function assignTags(state, { tripId, at }) {
-    const g = boatGroups(state, tripId);
-    if (!g || !g.untagged) return state;
-    const pre = prefixes(g.groups);
-    const tags = g.groups.flatMap((group, i) => {
-      let next = Math.max(0, ...g.trip.tags.filter(t => prefixOf(t.no) === pre[i]).map(t => tagNumber(t.no))) + 1;
-      return group.members.filter(m => !m.tag).map(m => {
-        const no = `${pre[i]}-${next++}`;
-        return m.kind === 'guide' ? { guide: m.name, shop: group.key, no } : { personId: m.person.id, no };
-      });
-    });
-    return C().addTags(state, { tripId, tags, at });
+    return { trip, owner, groups, aboard: groups.reduce((n, g) => n + g.members.length, 0) };
   }
 
   /* ---------- 合同名簿（印刷） ---------- */
-  /* 合同名簿に載せる項目。船の上で要る物だけ（札は別の列）。住所・生年月日・C カード・潜水経験と、健康の 2 欄（既往症・当日の健康状態）は、
+  /* 合同名簿に載せる項目。船の上で要る物だけ。住所・生年月日・C カード・潜水経験と、健康の 2 欄（既往症・当日の健康状態）は、
      各店の条例の名簿（P4）だけに残す（この店のお客さんの分も載せない。船の全員の一覧に健康を載せない） */
   const JOINT_KEYS = ['name', 'shop', 'kind', 'guide', 'emergency'];
   const JOINT_JA = { shop: '店', kind: '種類', guide: 'ガイド' };
   const jointItems = (kind) => JOINT_KEYS.map(key => ({ key, ja: JOINT_JA[key] || S().ITEMS[kind].find(i => i.key === key).ja }));
 
-  /* お店ごとに、お客さんの行（札の番号と合同名簿の項目）。ガイドは名簿に入れず、札だけ。blank は空の欄の数 */
+  /* お店ごとに、お客さんの行（合同名簿の項目）。ガイドは名簿に入れず、人数だけ。blank は空の欄の数 */
   function jointRows(state, tripId) {
     const g = boatGroups(state, tripId);
     if (!g) return null;
@@ -251,30 +238,86 @@
       name: group.name, own: group.own, owner: group.owner, guides: group.guides,
       rows: group.members.filter(m => m.kind === 'person').map(m => {
         const cells = Object.fromEntries(items.map(i => [i.key, cellOf(m, group, i.key)]));
-        return { personId: m.person.id, tag: m.tag, done: m.status.done, blank: items.filter(i => !cells[i.key]).length, cells };
+        return { personId: m.person.id, done: m.status.done, blank: items.filter(i => !cells[i.key]).length, cells };
       })
     }));
     return { trip: g.trip, owner: g.owner, items, groups, people: groups.reduce((n, x) => n + x.rows.length, 0),
       guides: groups.reduce((n, x) => n + x.guides, 0) };
   }
 
-  /* ---------- ポイントを離れる前 ---------- */
-  /* 札ボードで「海の中」が 0 枚になったときに 1 回押す。札の枚数と時刻を残す。
-     札の番号が無い人がいる（ボードで数えられない）・誰もいないときは残さない（problem: untagged / empty） */
-  function recordLeave(state, { tripId, at }) {
+  /* ---------- 船の上: お店ごとに「全員戻った」（決定ログ photo-shopcheck） ---------- */
+  /* ガイドが口で「全員戻りました」と伝えたら、そのお店を 1 回押す（今の口頭の確かめのまま、30 人を数えない）。
+     全部のお店が戻るまで、ポイントを離れられない。人数が合わないときだけ、そのお店のお客さんの名前を呼んで「いた」を押す。
+     何本目かは、ポイントを離れた数 + 1。記録は足すだけ（押し間違いは undo を足して取り消す） */
+  const diveNow = (trip) => trip.checks.filter(c => c.stage === 'leave').length + 1;
+  const leaves = (trip) => trip.checks.filter(c => c.stage === 'leave');
+
+  /* 今の本の、お店ごとの確かめ。お客さんのいないお店は入れない（ガイドだけのお店は数えない）。
+     backAt: 戻ったと押した時刻（取り消したら ''）/ here: 名前で呼んで「いた」を押した人の id */
+  function returns(state, tripId) {
     const g = boatGroups(state, tripId);
-    if (!g) throw new Error(`recordLeave: 便が見つからない (${tripId})`);
-    if (!g.aboard) return { state, problem: 'empty' };
-    if (g.untagged) return { state, problem: 'untagged' };
-    return { state: C().addCheck(state, { tripId, stage: 'leave', tags: g.tagged, at }), problem: null };
+    if (!g) return null;
+    const dive = diveNow(g.trip);
+    const now = g.trip.checks.filter(c => c.dive === dive && c.stage !== 'leave');
+    const shops = g.groups.filter(group => group.people > 0).map(group => {
+      const mine = now.filter(c => c.shop === group.key);
+      const last = mine.filter(c => c.stage === 'return' || c.stage === 'undo').pop();
+      return {
+        key: group.key, name: group.name, own: group.own, owner: group.owner,
+        guides: group.members.filter(m => m.kind === 'guide').map(m => m.name),
+        people: group.members.filter(m => m.kind === 'person'),
+        backAt: last && last.stage === 'return' ? last.at : '',
+        here: new Set(mine.filter(c => c.stage === 'here').map(c => c.person))
+      };
+    });
+    const waiting = shops.filter(x => !x.backAt);
+    return { trip: g.trip, dive, shops, waiting, allBack: shops.length > 0 && !waiting.length,
+      people: shops.reduce((n, x) => n + x.people.length, 0) };
   }
-  const leaveChecks = (trip) => trip.checks.filter(c => c.stage === 'leave');
-  /* 続けて押したか。lastMs は前の記録の時刻（ミリ秒。無ければ null）、nowMs は今。時計は画面の側で読む */
-  const leaveRepeat = (lastMs, nowMs) => Number.isFinite(lastMs) && nowMs >= lastMs && nowMs - lastMs < LEAVE_GUARD_MS;
+
+  function shopNow(state, tripId, shop, name) {
+    const r = returns(state, tripId);
+    if (!r) throw new Error(`${name}: 便が見つからない (${tripId})`);
+    return { r, x: r.shops.find(s => s.key === shop) || null };
+  }
+
+  /* そのお店が全員戻った。もう戻っていれば何もしない（続けて押しても 1 回） */
+  function recordReturn(state, { tripId, shop, at }) {
+    const { r, x } = shopNow(state, tripId, shop, 'recordReturn');
+    if (!x) return { state, problem: 'shop' };
+    if (x.backAt) return { state, problem: null };
+    return { state: C().addCheck(state, { tripId, check: { stage: 'return', shop, dive: r.dive }, at }), problem: null };
+  }
+
+  /* 押し間違いの「戻った」を取り消す（記録は消さず、取り消しを足す） */
+  function undoReturn(state, { tripId, shop, at }) {
+    const { r, x } = shopNow(state, tripId, shop, 'undoReturn');
+    if (!x || !x.backAt) return { state, problem: null };
+    return { state: C().addCheck(state, { tripId, check: { stage: 'undo', shop, dive: r.dive }, at }), problem: null };
+  }
+
+  /* 人数が合わないとき、名前で呼んでいた人。そのお店のお客さんだけ */
+  function recordHere(state, { tripId, shop, personId, at }) {
+    const { r, x } = shopNow(state, tripId, shop, 'recordHere');
+    if (!x) return { state, problem: 'shop' };
+    if (!x.people.some(m => m.person.id === personId)) return { state, problem: 'person' };
+    if (x.here.has(personId)) return { state, problem: null };
+    return { state: C().addCheck(state, { tripId, check: { stage: 'here', shop, dive: r.dive, person: personId }, at }), problem: null };
+  }
+
+  /* ポイントを離れる。全部のお店が戻っていなければ残さない（problem: waiting）。誰も乗っていなければ残さない（empty） */
+  function recordLeave(state, { tripId, at }) {
+    const r = returns(state, tripId);
+    if (!r) throw new Error(`recordLeave: 便が見つからない (${tripId})`);
+    if (!r.shops.length) return { state, problem: 'empty' };
+    if (r.waiting.length) return { state, problem: 'waiting' };
+    return { state: C().addCheck(state, { tripId, check: { stage: 'leave', dive: r.dive }, at }), problem: null };
+  }
 
   R.rosterShare = {
     MAX_PARTNERS, JOINT_KEYS, boatOwner, shopsOf, shopPeople, shopProblem, addPartner, removePartner, setHost,
     partnerGuide, addPartnerPeople, setPartnerGuide, holdPartnerHealth, handOver, addBigSample,
-    kindLabel, boatGroups, assignTags, jointRows, recordLeave, leaveChecks, leaveRepeat
+    fromListReading, listMissing, addPartnerList,
+    kindLabel, boatGroups, jointRows, returns, recordReturn, undoReturn, recordHere, recordLeave, leaves
   };
 })();

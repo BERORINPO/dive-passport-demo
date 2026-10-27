@@ -30,6 +30,24 @@
     ['見本 家族', '家族', `090-0000-${String(2000 + i).slice(-4)}`], i % 3 === 0 ? 'NONE' : 'OW', i % 3 === 0 ? 0 : 10 + i, i % 3 === 0 ? '' : '2026-05');
 
 
+  /* 見本の予約の一覧の写真（assets/samples/l1.jpg、C ダイブの 7 人）を読んだ答え。乗り合いの他のお店が写真 1 枚で渡す見本
+     （決定ログ photo-shopcheck）。本物の AI の答えではなく、写真に書いた物を手で写した（見本の読み取りで使う。本物の AI で読むと答えは変わりうる）。
+     見本 大地 は体験かが読みにくい（自信なし）。Lena Fischer は緊急時の連絡先が無い */
+  const listPerson = (name, course, phone, unsure) => ({ name, birthDate: '', phone: '', address: '',
+    emergency: phone ? { name: '見本 家族', relation: '家族', phone } : { name: '', relation: '', phone: '' },
+    cert: { course, date: '' }, dives: '', lastDive: '', sizes: { height: '', weight: '', foot: '' }, unsure });
+  R.SAMPLE_LIST_READINGS = Object.freeze({
+    l1: { booking: null, healthSeen: false, people: [
+      listPerson('見本 一真', 'NONE', '090-0000-2000', []),
+      listPerson('見本 明美', '', '090-0000-2001', []),
+      listPerson('見本 大地', 'NONE', '090-0000-2002', ['cert']),
+      listPerson('Lena Fischer', 'NONE', '', []),
+      listPerson('見本 千尋', '', '090-0000-2004', []),
+      listPerson('見本 悠', '', '090-0000-2005', []),
+      listPerson('見本 早苗', 'NONE', '090-0000-2006', [])
+    ] }
+  });
+
   R.BIG_SAMPLE = Object.freeze({
     trip: { start: '13:00', kind: 'dive', tour: 'ファンダイビング（ボート 2 本）', boat: '見本丸', site: '砂辺' },
     guide: BIG_OWN_GUIDE, leadPhone: '090-0000-0001', own: BIG_OWN,

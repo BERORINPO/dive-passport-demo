@@ -19,7 +19,7 @@
     snorkel: { title: 'スノーケリング者名簿', rule: `${RULE} 第36条第3項` }
   };
   const WHO_JA = { staff: 'お店', guest: 'お客さん', ai: 'AI', system: '自動' };
-  const DOC_JA = { mail: '予約メール', paper: '申込書', ccard: 'C カード' };
+  const DOC_JA = { mail: '予約メール', paper: '申込書', ccard: 'C カード', list: '予約の一覧' };
   const FIELD_JA = { name: '氏名', birthDate: '生年月日', phone: '電話', address: '住所', emergency: '緊急時の連絡先', cert: 'C カード',
     courses: '講習受講歴', dives: '経験', lastDive: '最後に潜った日', sizes: 'サイズ', health: '健康の欄', guide: 'ガイド',
     site: '潜水場所', guides: 'ガイド', source: '予約の出どころ', people: '人数', leadName: '代表者', leadPhone: '代表者の電話', note: 'メモ',
@@ -124,7 +124,7 @@
     return [
       ...tripMast(trip, '今日の名簿', ui, g.count),
       cancelBand(trip, ui),
-      trip.partners.length ? el('p', { class: 'note', text: '乗り合いの他のお店のお客さんは、この名簿に入れません（条例の名簿はお店ごと）。船の全員は「乗り合い・札」の合同名簿で見ます。' }) : null,
+      trip.partners.length ? el('p', { class: 'note', text: '乗り合いの他のお店のお客さんは、この名簿に入れません（条例の名簿はお店ごと）。船の全員は「乗り合い」の合同名簿で見ます。' }) : null,
       tripFields(g, ui),
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, '見てほしい人', el('small', { text: `${g.check.length} 人` })),
@@ -141,7 +141,7 @@
           nameOf(x.person, trip),
           el('span', { class: 'st st--ok', text: x.done ? '✓ そろった' : '✓ お客さんの分' }))))) : null,
       /* ほかの書き出しは 1 行にまとめる。主な操作（印刷）だけを下の帯に */
-      el('p', { class: 'morelinks' }, button('乗り合い・札', () => ui.go('share', { tripId })), button('名簿の取り込み', () => ui.go('intake', { tripId })),
+      el('p', { class: 'morelinks' }, button('乗り合い', () => ui.go('share', { tripId })), button('名簿の取り込み', () => ui.go('intake', { tripId })),
         button('CSV に書き出す', () => exportCsv(trip, ui)), button('カレンダー（.ics）', () => ui.go('ics', { tripId })), button('記録', () => ui.go('log', { tripId })),
         trip.cancel || trip.host ? null : button('この便を中止にする', () => ui.go('cancel', { tripId }), 'linkbtn linkbtn--warn')),
       el('label', { class: 'check' },
@@ -373,6 +373,17 @@
   }
 
   /* ---------- 記録 ---------- */
+  /* 船の上の確かめ（roster-share.js の returns）。お店の '' はこの店。札で数えていた版（2026-10-27 まで）の記録は札の枚数で出す */
+  function aboardText(a, s) {
+    const shop = a.shop === '' ? s.shop.name : a.shop;
+    const person = a.person ? s.people.find(p => p.id === a.person) : null;
+    const n = a.dive ? `${a.dive} 本目: ` : '';
+    if (a.stage === 'leave') return a.tags === undefined ? `${n}全部のお店が戻って、ポイントを離れた` : `ポイントを離れる前: 全員戻った（札 ${a.tags} 枚）`;
+    if (a.stage === 'return') return `${n}${shop}が全員戻った`;
+    if (a.stage === 'undo') return `${n}${shop}の「全員戻った」を取り消した`;
+    if (a.stage === 'here') return `${n}名前を呼んで、${(person && person.name) || '名前の分からない人'}がいた（${shop}）`;
+    return '船の上の確かめ';
+  }
   const PAPER_JA = { joint: '合同名簿', board: '札ボード', partner: '相乗りのお店の名簿' };
   function logLine(e, s, items) {
     const person = e.kind === 'person' ? s.people.find(p => p.id === e.id) : null;
@@ -386,7 +397,7 @@
       csv: `名簿を CSV に書き出した（${e.after.people} 人、健康の欄${e.after.health === false ? 'なし' : 'あり'}）`, remove: '保存期間を過ぎた便を消した',
       handover: `${(booking && booking.shop) || '乗り合いのお店'}から ${e.after.people} 人を受け取った（健康の欄${e.after.health ? 'あり' : 'なし'}）`,
       tags: e.after.renamed ? `ガイドの名前を直して、札を付け替えた（全部で ${e.after.tags} 枚）` : `札の番号を付けた（${e.after.added} 枚。全部で ${e.after.tags} 枚）`,
-      aboard: `ポイントを離れる前: 全員戻った（札 ${e.after.tags} 枚）`,
+      aboard: aboardText(e.after, s),
       cancel: `便を中止にした（${reasonJa(e.after.reason)}）`, reopen: '中止を取り消した', ack: `${e.after.shop}が中止を確かめた`
     }[e.act] || e.act;
     /* 便の項目（潜水場所・ガイド）だけは前と後を出す。人の中身（健康の答えなど）は出さない */

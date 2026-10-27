@@ -1,5 +1,6 @@
 /* 写真を AI に送れる形にする（外との境目のひとつ。canvas を使う）。
    どの写真も canvas に描き直してから送る（撮った場所などの情報が消える）。申込書は、健康の欄を黒く塗ってから送る。
+   予約の一覧（乗り合いの他のお店が撮る）は、お店が黒く塗った所があれば塗ってから送る。
    塗れたかは 2 回確かめる: 写真にする前の画素と、写真（JPEG）にした後の画素。
    ここで作った物だけが、ai-reader.js で送れる（isPrepared） */
 (() => {
@@ -39,7 +40,7 @@
 
   /* 描き直した写真に、四角（割合）を黒く塗り、送る形にする。sampleId は見本の読み取りだけが使う */
   async function prepare({ doc, src, rects, sampleId }) {
-    if (doc !== 'paper' && doc !== 'ccard') throw new Error(`photo-prep: 写真の種類が違う (${doc})`);
+    if (!['paper', 'ccard', 'list'].includes(doc)) throw new Error(`photo-prep: 写真の種類が違う (${doc})`);
     const boxes = (rects || []).filter(M().usable);
     if (boxes.length !== (rects || []).length) throw new Error('photo-prep: 使えない四角がある（写真の外か、小さすぎる）');
     if (doc === 'paper' && !boxes.length) throw new Error('photo-prep: 申込書は健康の欄を塗ってから送る');

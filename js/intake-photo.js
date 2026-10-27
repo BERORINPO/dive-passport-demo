@@ -38,7 +38,8 @@
   const locked = () => shot.loading || shot.making || shot.busy;   // 写真を読む・作る・AI が読む間は、写真と四角を変えない
 
   /* ---------- 塗る四角を確かめる。写真の上をなぞると四角を足せる ---------- */
-  function maskEditor(img, rects, onAdd) {
+  /* 乗り合いの他のお店が予約の一覧を撮る画面（partner-photo.js）でも使う。isLocked は、その画面が写真を作っている間か */
+  function maskEditor(img, rects, onAdd, isLocked = locked) {
     const size = M().fitSize(img.naturalWidth, img.naturalHeight, 900);
     const canvas = el('canvas', { class: 'photo__canvas', width: size.width, height: size.height, role: 'img',
       'aria-label': '写真。黒い四角が AI に送らない所。なぞると四角を足せます' });
@@ -53,7 +54,7 @@
       });
     };
     const at = (e) => { const b = canvas.getBoundingClientRect(); return { x: (e.clientX - b.left) / b.width, y: (e.clientY - b.top) / b.height }; };
-    canvas.addEventListener('pointerdown', (e) => { if (locked()) return; from = at(e); canvas.setPointerCapture(e.pointerId); });
+    canvas.addEventListener('pointerdown', (e) => { if (isLocked()) return; from = at(e); canvas.setPointerCapture(e.pointerId); });
     canvas.addEventListener('pointermove', (e) => { if (from) draw(M().rectFrom(from, at(e))); });
     canvas.addEventListener('pointerup', (e) => {
       if (!from) return;
@@ -354,5 +355,5 @@
     ];
   }
 
-  R.photoIntake = { renderIntake, renderReview };
+  R.photoIntake = { renderIntake, renderReview, maskEditor };
 })();

@@ -469,35 +469,14 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .agree input { width: 20px; height: 20px; margin: 2px 0 0; }
 .shophead { display: flex; justify-content: space-between; gap: 8px; margin: 0; padding: 10px var(--inset) 6px; font-weight: 700; font-size: 15px; }
 .shophead span:last-child { font-family: var(--font-figure); font-weight: 400; color: var(--muted); font-size: 14px; white-space: nowrap; }
-.tagrow { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 8px var(--inset); border-top: 1px solid var(--line); overflow-wrap: anywhere; }
-.tagrow__no { font-family: var(--font-figure); font-weight: 700; }
+.tagrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: baseline; padding: 8px var(--inset); border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .tagrow small { font-size: 14px; color: var(--muted); white-space: nowrap; }
 .tagrow .st { font-size: 14px; }
 .paper__shop td { background: var(--paper-head); font-weight: 700; }
-.paper__tag { font-family: var(--font-figure); font-weight: 700; }
-.paper__table th.paper__tagcol { width: 4.5%; }
 /* 合同名簿（5 項目。健康の 2 欄は載せない）の列。短い種類は細く、緊急時の連絡先は広く */
 .paper__table th.paper__col--kind { width: 6%; }
 .paper__table th.paper__col--shop { width: 12%; }
 .paper__table th.paper__col--emergency { width: 22%; }
-/* 札ボード（印刷の見本。画面では縮めて見せる） */
-.board__top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; }
-.board__top h3 { margin: 0; font-size: 24px; }
-.board__top p { margin: 0; font-weight: 700; }
-.board__steps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 10px 0; padding: 0; list-style: none; }
-.board__steps li { border: 1.5px solid var(--paper-ink); border-radius: var(--radius); padding: 8px 10px; font-size: 13px; line-height: 1.45; }
-.board__steps b { display: block; font-size: 14px; }
-.board__zones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.board__zone { min-height: 160px; border: 2px solid var(--paper-ink); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; }
-.board__zone h4 { margin: 0; font-size: 20px; }
-.board__zone p { margin: 0; font-size: 12px; color: var(--paper-rule); }
-.board__zone--sea { background: var(--paper-head); }
-.board__foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; margin: 10px 0 0; font-size: 11px; }
-.tagsheet { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.tagcard { border: 1px dashed var(--paper-rule); padding: 8px 10px; min-height: 80px; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; overflow-wrap: anywhere; }
-.tagcard b { font-family: var(--font-figure); font-size: 26px; line-height: 1; }
-.tagcard span { font-size: 13px; }
-.tagcard small { font-size: 10px; color: var(--paper-rule); }
 /* 血中酸素（県警の体調チェック表）: 年齢の印・高リスクの数・1 人ずつの欄・手当ての案内。お客さんの症状の案内 */
 .age { display: inline-block; margin-left: 8px; color: var(--info); font-family: var(--font-figure); font-size: 14px; font-weight: 700; white-space: nowrap; }   /* 箱で囲まない（design.md の部品） */
 .sum .sum__hi { color: var(--warn); font-weight: 700; }
@@ -540,16 +519,11 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .sym__ln p { margin: 0; }
 .sym__lang { font-size: 14px; }
 .sym__words { font-weight: 700; }
-@media (min-width: 720px) {
-  .board__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .tagsheet { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-}
-/* 札ボードの印刷: 1 枚目がボード、2 枚目から切り取る札（A4 横）。画面の大きさの決まりより後に置く */
-@media print {
-  .paper--tags { break-before: page; }
-  .board__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .board__top h3 { font-size: 28pt; }
-  .board__zone { min-height: 120mm; }
-  .tagsheet { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-  .tagcard { min-height: 26mm; break-inside: avoid; }
-}
+/* 乗り合い: 写真で名前を渡す・船の上で店ごとに戻った（決定ログ photo-shopcheck） */
+.subhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 22px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line-2); font-size: 15px; font-weight: 700; }
+.subhead span { font-family: var(--font-figure); color: var(--muted); font-weight: 400; }
+.sumline { margin: 10px 0 0; font-size: 15px; }
+.rowedit { grid-column: 1 / -1; display: grid; gap: 4px; margin: 8px 0 4px; padding: 8px 0 0; border-top: 1px dashed var(--line-2); }
+.bk > .btn--small { align-self: center; }
+.backs .bk { min-height: 56px; align-items: center; }
+.backs .st { font-size: 15px; }

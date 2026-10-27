@@ -10,7 +10,7 @@
   const SOURCES = ['mail', 'form', 'phone', 'partner'];        // 予約の出どころ: 予約サイトのメール / 自社のフォーム / 電話など / 乗り合いの他店
   const FIELD_SRC = ['mail', 'paper', 'ccard', 'guest', 'staff', 'passport', 'partner'];   // その項目を入れたもの
   const LOG_WHO = ['staff', 'guest', 'ai', 'system'];          // 記録に残す「した人」
-  const LOG_ACT = ['add', 'edit', 'ai', 'check', 'print', 'csv', 'remove', 'handover', 'tags', 'aboard', 'cancel', 'reopen', 'ack'];   // handover: 乗り合いの他店から受け取った / tags: 札の番号 / aboard: 札で全員そろった / cancel・reopen: 便の中止と取り消し / ack: 相乗りのお店が中止を確かめた
+  const LOG_ACT = ['add', 'edit', 'ai', 'check', 'print', 'csv', 'remove', 'handover', 'tags', 'aboard', 'cancel', 'reopen', 'ack'];   // handover: 乗り合いの他店から受け取った / tags: 札の番号（2026-10-27 まで）/ aboard: 船の上の確かめ（店ごとに戻った・名前で呼んだ・ポイントを離れた）/ cancel・reopen: 便の中止と取り消し / ack: 相乗りのお店が中止を確かめた
   const CANCEL_REASONS = ['wind', 'storm', 'boat', 'other'];   // 便の中止の理由: 波・風 / 雷・大雨 / 船の故障 / その他
   /* 理由の言葉。ja: 画面の名前 / why: 届く文とお客さんのページの「〜中止です」/ en: お客さんのページ（英語） */
   const CANCEL_TEXT = Object.freeze({
@@ -21,7 +21,12 @@
   });
   const COURSES = ['', 'OW', 'AOW', 'RESCUE', 'JOW', 'DM', 'OTHER', 'NONE'];               // NONE = C カードなし（体験）
   const TODAY = ['', 'ok', 'unwell'];
-  const DOCS = ['mail', 'paper', 'ccard'];
+  const DOCS = ['mail', 'paper', 'ccard', 'list'];               // list: 乗り合いの他のお店が撮る予約の一覧（予約アプリの画面か紙の名簿）
+  /* 船の上の確かめ（trip.checks の stage）。return: そのお店が全員戻った / undo: その戻ったを取り消した / here: 人数が合わないとき、名前で呼んでいた /
+     leave: ポイントを離れた。dive は何本目か（leave の数 + 1）。札で数えていた版（2026-10-27 まで）の leave には tags（札の枚数）が付く */
+  const CHECK_STAGES = ['leave', 'return', 'undo', 'here'];
+  const MAX_CHECKS = 300;
+  const MAX_DIVES = 20;
   const HEALTH_QUESTIONS = 5;                                  // data.js の R.HEALTH と同じ数
   const SPO2_DIVES = 3;                                        // 血中酸素を入れる本数（県警の体調チェック表は 3 本目まで）
   const SPO2_MIN = 50;                                         // 指先の機器の数値（%）として受け付ける幅
@@ -141,12 +146,20 @@
       !isStr(t.host, 60) && 'host',
       !(isList(t.partners, 10, s => isStr(s, 60) && s.trim() !== '') && new Set(t.partners).size === t.partners.length) && 'partners',
       !(isList(t.tags, MAX_PEOPLE * 4, tagOk) && new Set(t.tags.map(x => x.no)).size === t.tags.length) && 'tags',
-      !isList(t.checks, 50, x => onlyKeys(x, ['at', 'stage', 'missing', 'tags']) && isStr(x.at, 40) &&
-        ['leave', 'return'].includes(x.stage) && isList(x.missing, MAX_PEOPLE * 4, isId) &&
-        (x.tags === undefined || (Number.isInteger(x.tags) && x.tags >= 0 && x.tags <= MAX_PEOPLE * 4))) && 'checks',
+      !isList(t.checks, MAX_CHECKS, checkOk) && 'checks',
       !(t.cancel === undefined || cancelOk(t.cancel)) && 'cancel',
       !isStr(t.createdAt, 40) && 'createdAt'
     ]);
+  }
+  /* 船の上の確かめの 1 件。shop は乗るお店（'' はこの店）、person は名前で呼んでいた人 */
+  function checkOk(x) {
+    return onlyKeys(x, ['at', 'stage', 'missing', 'tags', 'shop', 'dive', 'person']) && isStr(x.at, 40) &&
+      CHECK_STAGES.includes(x.stage) && isList(x.missing, MAX_PEOPLE * 4, isId) &&
+      (x.tags === undefined || (Number.isInteger(x.tags) && x.tags >= 0 && x.tags <= MAX_PEOPLE * 4)) &&
+      (x.shop === undefined || isStr(x.shop, 60)) && (x.dive === undefined || (Number.isInteger(x.dive) && x.dive >= 1 && x.dive <= MAX_DIVES)) &&
+      (x.person === undefined || isId(x.person)) &&
+      (!['return', 'undo', 'here'].includes(x.stage) || (x.shop !== undefined && x.dive !== undefined)) &&
+      (x.stage !== 'here' || x.person !== undefined);
   }
   /* 便の中止。いつ・理由・中止を確かめた相乗りのお店（乗り合いの便だけ）。中止していない便には欄ごと無い */
   function cancelOk(c) {
@@ -243,8 +256,10 @@
 
   /* ---------- AI に送る物 ----------
      依頼: { doc:'mail', text } か { doc, image, masked }。申込書の写真は、健康の欄を塗ってから送る（masked: true）。
+     予約の一覧（list）は塗らなくてよいが、健康や備考の欄が写っていればお店が塗ってから送る（画面で確かめる）。
      ほかの項目は受け付けない（健康の項目を紛れ込ませない）。sampleId は見本の読み取りだけが使い、送らない */
-  const REQ_KEYS = { mail: ['doc', 'text', 'sampleId'], paper: ['doc', 'image', 'masked', 'sampleId'], ccard: ['doc', 'image', 'masked', 'sampleId'] };
+  const REQ_KEYS = { mail: ['doc', 'text', 'sampleId'], paper: ['doc', 'image', 'masked', 'sampleId'], ccard: ['doc', 'image', 'masked', 'sampleId'],
+    list: ['doc', 'image', 'masked', 'sampleId'] };
 
   function validateRequest(given) {
     if (!isObj(given) || !DOCS.includes(given.doc)) return result(['doc']);
@@ -343,7 +358,7 @@
   }
 
   R.roster = {
-    VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, CANCEL_REASONS, CANCEL_TEXT, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
+    VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, CHECK_STAGES, MAX_DIVES, CANCEL_REASONS, CANCEL_TEXT, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
     ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
     validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody,
     validateReading, fromModel

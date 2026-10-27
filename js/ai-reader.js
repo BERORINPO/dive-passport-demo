@@ -91,7 +91,7 @@
 
   async function readSample(req) {
     await new Promise(resolve => setTimeout(resolve, SAMPLE_MS));
-    const table = R.SAMPLE_READINGS || {};
+    const table = { ...(R.SAMPLE_READINGS || {}), ...(R.SAMPLE_LIST_READINGS || {}) };   // 予約の一覧の見本は data-big-sample.js
     const hit = req.sampleId && Object.prototype.hasOwnProperty.call(table, req.sampleId) ? table[req.sampleId] : null;
     return accept(JSON.parse(JSON.stringify(hit || { booking: null, people: [], healthSeen: false })));
   }

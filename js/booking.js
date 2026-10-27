@@ -31,7 +31,8 @@
 
   let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
                             // day（今日の名簿）/ spo2（血中酸素）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
-                            // share（乗り合い）/ partner（他のお店役）/ joint（合同名簿）/ jointprint / board（札ボード）/ leave（離れる前）は share-roster.js
+                            // share（乗り合い）/ partner（他のお店役）/ partnerpaper / joint（合同名簿）/ jointprint / boat（船の上）/ callout（名前で呼ぶ）は share-roster.js
+                            // partnerphoto（他のお店が写真で名前を渡す）は partner-photo.js
   let intakeTrip = '';
   let reviewPerson = '';
   let askBooking = '';
@@ -469,8 +470,8 @@
   /* 名簿の取り込みと確かめる画面（intake-photo.js）に渡す道具 */
   const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back, dock };
   const DAY_MODES = { day: 'renderDay', spo2: 'renderSpo2', cancel: 'renderCancel', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
-  const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', partnerpaper: 'renderPartnerPaper', joint: 'renderJoint', jointprint: 'renderJointPrint', board: 'renderBoard', leave: 'renderLeave' };
-  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint', 'board'];
+  const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', partnerpaper: 'renderPartnerPaper', joint: 'renderJoint', jointprint: 'renderJointPrint', boat: 'renderBoat', callout: 'renderCallout' };
+  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint'];
 
   function render() {
     mailOut = null;
@@ -481,9 +482,10 @@
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })
-              : SHARE_MODES[mode] ? R.shareRoster[SHARE_MODES[mode]]({ tripId: dayTrip, shop: shareShop, ui }) : renderList();
+              : SHARE_MODES[mode] ? R.shareRoster[SHARE_MODES[mode]]({ tripId: dayTrip, shop: shareShop, ui })
+                : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui }) : renderList();
     R.fill(root, body);
-    /* 印刷では名簿の紙だけを出す（css/app.css）。紙が無い画面（札の番号がまだ）では白紙にしない */
+    /* 印刷では名簿の紙だけを出す（css/app.css）。紙が無い画面では白紙にしない */
     document.body.classList.toggle('print-roster', PRINT_MODES.includes(mode) && !!root.querySelector('.paper'));
     if (mode === 'list') showPickedDay();
   }
@@ -498,7 +500,7 @@
   }
 
   R.renderBooking = render;
-  R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log', 'joint', 'leave'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
+  R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log', 'joint', 'boat', 'callout'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
   /* 見本 / 本物が変わった（切り替えた・上限で見本に戻った・healthz が通った）。入力の途中の画面は描き直さない */
   R.aiReader.onChange(() => { if (mode === 'list' && !document.getElementById('view-booking').hidden) render(); });
 })();

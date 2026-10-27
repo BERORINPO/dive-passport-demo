@@ -36,6 +36,15 @@ const PHOTO_FORMAT = `
 {"participants": [{"name": "", "birth_date": "", "phone": "", "address": "", "emergency_name": "", "emergency_relation": "", "emergency_phone": "", "cert_course": "", "cert_date": "", "dive_count": 0, "last_dive": "", "height_cm": 0, "weight_kg": 0, "foot_cm": 0, "unsure": []}], "health_info_visible": false}`;
 const PHOTO_PROMPT = RULES + PHOTO_FORMAT;
 
+/* 予約の一覧（乗り合いの他のお店が撮る、予約アプリの画面か紙の名簿）。船に渡す 3 つ（名前・体験かどうか・緊急時の連絡先）が読めればよい。
+   写真の文（申込書・C カード）は変えずに、一覧の読み方を足す。この文を変えたら、置いたあとの Worker で見本 l1 を読み直す */
+const LIST_PROMPT = `${RULES}
+
+この書類は、ダイビングショップの予約の一覧です（予約アプリの画面か、紙の名簿）。
+- 1 行に 1 人とは限らない。名前の書かれた人だけを participants に入れる（人数だけの行から人を作らない）。
+- 「体験」と書かれた人は cert_course を NONE にする。体験でないことしか分からない人は null のままにする。
+- 緊急時の連絡先の欄があれば emergency_name・emergency_relation・emergency_phone に入れる。その人自身や予約の代表者の電話は phone に入れ、緊急時の連絡先には入れない。${PHOTO_FORMAT}`;
+
 /* 予約メールだけ、予約そのものも読む（試験では聞いていない部分。置いたあとの確かめで見る）。
    答えを 2 つの JSON に分けさせないよう、形式は 1 つにまとめて見せる。例の値は null にする（0 を書き写させない） */
 const MAIL_PROMPT = (today) => `${RULES}
@@ -94,7 +103,7 @@ export function checkRequest(given, today) {
   }
   const mediaType = imageType(body.image);
   if (!mediaType) return { ok: false, error: 'image-type' };
-  return { ok: true, ask: { doc: body.doc, prompt: PHOTO_PROMPT, image: body.image, mediaType, size: body.image.length, redacted: 0 } };
+  return { ok: true, ask: { doc: body.doc, prompt: body.doc === 'list' ? LIST_PROMPT : PHOTO_PROMPT, image: body.image, mediaType, size: body.image.length, redacted: 0 } };
 }
 
 /* 答えの文の中の JSON の塊を、前から順に取り出す（文字列の中の括弧は数えない）。前後の説明・```json の囲み・2 つに分かれた答えに耐える。

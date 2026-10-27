@@ -27,9 +27,10 @@ const json = (status, data) => ({ type: 'basic', status, ok: status >= 200 && st
 const load = (path) => vm.runInThisContext(readFileSync(new URL(path, import.meta.url), 'utf8'));
 load('../js/roster-schema.js');
 load('../js/data-samples.js');
+load('../js/data-big-sample.js');
 load('../js/health-redact.js');
 load('../js/ai-reader.js');
-const { aiReader: A, SAMPLE_READINGS } = globalThis.REDUX;
+const { aiReader: A, SAMPLE_READINGS, SAMPLE_LIST_READINGS } = globalThis.REDUX;
 /* 写真は photo-prep.js が作った物だけ送れる。ここでは作った印だけを差し替える（canvas は Node に無い） */
 const preparedSet = new WeakSet();
 globalThis.REDUX.photoPrep = { isPrepared: (r) => preparedSet.has(r) };
@@ -47,6 +48,13 @@ test('見本: 答えと送った量が返る。sampleId は記録に入らない
   const { reading, sent } = await A.read({ doc: 'mail', text: 'abc', sampleId: 'e1' });
   assert.deepEqual(reading, SAMPLE_READINGS.e1);
   assert.deepEqual(sent, { doc: 'mail', size: 3, masked: false, mode: 'sample', healthSeen: false, redacted: 0 });
+});
+
+test('見本: 予約の一覧の見本（l1）も読める。形に合う', async () => {
+  A.setMode('sample');
+  const { reading, sent } = await A.read(P({ doc: 'list', image: 'QUJD', masked: false, sampleId: 'l1' }));
+  assert.deepEqual(reading, SAMPLE_LIST_READINGS.l1);
+  assert.deepEqual([reading.people.length, sent.doc, sent.masked], [7, 'list', false]);
 });
 
 test('見本: 知らない id や prototype の名前でも止まらず、空の答えになる', async () => {

@@ -222,6 +222,23 @@ test('写真: JPEG と PNG は先頭の印で種類を決めて送る。ほか�
   assert.equal((await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL }, headers: { 'content-type': 'text/plain' } }))).status, 415);
 });
 
+test('予約の一覧（乗り合いの他のお店の写真）: 塗らなくても送れ、一覧の読み方の文で読む。予約の項目は受け取らない', async () => {
+  const s = setup();
+  s.api.answer = '{"participants": [{"name": "見本 一真", "cert_course": "NONE", "emergency_phone": "090-0000-2000", "phone": "090-9999-0000"}], "booking": {"people": 7}, "health_info_visible": false}';
+  const res = await call(s, req('/api/read', { body: { doc: 'list', image: JPEG, masked: false } }));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.booking, null, '予約の項目は予約メールのときだけ');
+  assert.deepEqual([body.people[0].name, body.people[0].cert.course, body.people[0].emergency.phone], ['見本 一真', 'NONE', '090-0000-2000']);
+  const prompt = s.api.calls[s.api.calls.length - 1].body.messages[0].content.find(c => c.type === 'text').text;
+  assert.ok(prompt.includes('予約の一覧'), '一覧の読み方の文');
+  assert.ok(prompt.includes('健康や病気についての情報が見えても書き写さない'), '写真の決まりはそのまま');
+  const photo = await call(s, req('/api/read', { body: { doc: 'ccard', image: JPEG } }));
+  assert.equal(photo.status, 200);
+  const ccardPrompt = s.api.calls[s.api.calls.length - 1].body.messages[0].content.find(c => c.type === 'text').text;
+  assert.ok(!ccardPrompt.includes('予約の一覧'), 'C カードと申込書の文は変えない（置いたあとに確かめた 16 件の答えを保つ）');
+});
+
 test('大きすぎる本文は読まずに 413（content-length でも、実際の長さでも）', async () => {
   const s = setup();
   const big = JSON.stringify({ doc: 'ccard', image: 'A'.repeat(R.roster.MAX_IMAGE + 5000) });
