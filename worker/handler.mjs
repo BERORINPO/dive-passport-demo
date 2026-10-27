@@ -49,12 +49,22 @@ function missingConfig(env) {
   return miss;
 }
 
-/* 本文を上限まで読む。超えたら null（全部は読まない） */
-async function readCapped(request, max) {
+/* 本文を上限まで読む。超えたら null（全部は読まない）。
+   gzip が true の道（名簿の PUT）は、画面が大きな名簿を gzip で送る（content-encoding: gzip。ジンのレビュー 2026-10-27 MEDIUM 10）。
+   中身が本当に gzip の形のときだけほどき、ほどいた後も max までしか読まない（小さく縮めた大きな本文で止めを抜けさせない）。壊れた gzip は例外 */
+async function readCapped(request, max, { gzip = false } = {}) {
   const len = Number(request.headers.get('content-length'));
   if (Number.isFinite(len) && len > max) return null;
   if (!request.body) return '';
-  const reader = request.body.getReader();
+  let bytes = await readBytes(request.body, max);
+  if (bytes && gzip && bytes[0] === 0x1f && bytes[1] === 0x8b && /^gzip$/i.test((request.headers.get('content-encoding') || '').trim())) {
+    bytes = await readBytes(new Response(bytes).body.pipeThrough(new DecompressionStream('gzip')), max);
+  }
+  return bytes === null ? null : new TextDecoder().decode(bytes);
+}
+
+async function readBytes(stream, max) {
+  const reader = stream.getReader();
   const chunks = [];
   let total = 0;
   for (;;) {
@@ -67,7 +77,7 @@ async function readCapped(request, max) {
   const all = new Uint8Array(total);
   let at = 0;
   for (const c of chunks) { all.set(c, at); at += c.byteLength; }
-  return new TextDecoder().decode(all);
+  return all;
 }
 
 async function healthz(env, io) {
@@ -122,7 +132,8 @@ async function roster(request, env, io, note, who) {
   }
 
   if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
-  const raw = await readCapped(request, MAX_PUT_BODY);
+  let raw;
+  try { raw = await readCapped(request, MAX_PUT_BODY, { gzip: true }); } catch (e) { note.why = 'gzip'; return json(400, { error: 'input' }); }
   if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }); }
   let given;
   try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }

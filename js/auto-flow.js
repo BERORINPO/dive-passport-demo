@@ -64,7 +64,8 @@
   function outLine(o) {
     const what = o.kind === 'staff' ? 'お店に知らせた: 名簿の項目が届いていない人がいる'
       : `${o.status === 'sent' ? '送った' : o.status === 'queued' ? '送る準備ができた' : o.status === 'failed' ? '送れなかった' : '送っていない'}: ${OUT_JA[o.kind]}`;
-    const why = o.status === 'unsent' ? (o.why === 'no-email' ? '（メールアドレスが無い）' : '（メールの設定がまだ無い）')
+    const why = o.status === 'failed' && o.why === 'maybe-sent' ? '（送れたか分からない。お客さんに届いたか確かめてください）'
+      : o.status === 'unsent' ? (o.why === 'no-email' ? '（メールアドレスが無い）' : '（メールの設定がまだ無い）')
       : o.status === 'queued' ? '（メールの設定がそろうと送る）' : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, el('span', { class: 'fig', text: jstOf(o.at) }), `　${what}`),

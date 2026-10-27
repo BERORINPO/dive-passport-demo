@@ -1,0 +1,21 @@
+{
+  "js/booking.js": 7,
+  "js/data-pass.js": 1,
+  "js/data-samples.js": 4,
+  "js/data.js": 3,
+  "js/day-roster.js": 2,
+  "js/guest-ask.js": 9,
+  "js/health-redact.js": 2,
+  "js/intake-photo.js": 4,
+  "js/intake.js": 3,
+  "js/partner-photo.js": 3,
+  "js/roster-auto.js": 2,
+  "js/roster-schema.js": 2,
+  "js/roster-share.js": 1,
+  "js/share-roster.js": 2,
+  "js/shop.js": 1,
+  "worker/auto-core.mjs": 1,
+  "worker/auto.mjs": 1,
+  "worker/handler.mjs": 1,
+  "worker/read-core.mjs": 3
+}

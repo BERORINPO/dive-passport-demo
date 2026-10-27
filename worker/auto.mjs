@@ -4,7 +4,7 @@
 import { getRoster, putRoster } from './roster-db.mjs';
 import { checkPut, readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { checkRequest, periods } from './read-core.mjs';
-import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, queuedOf, markResults, runDue, roomForPublic,
+import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, markResults, runDue, roomForPublic, claimQueued, claimedBy, releaseStale, SENDING_STALE_MS,
   MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX, SITE_DAILY_MAX_ALL, MAIL_DAILY_MAX_ALL, unreadWhy, UNREAD_KEEP_DAYS, UNREAD_DAILY_MAX } from './auto-core.mjs';
 import { takeDaily } from './budget.mjs';
 import { addUnread } from './unread-db.mjs';
@@ -17,8 +17,10 @@ import { linkExpiry } from './ask-core.mjs';
 
 const R = globalThis.REDUX;
 const JST_MS = 9 * 3600 * 1000;
-/* 名簿を書くとき、別の端末と同時になったら読み直して当て直す回数 */
-const TRIES = 3;
+/* 名簿を書くとき、別の端末と同時になったら読み直して当て直す回数と、やり直す前に待つ時間（同じ時に何度もぶつからないよう、少しずらす。ジンのレビュー MEDIUM 10） */
+const TRIES = 5;
+const RETRY_WAIT_MS = [20, 60, 120, 250];
+const wait = (ms) => new Promise(r => setTimeout(r, ms + Math.floor(Math.random() * ms)));
 
 export function clockOf(io) {
   const now = io.now();
@@ -54,18 +56,23 @@ export async function changeRoster(env, io, change, { fromOutside = false, shop 
     if (fromOutside && !roomForPublic(checked.text)) return { ok: false, why: 'full' };
     const put = await putRoster(env.DB, shop, got.version, checked.text, at, { parts: checked.parts, today });
     if (put.ok) return { ok: true, state: checked.state, out };
+    if (i < TRIES - 1) await wait(RETRY_WAIT_MS[i] || 250);
   }
   return { ok: false, why: 'conflict' };
 }
 
 /* 時刻が来た予定を動かし、送る物を送って、結果を名簿に付ける。呼ぶのは Cron だけ（外からの入口では送らない。
    重なって走ると同じ連絡を 2 回送り、リンクも作り直されるため。ザクのレビュー 2026-10-27 M-1）。
-   送ったあとに結果を書けなかったときは、次の回にもう一度送る（送り損ねるより、重なる方を選ぶ） */
+   送る前に印を付けて書き（claimQueued）、書けた物だけを送る。送ったあとに結果を書けなかった物は、もう一度は送らず、30 分後に
+   「送れたか分からない」としてお店に見せる（auto-core.mjs の releaseStale。ジンのレビュー MEDIUM 10） */
 export async function runAutomation(env, io, note, shop = SHOP_DEFAULT) {
   const { at, nowJst } = clockOf(io);
-  const moved = await changeRoster(env, io, s => ({ state: runDue(s, { nowJst, at, newId, askBase: '' }) }), { shop });
+  const token = `${at.slice(0, 19)}Z#${newId().slice(-4)}`;
+  const before = `${new Date(io.now() - SENDING_STALE_MS).toISOString().slice(0, 19)}Z`;
+  const claim = (s) => claimQueued(releaseStale(runDue(s, { nowJst, at, newId, askBase: '' }), { before, at }), { token });
+  const moved = await changeRoster(env, io, s => ({ state: claim(s) }), { shop });
   if (!moved.ok) { note.why = `due-${moved.why}`; return; }
-  const queued = queuedOf(moved.state);
+  const queued = claimedBy(moved.state, token);
   note.queued = queued.length;
   if (!queued.length) return;
   const results = [];
