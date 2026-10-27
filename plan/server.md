@@ -61,7 +61,9 @@ CREATE TABLE rosters (
 1 つの仕組みで何店でも扱う。D1 の `shops`（worker/migrations/0003_shops.sql）が、お店の一覧（id・名前・スタッフのメール・予約フォームのサイト・予約メールの受け口のアドレス）。
 - スタッフ: Access でログインしたメールを一覧で引き、そのお店の名簿（rosters.shop = id）だけを読み書きする。どのお店にもいなければ 403。名簿のお店の名前は一覧の名前にそろえる
 - サイトの予約: 送ってきたサイト（origin）でお店を決める。Turnstile もそのお店のサイトの hostname だけを通す。1 日の件数はお店ごと
-- 届いたメール: 宛先（封筒の To）でお店を決める（ドメインを置いたあと）
+- 届いたメール: 宛先（封筒の To）でお店を決め、送り主はそのお店の senders で確かめる（ドメインを置いたあと）
+- 1 日の上限は、お店ごと（サイト 30・メール 30）と全店あわせて（サイト 300・メール 60）の両方で数える
+- 一覧の行が 1 つでも形が合わなければ止める（503）。一覧から消したお店は、Cron もリンクも動かさない（ザクのレビュー 2026-10-27）
 - お客さんのリンク: 鍵と一緒に置いたお店（ask_links.shop）の名簿を読む
 - Cron: 名簿があるお店を全部回る（1 店が失敗してもほかは止めない）
 - 一覧が空（表が無い D1 も）のあいだは、今までどおり 1 店（default）で動く
@@ -69,7 +71,7 @@ CREATE TABLE rosters (
 
 お店を足す（今は D1 のコンソールで。画面は後で）:
 ```sql
-INSERT INTO shops (id, name, members, sites, inbox) VALUES ('shop-a', 'A ダイブ', '["staff@example.com"]', '["https://shop-a.example.com"]', '');
+INSERT INTO shops (id, name, members, sites, inbox, senders) VALUES ('shop-a', 'A ダイブ', '["staff@example.com"]', '["https://shop-a.example.com"]', '', '[]');
 ```
 - 1 店目を足した時点で、一覧が空でなくなるので、今の見本（default）の名簿はどのスタッフからも見えなくなる。見本を残すなら、見本のお店の行も足し、id を default にする
 - スタッフは Access の Policy と ALLOWED_EMAILS にも足す（入口は Access のまま）

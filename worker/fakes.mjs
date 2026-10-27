@@ -73,9 +73,9 @@ export function fakeD1() {
     shops,
     shopsTable: false,
     /* テストの手伝い: お店を 1 つ足す（本物は D1 のコンソールで INSERT） */
-    addShop({ id, name, members = [], sites = [], inbox = '' }) {
+    addShop({ id, name, members = [], sites = [], inbox = '', senders = [] }) {
       db.shopsTable = true;
-      shops.set(id, { id, name, members: JSON.stringify(members), sites: JSON.stringify(sites), inbox });
+      shops.set(id, { id, name, members: JSON.stringify(members), sites: JSON.stringify(sites), inbox, senders: JSON.stringify(senders) });
     },
     failing: false,
     writes: 0,
@@ -127,7 +127,7 @@ export function fakeD1() {
         ...statement(args),
         async all() {
           if (db.failing) throw new Error('d1 down');
-          if (/^SELECT id, name, members, sites, inbox FROM shops$/.test(text)) {
+          if (/^SELECT id, name, members, sites, inbox, senders FROM shops$/.test(text)) {
             if (!db.shopsTable) throw new Error('D1_ERROR: no such table: shops: SQLITE_ERROR');
             return { results: [...shops.values()] };
           }

@@ -13,8 +13,21 @@ const list = (text) => {
 export function shopsFromRows(rows) {
   return (rows || []).filter(r => isObj(r) && SHOP_ID.test(String(r.id)) && typeof r.name === 'string').map(r => ({
     id: String(r.id), name: r.name.slice(0, 60),
-    members: list(r.members).map(m => m.toLowerCase()), sites: list(r.sites), inbox: String(r.inbox || '').trim().toLowerCase()
+    members: list(r.members).map(m => m.toLowerCase()), sites: list(r.sites), inbox: String(r.inbox || '').trim().toLowerCase(),
+    senders: list(r.senders).map(m => m.toLowerCase())
   }));
+}
+
+/* そのお店の予約メールを送ってきてよい送り主（「,」区切りの文字。auto-core.mjs の senderAllowed に渡す）。一覧が空なら MAIL_SENDERS */
+export function sendersOf(shops, shop, mailSenders) {
+  if (!shops.length) return String(mailSenders || '');
+  const s = shops.find(x => x.id === shop);
+  return s ? s.senders.join(',') : '';
+}
+
+/* 一覧にあるお店か（一覧から消したお店の名簿は、Cron もリンクも動かさない）。一覧が空なら default だけ */
+export function knownShop(shops, shop) {
+  return shops.length ? shops.some(s => s.id === shop) : shop === SHOP_DEFAULT;
 }
 
 /* Access でログインしたスタッフのお店。一覧が空なら 1 店。どのお店にもいなければ ''（名簿を見せない） */

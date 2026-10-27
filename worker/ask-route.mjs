@@ -6,7 +6,8 @@ import { readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { changeRoster, clockOf } from './auto.mjs';
 import { keyHash, findLink, useLink, mintLink, countLinks } from './ask-db.mjs';
 import { checkAsk, linkView, applyLink, personLinkTarget, bookingLinkTarget, USES_PER_DAY } from './ask-core.mjs';
-import { SHOP_ID } from './shop-core.mjs';
+import { SHOP_ID, knownShop } from './shop-core.mjs';
+import { listShops } from './shop-db.mjs';
 
 /* 鍵が無い・切れた・違う・予約が無い、はどれも同じ答え */
 const GONE = { status: 404, body: { error: 'gone' } };
@@ -30,6 +31,8 @@ export async function takeAsk(given, env, io, note, origin) {
   /* どのお店の名簿かは、鍵と一緒に置いたお店（お客さんから届いた物は信じない） */
   if (!link || !SHOP_ID.test(link.shop) || link.expiresOn < today) { note.why = 'gone'; return GONE; }
   const shop = link.shop;
+  /* 一覧から消したお店のリンクは開かない */
+  if (!knownShop(await listShops(env.DB), shop)) { note.why = 'gone'; return GONE; }
   if (!(await useLink(env.DB, hash, today, USES_PER_DAY))) { note.why = 'key-limit'; return { status: 429, body: { error: 'limit' } }; }
 
   if (checked.action === 'view') {

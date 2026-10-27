@@ -5,10 +5,10 @@ import { getRoster, putRoster } from './roster-db.mjs';
 import { checkPut, readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { checkRequest, periods } from './read-core.mjs';
 import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, queuedOf, markResults, runDue, roomForPublic,
-  MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX } from './auto-core.mjs';
+  MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX, SITE_DAILY_MAX_ALL, MAIL_DAILY_MAX_ALL } from './auto-core.mjs';
 import { takeDaily } from './budget.mjs';
 import { listShops, rosterShops } from './shop-db.mjs';
-import { shopForRecipient, nameOf, withShopName } from './shop-core.mjs';
+import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName } from './shop-core.mjs';
 import { mailReady, sendOne } from './mail.mjs';
 import { askModel } from './ask.mjs';
 import { mintLink, dropExpired } from './ask-db.mjs';
@@ -84,7 +84,8 @@ export async function scheduled(env, io) {
     if (!dbReady(env)) note.why = 'config:DB';
     else {
       /* 名簿があるお店を 1 つずつ回る。1 店が失敗しても、ほかのお店は止めない */
-      const shops = await rosterShops(env.DB);
+      const directory = await listShops(env.DB);
+      const shops = (await rosterShops(env.DB)).filter(shop => knownShop(directory, shop));
       note.shops = shops.length;
       note.queued = 0;
       note.sent = 0;
@@ -132,18 +133,23 @@ export async function receiveMail(message, env, io) {
 }
 
 async function takeMail(message, env, io, note) {
-  if (!senderAllowed(message.from, env.MAIL_SENDERS)) { note.why = 'sender'; message.setReject('Sender not accepted'); return; }
-  const results = message.headers.get('authentication-results') || message.headers.get('arc-authentication-results') || '';
-  if (!authPassed(results, message.from)) { note.why = 'auth'; message.setReject('Sender not authenticated'); return; }
   if (!dbReady(env) || !env.ANTHROPIC_API_KEY || !env.BUDGET) { note.why = 'config'; return; }
-  /* どのお店の予約かは、届いた宛先（封筒の To）をお店の一覧で引いて決める */
+  /* どのお店の予約かは、届いた宛先（封筒の To）をお店の一覧で引いて決める。送り主はそのお店の送り主の表で確かめる
+     （一覧が空なら MAIL_SENDERS。あるお店の転送元が、別のお店の受け口に予約を入れられないように。ザクのレビュー 2026-10-27） */
   const shops = await listShops(env.DB);
   const shop = shopForRecipient(shops, message.to);
   if (!shop) { note.why = 'inbox'; message.setReject('Unknown recipient'); return; }
   note.shop = shop;
+  if (!senderAllowed(message.from, sendersOf(shops, shop, env.MAIL_SENDERS))) { note.why = 'sender'; message.setReject('Sender not accepted'); return; }
+  const results = message.headers.get('authentication-results') || message.headers.get('arc-authentication-results') || '';
+  if (!authPassed(results, message.from)) { note.why = 'auth'; message.setReject('Sender not authenticated'); return; }
   if (Number(message.rawSize) > MAX_MAIL_BYTES) { note.why = 'size'; return; }
-  /* メールからの予約の 1 日の上限（お店ごと）。AI を呼ぶ前に数える（お店の読み取り /api/read の上限を食い尽くさせない） */
-  if (!(await takeDaily(env.BUDGET, `mail:${shop}:${clockOf(io).today}`, MAIL_DAILY_MAX))) { note.why = 'mail-daily'; return; }
+  /* メールからの予約の 1 日の上限（全店あわせてと、お店ごと）。AI を呼ぶ前に数える（お店の読み取り /api/read の上限を食い尽くさせない） */
+  const day = clockOf(io).today;
+  if (!(await takeDaily(env.BUDGET, `mail:${day}`, MAIL_DAILY_MAX_ALL)) || !(await takeDaily(env.BUDGET, `mail:${shop}:${day}`, MAIL_DAILY_MAX))) {
+    note.why = 'mail-daily';
+    return;
+  }
   const raw = await readRaw(message.raw, MAX_MAIL_BYTES);
   if (raw === null) { note.why = 'size'; return; }
   const mail = mailText(raw);
@@ -169,7 +175,10 @@ export async function takeSiteBooking(given, env, io, note, shop = SHOP_DEFAULT,
   const { at, nowJst, today } = clockOf(io);
   const checked = checkBooking(given, { today });
   if (!checked.ok) { note.why = `input-${checked.error}`.slice(0, 40); return { status: 400, body: { error: 'input' } }; }
-  if (!(await takeDaily(env.BUDGET, `site:${shop}:${today}`, SITE_DAILY_MAX))) { note.why = 'site-daily'; return { status: 429, body: { error: 'limit' } }; }
+  if (!(await takeDaily(env.BUDGET, `site:${today}`, SITE_DAILY_MAX_ALL)) || !(await takeDaily(env.BUDGET, `site:${shop}:${today}`, SITE_DAILY_MAX))) {
+    note.why = 'site-daily';
+    return { status: 429, body: { error: 'limit' } };
+  }
   const added = await changeRoster(env, io, s => addSiteBooking(s, { booking: checked.booking, at, nowJst, newId }), { fromOutside: true, shop, name });
   if (!added.ok) {
     note.why = `add-${added.why}`;

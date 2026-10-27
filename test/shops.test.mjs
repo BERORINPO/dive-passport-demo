@@ -159,6 +159,60 @@ test('一覧が空（表が無い D1）なら、今までどおり 1 店（defau
   assert.equal(stored(s, 'default').bookings.length, 1);
 });
 
+/* 届いたメールの見本（Email Routing が渡す形）。SPF も DKIM も送り主のドメインで通った印つき */
+function mail(from, to) {
+  const bytes = new TextEncoder().encode('Content-Type: text/plain; charset=utf-8\r\n\r\n11/5 体験ダイビング 1 名 見本 次郎 様');
+  const domain = from.split('@')[1];
+  return { from, to, rawSize: bytes.byteLength, rejected: '', headers: new Headers({ 'authentication-results': `mx; dkim=pass header.d=${domain}; spf=pass smtp.mailfrom=${from}` }),
+    raw: new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }), setReject(why) { this.rejected = why; } };
+}
+
+test('ザクのレビュー: 一覧の行が 1 つでも壊れていたら止める（全員が 1 つの名簿を共有しない）', async () => {
+  const s = setup();
+  s.db.shops.set('Bad_Id', { id: 'Bad_Id', name: 'x', members: '[]', sites: '[]', inbox: '', senders: '[]' });
+  assert.equal((await staff(s, A_STAFF, '/api/roster', 'GET')).status, 503);
+  assert.equal((await siteBooking(s, SITE_A, '見本 一郎')).status, 503);
+  assert.equal(s.db.rows.size, 0);
+});
+
+test('ザクのレビュー: 届いたメールは、宛先のお店の送り主だけ。全店あわせた 1 日の上限も数える', async () => {
+  const { receiveMail } = await import('../worker/auto.mjs');
+  const { fakeAnthropic } = await import('../worker/fakes.mjs');
+  const s = setup();
+  s.db.shops.clear();
+  s.db.addShop({ id: 'shop-a', name: 'A ダイブ', members: [A_STAFF], sites: [SITE_A], inbox: 'a@yoyaku.example', senders: ['fwd@shop-a.example'] });
+  s.db.addShop({ id: 'shop-b', name: 'B マリン', members: [B_STAFF], sites: [SITE_B], inbox: 'b@yoyaku.example', senders: ['fwd@shop-b.example'] });
+  const api = fakeAnthropic();
+  api.answer = JSON.stringify({ participants: [{ name: '見本 次郎' }], booking: { date: '2026-11-05', start: '08:30', tour: '体験ダイビング', people: 1, lead_name: '見本 次郎', lead_email: 'jiro@mail.example' }, health_info_visible: false });
+  const realFetch = s.io.fetch;
+  s.io.fetch = (url, init) => (url === 'https://api.anthropic.com/v1/messages' ? api.respond(init) : realFetch(url, init));
+  const cross = mail('fwd@shop-a.example', 'b@yoyaku.example');
+  await receiveMail(cross, s.env, s.io);
+  assert.ok(cross.rejected, 'A の転送元から B の受け口へは入れない');
+  assert.equal(api.calls.length, 0);
+  const ok = mail('fwd@shop-b.example', 'b@yoyaku.example');
+  await receiveMail(ok, s.env, s.io);
+  assert.equal(ok.rejected, '');
+  assert.equal(stored(s, 'shop-b').bookings.length, 1);
+  s.env.BUDGET.put('mail:2026-10-27', '60');
+  await receiveMail(mail('fwd@shop-a.example', 'a@yoyaku.example'), s.env, s.io);
+  assert.equal(api.calls.length, 1, '全店あわせて 60 件を超えたら AI を呼ばない');
+});
+
+test('ザクのレビュー: 一覧から消したお店は、Cron もリンクも動かさない', async () => {
+  const s = setup();
+  s.turnstile.hostname = 'shop-b.example.com';
+  await siteBooking(s, SITE_B, '見本 二郎');
+  const bId = stored(s, 'shop-b').bookings[0].id;
+  const made = await (await staff(s, B_STAFF, '/api/ask-link', 'POST', { bookingId: bId })).json();
+  s.db.shops.delete('shop-b');
+  await scheduled(s.env, s.io);
+  assert.equal(s.env.EMAIL.sent.length, 0, '消したお店には送らない');
+  const r = await handlePublic(new Request(`${PUBLIC}/api/ask`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+    body: JSON.stringify({ k: made.url.split('#k=')[1], action: 'view' }) }), s.env, s.io);
+  assert.equal(r.status, 404);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {
