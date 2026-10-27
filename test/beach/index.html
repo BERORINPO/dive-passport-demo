@@ -172,7 +172,7 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
     draw();
   });
 
-  /* 旧と新の切り替え。?v=old / ?v=new で直接開ける。切り替えたら URL も合わせる（読み直しても同じ画面） */
+  /* 旧と新の切り替え。何も付けずに開くと新。?v=old / ?v=new で直接開ける。切り替えたら URL も合わせる（読み直しても同じ画面） */
   function show(v) {
     document.getElementById('old').hidden = v !== 'old';
     document.getElementById('new').hidden = v !== 'new';
@@ -185,7 +185,7 @@ body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
   document.querySelectorAll('.tb__seg button').forEach(b => b.addEventListener('click', () => show(b.dataset.v)));
 
   draw();
-  show(new URLSearchParams(location.search).get('v') === 'new' ? 'new' : 'old');
+  show(new URLSearchParams(location.search).get('v') === 'old' ? 'old' : 'new');
 })();
 </script>
 </body>
