@@ -6,8 +6,8 @@
 | 役割 | パス |
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
-| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js worker/read-core.mjs |
-| adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/fakes.mjs |
+| core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js worker/read-core.mjs worker/sync-core.mjs |
+| adapter | js/ai-reader.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/fakes.mjs |
 | entry | index.html pass.html js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
@@ -26,6 +26,7 @@
 | worker/anthropic.mjs | Claude API（claude-haiku-5-5、/v1/messages） | `fakeAnthropic`（worker/fakes.mjs） | AI の読み取り試験 2026-10-21 の答え（予約の項目は試験していない。置いたあとに確かめる） | `ANTHROPIC_API_KEY`（この Worker 専用の 1 本、並行 1 本。Anthropic のこの Worker 専用ワークスペースで発行し、そこで月の上限） | なし |
 | worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS` は secret） | なし |
 | worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | 1 日の回数と今月の費用（目安）だけ |
+| worker/roster-db.mjs | Cloudflare D1（`DB`、表は worker/migrations/） | `fakeD1`（使う 3 つの文だけを読む） | — | Worker の binding | お店の名簿の正本（1 お店 1 行、版の番号つき）。plan/server.md |
 
 ## 3. Origin・監視
 - 画面のファイルと `/api` は同じ Worker から配る（同じ origin）。CORS と cross-site の Cookie は使わない
@@ -59,6 +60,8 @@
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
 |---|---|---|---|
+| 2026-10-27 build-all | 既存のサービス（OKABAN・OMUSUBI）の機能を全部そろえ、その上に船から先（条例の名簿・乗り合い・帰船確認）を載せる。順番は 6 段階（土台 → 船の日 → 予約と書類 → 決済と連絡 → 運営 → 予約サイトの在庫連動）。2026-10-21 の「予約管理では張り合わない（横に付ける）」を置き換える | Yosuke「時間がかかっても全部を作る」。既存 35 製品を一次情報で比べた結果（条例の 13 項目の名簿・乗り合いで他店の客の名前・店ごとの帰船確認はどこにも無い）。却下: 船から先だけを作り予約まわりはつなぐ（A。日数は 3〜4 分の 1 で済むが、店が 1 つの道具で済まない） | 無 |
+| 2026-10-27 roster-on-server | お店の名簿の正本を Cloudflare D1 に置く。1 お店 1 文書で、版の番号で書き込みを守る（古い版を元にした書き込みは 409 で最新を返し、画面が直す関数を当て直す）。サーバーは受け取った名簿を画面と同じ検査にかけ、記録の中身・期限切れの便・他店の客の健康の答えを外してから置く | 段階 1 の土台（plan/server.md）。直す決まりが全部「名簿 → 新しい名簿」の関数なので、当て直しで 2 台の同時の直しを両方残せる。却下: 変更を 1 件ずつ送る形（作りが重い）・Durable Object（1 お店 1 行で足りる） | test/sync.test.mjs |
 | 2026-10-27 form-to-roster | 自社の予約フォーム（予約前の確認）で送られた予約は、予約の一覧と名簿にも入る（同じ日・種類・開始時刻の便。無ければ作る。出どころは自社のフォーム）。名簿に入れるのは代表者の名前と経験だけ。送ったあとの画面から、そのまま「お客さんに聞く」画面で名簿の項目を入れられる。お店の受付の行に、予約の一覧に入ったかを出す | Yosuke「予約から潜水名簿作成も請け負えないの」。予約の入口は問わず、予約の後の名簿づくりを引き受ける形（予約の管理で OKABAN・OMUSUBI と戦わない）。健康の答えは持ち込まない: 予約前の確認の同意は「参加できるかを確かめるためだけ・30 日後に消す」で、1 年残す条例の名簿と使い道が違う（名簿の健康は、お客さんに聞く画面で名簿の同意をして答える。2 回答えることになるので、同意の文をそろえるかは後で決める）。却下: お店が受付から 1 件ずつ予約の一覧に入れる（手間が残る） | test/roster.test.mjs |
 | 2026-10-27 photo-shopcheck | 札ボードと札の印刷をやめる。乗る店は予約アプリの画面か紙の名簿を写真 1 枚で渡し、AI が合同名簿の 5 項目に起こし、店が自信なしと足りない所だけ直して渡す。船は店ごとに「全員戻った」を押す（船長が押し、ガイドも押せる）。4 店そろうまで「ポイントを離れる」は押せない。人数が合わないときだけ、その店の名前を呼んで「いた」を押す（見つからなければ 118）。船に渡す項目は 5 つのまま、店から船へ名前を渡す同意は申込書の 1 行で（この 3 つはモックの既定で仮に決めた）。モック v10-photo-shopcheck、Yosuke 承認 | 札ボードは毎便の印刷・配布・回収が風と水の船の上で負担で、客が札を動かし忘れると混乱する。乗る店の 1 人ずつの手入力は予約アプリとの二度打ち。今の口頭の確かめ（ガイドが船長に伝える）に乗せる。却下: 1 人ずつの入水・浮上（船の上でスマホに記録するのは 9 店中 4 店が難しい）、カメラで頭数（器材と人の陰で数え違う。顔は重い個人情報）、電子の札（機器の配布と充電）。2026-10-21 leave-one-tap を置き換える | なし（作るときに roster-share のテストで「そろうまで離れられない」を確かめる） |
 | 2026-10-23 ui-less-ai | 画面の形を直す: 白い面のカードを重ねない（罫線と余白だけ）・説明の小見出しを付けない・便の画面は時刻を大きく出す見出し・お客さんの画面はタブの無い 1 本の流れ・デモの説明は「デモの画面」を開いたときだけ。決まりは design.md の「形」と「部品」 | 点検（reports/UIのAIっぽさ点検.md）の重い 2 件と中の主な物。デザイナーへ頼む案は、11/9 までに自分で直せる所を直す方を取った | design.check（色の組）。形は目で見る |

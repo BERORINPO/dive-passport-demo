@@ -1,7 +1,8 @@
 /* Worker の外との境目の見本（Fake）。テストと手元の確かめだけが使い、index.mjs からは読まない（置く物に入らない）。
    - fakeKv: Workers KV の get / put（failing で壊せる）
    - fakeAccess: Access のチームの鍵を作り、JWT を署名し、/cdn-cgi/access/certs を返す
-   - fakeAnthropic: Claude API の答え（answer に返したい文、status で失敗） */
+   - fakeAnthropic: Claude API の答え（answer に返したい文、status で失敗）
+   - fakeD1: Cloudflare D1 の prepare / bind / first / run。roster-db.mjs が使う 3 つの文だけを読む（failing で壊せる） */
 
 /* Cloudflare の fetch と同じく、redirect は follow か manual だけを受け付ける（'error' は Workers で例外になる。ザクのレビュー） */
 export function checkRedirect(init) {
@@ -60,4 +61,42 @@ export function fakeAnthropic() {
     }
   };
   return api;
+}
+
+/* roster-db.mjs の 3 つの文（SELECT・INSERT … ON CONFLICT DO NOTHING・版つきの UPDATE）だけを、本物の D1 と同じ答えの形で返す。
+   知らない文は例外にする（roster-db.mjs に文を足したら、ここにも足してテストを通す） */
+export function fakeD1() {
+  const rows = new Map();
+  const db = {
+    failing: false,
+    writes: 0,
+    rows,
+    prepare(sql) {
+      const text = sql.replace(/\s+/g, ' ').trim();
+      const statement = (args) => ({
+        async first() {
+          if (db.failing) throw new Error('d1 down');
+          if (!/^SELECT version, state FROM rosters WHERE shop = \?1$/.test(text)) throw new Error(`fakeD1: 知らない文 ${text}`);
+          const row = rows.get(args[0]);
+          return row ? { version: row.version, state: row.state } : null;
+        },
+        async run() {
+          if (db.failing) throw new Error('d1 down');
+          let changes = 0;
+          if (/^INSERT INTO rosters \(shop, version, state, updated_at\) VALUES \(\?1, 1, \?2, \?3\) ON CONFLICT\(shop\) DO NOTHING$/.test(text)) {
+            if (!rows.has(args[0])) { rows.set(args[0], { version: 1, state: args[1], updated_at: args[2] }); changes = 1; }
+          } else if (/^UPDATE rosters SET version = version \+ 1, state = \?2, updated_at = \?3 WHERE shop = \?1 AND version = \?4$/.test(text)) {
+            const row = rows.get(args[0]);
+            if (row && row.version === args[3]) { rows.set(args[0], { version: row.version + 1, state: args[1], updated_at: args[2] }); changes = 1; }
+          } else {
+            throw new Error(`fakeD1: 知らない文 ${text}`);
+          }
+          db.writes += changes;
+          return { success: true, meta: { changes } };
+        }
+      });
+      return { bind: (...args) => statement(args) };
+    }
+  };
+  return db;
 }
