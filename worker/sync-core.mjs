@@ -42,10 +42,24 @@ function strictProblem(s) {
   return '';
 }
 
-/* PUT の本文 { base, state } を確かめる。返すのは { ok, base, state, text } か { ok: false, error } */
+/* 名簿の大きな減り。今の名簿（prev）から、人が SHRINK_MIN 人より多く、かつ SHRINK_SHARE の割合より多く消える書き込みは、
+   端末の名簿が読めずに空になったまま送られた、などの事故とみなす（ジンのレビュー 2026-10-27 CRITICAL）。
+   期限切れで消える分は、両方を同じ日に tidy してから比べるので数えない。わざと消す（デモの予約をすべて消す）ときは allowShrink */
+const SHRINK_MIN = 5;
+const SHRINK_SHARE = 0.3;
+export function shrinkProblem(prev, next) {
+  if (!prev) return false;
+  const kept = new Set(next.people.map(p => p.id));
+  const gone = prev.people.filter(p => !kept.has(p.id)).length;
+  return gone > SHRINK_MIN && gone > prev.people.length * SHRINK_SHARE;
+}
+
+/* PUT の本文 { base, state, allowShrink? } を確かめる。返すのは { ok, base, state, text, allowShrink } か { ok: false, error } */
 export function checkPut(given, { today, at }) {
   if (!given || typeof given !== 'object' || Array.isArray(given)) return { ok: false, error: 'shape' };
   const { base, state } = given;
+  if (!Object.keys(given).every(k => ['base', 'state', 'allowShrink'].includes(k))) return { ok: false, error: 'keys' };
+  if (given.allowShrink !== undefined && typeof given.allowShrink !== 'boolean') return { ok: false, error: 'allowShrink' };
   if (!Number.isInteger(base) || base < 0) return { ok: false, error: 'base' };
   if (!state || typeof state !== 'object' || Array.isArray(state)) return { ok: false, error: 'state' };
   const scrubbed = R.rosterCore.scrubLog(state);
@@ -56,7 +70,7 @@ export function checkPut(given, { today, at }) {
   const next = tidy(scrubbed, { today, at });
   const text = JSON.stringify(next);
   if (bytes(text) > MAX_ROSTER_BYTES) return { ok: false, error: 'size' };
-  return { ok: true, base, state: next, text };
+  return { ok: true, base, state: next, text, allowShrink: given.allowShrink === true };
 }
 
 /* 置いてある名簿の文字を読み直す。形の検査に落ちたら null（壊れた物を画面に広げない）。期限切れの便は、読むときにも消す */

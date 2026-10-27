@@ -9,7 +9,7 @@ import { handle } from '../worker/handler.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
 import { fakeKv, fakeAccess, fakeD1, checkRedirect } from '../worker/fakes.mjs';
 
-const SCRIPTS = ['core.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'roster-share.js', 'data-samples.js', 'roster-sync.js'];
+const SCRIPTS = ['core.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'roster-share.js', 'data-samples.js', 'data-big-sample.js', 'roster-sync.js'];
 const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
 const TEAM = 'mihon-team.cloudflareaccess.com';
 const AUD = 'aud-0123456789abcdef';
@@ -42,6 +42,8 @@ function server() {
   srv.fetch = async (path, init = {}) => {
     srv.calls += 1;
     if (srv.down) throw new TypeError('Failed to fetch');
+    /* Access のログインが切れたとき: ログインの画面への転送になり、redirect: 'manual' では中身の見えない答えになる */
+    if (srv.loginExpired) return { type: 'opaqueredirect', status: 0, json: async () => { throw new Error('opaque'); } };
     const headers = { ...(init.headers || {}), 'sec-fetch-site': 'same-origin', 'cf-access-jwt-assertion': jwt };
     /* Worker の 1 行のログは出さない（同時に呼んでも、元の console.log に戻す） */
     quiet += 1;
@@ -204,6 +206,82 @@ test('直しの中で作った id は、送るときの当て直しでも変わ�
   assert.equal(b[0].id, first);
   assert.equal(b[0].people, 3);
   assert.equal(srv.db.rows.get('default').version, 2);
+});
+
+/* 見本の乗り合い便（30 人）を入れた端末をサーバーにつなぐ */
+async function bigSynced(srv, local = memory()) {
+  const a = device(srv, local);
+  a.rosterStore.update(s => a.rosterShare.addBigSample(s, { day: a.ymd(a.addDays(new Date(), 3)), at: AT, newId: a.newId }).state);
+  await a.rosterStore.startSync();
+  await a.rosterStore.whenSynced();
+  return a;
+}
+const peopleOnServer = (srv) => JSON.parse(srv.db.rows.get('default').state).people.length;
+
+test('人が大きく消える書き込みはサーバーが止め、端末はサーバーの名簿に戻して自分の名簿を残す。わざとの全消し（reset）は通る（ジンのレビュー CRITICAL）', async () => {
+  const srv = server();
+  await bigSynced(srv);
+  const before = peopleOnServer(srv);
+  assert.ok(before > 20);
+  const local = memory();
+  const b = device(srv, local);
+  await b.rosterStore.startSync();
+  b.rosterStore.update(() => b.roster.blankState('B マリン（見本）'));   // 事故: 空の名簿で上書きしようとする
+  await b.rosterStore.whenSynced();
+  assert.equal(peopleOnServer(srv), before, 'サーバーの名簿は消えない');
+  assert.equal(b.rosterStore.note(), 'sync-shrink');
+  assert.equal(b.rosterStore.get().people.length, before, '端末はサーバーの名簿に戻る');
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の名簿は別の場所に残す');
+  b.rosterStore.reset();   // 「デモの予約をすべて消す」
+  await b.rosterStore.whenSynced();
+  assert.equal(peopleOnServer(srv), 0, 'わざと消すときは通る');
+});
+
+test('端末の名簿が読めずに空から始めたら、送れなかった直しがあっても、空の名簿でサーバーを上書きしない（ジンのレビュー CRITICAL）', async () => {
+  const srv = server();
+  const local = memory();
+  await bigSynced(srv, local);
+  const before = peopleOnServer(srv);
+  const meta = JSON.parse(local.getItem('redux-roster-v1-sync'));
+  local.setItem('redux-roster-v1-sync', JSON.stringify({ ...meta, pending: true }));   // 送れなかった直しがある印
+  local.setItem('redux-roster-v1', '{broken');   // 名簿が読めない
+  const reopened = device(srv, local);
+  await reopened.rosterStore.startSync();
+  await reopened.rosterStore.whenSynced();
+  assert.equal(peopleOnServer(srv), before);
+  assert.equal(reopened.rosterStore.get().people.length, before, 'サーバーの名簿を受け取る');
+});
+
+test('ログインが切れたら「電波なし」と分けて知らせ、直しは残す。ログインし直せば送る（ジンのレビュー HIGH）', async () => {
+  const srv = server();
+  const a = device(srv);
+  a.rosterStore.update(addTrip(a));
+  await a.rosterStore.startSync();
+  srv.loginExpired = true;
+  a.rosterStore.update(addGuide(a, '見本 次郎'));
+  await a.rosterStore.whenSynced();
+  assert.equal(a.rosterStore.note(), 'sync-login');
+  srv.loginExpired = false;
+  await a.rosterStore.refresh();
+  assert.equal(a.rosterStore.note(), null);
+  assert.deepEqual(JSON.parse(srv.db.rows.get('default').state).trips[0].guides, ['見本 ガイド', '見本 次郎']);
+});
+
+test('サーバーが中身を断った直し（400）は送り直さず、端末の名簿を残してサーバーの名簿に戻す（ジンのレビュー HIGH）', async () => {
+  const srv = server();
+  const local = memory();
+  const a = device(srv, local);
+  a.rosterStore.update(addTrip(a));
+  await a.rosterStore.startSync();
+  const calls = srv.calls;
+  /* 画面の検査は通るが、サーバーの厳しい検査（名簿の余分な項目）に落ちる直し */
+  a.rosterStore.update(s => ({ ...s, extra: 'x' }));
+  await a.rosterStore.whenSynced();
+  assert.equal(a.rosterStore.note(), 'sync-rejected');
+  assert.equal(srv.calls, calls + 1, '1 回だけ送って、送り直さない');
+  a.rosterStore.update(addGuide(a, '見本 次郎'));
+  await a.rosterStore.whenSynced();
+  assert.deepEqual(JSON.parse(srv.db.rows.get('default').state).trips[0].guides, ['見本 ガイド', '見本 次郎'], '後の直しは止まらない');
 });
 
 test('/api/roster が無い（GitHub Pages・D1 がまだ無い Worker）ときは、端末だけで今までどおり動く', async () => {
