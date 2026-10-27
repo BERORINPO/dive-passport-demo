@@ -127,7 +127,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```
 3. 今の名簿を書き出して残す（戻すと消える予約を後で入れ直すため。版も、戻す 1 文の守りに使う）
    ```bash
-   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data '{"sql":"SELECT version, state FROM rosters WHERE shop = ?1","params":["default"]}' > current.json
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data '{"sql":"SELECT shop, version, state FROM rosters WHERE shop = ?1","params":["default"]}' > current.json
    ```
 4. 戻す 1 文を作る。控えのお店と --shop が違えば止まる。戻すと消える予約と人の数が出るので確かめる
    ```bash
@@ -138,8 +138,10 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data @restore-body.json
    ```
 6. 答えの changes が 0 なら、3 のあとに予約が入って版が進んだ（予約フォーム・届いたメールは戻す間も書く）。3 からやり直す
-7. 戻すと版が 1 つ進む。開いている画面は戻した名簿を受け取る。4 で出た「消える分」は current.json を見て入れ直す
+7. 戻すと版が 1 つ進む。開いている画面は戻した名簿を受け取る。4 で出た「消える分」と「控えの時点に戻る分」（健康の答え・確かめた印など）は、current.json を見て入れ直す
+8. 終わったら snap.json・current.json・restore-body.json を消す（お客さんの情報そのもの）
 - 済んだ便（roster_past）が消えたときは、`past:<お店>:<part>` の body を、その行に入れ直す（今は手で。要るとなったら道具にする）
+- 名簿の行が消えたまま 7 日たつと、比べる控えが無くなり警報は止まる。メールが送れるようになるまで（KV にだけ残るあいだ）は、`alert:` を週に 1 度見る
 - お客さんから「消して」と頼まれたときは、名簿から消したうえで、控え（`day:` と `past:`）にも残っていることを伝え、要るなら控えも消す（控えは最長 1 年残る）
 
 ## 置き直したら（2 回目から）

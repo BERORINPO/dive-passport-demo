@@ -22,11 +22,12 @@ const RESTORE_SQL = 'INSERT INTO rosters (shop, version, state, updated_at) VALU
 export function currentOf(text) {
   const o = JSON.parse(text);
   const row = o && Array.isArray(o.result) ? (o.result[0] && o.result[0].results && o.result[0].results[0]) || null : o;
-  if (!row) return { version: 0, state: null };
+  if (!row) return { shop: '', version: 0, state: null };
   if (!Number.isInteger(Number(row.version))) throw new Error('今の名簿の書き出しに版が無い');
+  if (typeof row.shop !== 'string') throw new Error('今の名簿の書き出しにお店が無い（SELECT shop, version, state で書き出す）');
   let state = null;
   try { state = typeof row.state === 'string' ? JSON.parse(row.state) : row.state; } catch (e) { state = null; }
-  return { version: Number(row.version), state };
+  return { shop: row.shop, version: Number(row.version), state };
 }
 
 /* 控え（{ shop, at, version, people, text }）と今の名簿から、D1 の API の本文と、戻すと消える数を作る。合わなければ例外 */
@@ -37,12 +38,20 @@ export function restoreBody(snapshotText, { shop, at, current }) {
   try { snap = JSON.parse(snapshotText); } catch (e) { throw new Error('控えが JSON として読めない'); }
   if (!snap || typeof snap.text !== 'string') throw new Error('控えの形が合わない（text が無い）');
   if (snap.shop !== shop) throw new Error(`控えのお店（${snap.shop || '書いていない'}）と --shop（${shop}）が違う`);
+  if (current.version > 0 && current.shop !== shop) throw new Error(`今の名簿の書き出しのお店（${current.shop}）と --shop（${shop}）が違う`);
   const state = readStored(snap.text, { today: at.slice(0, 10), at });
   if (!state) throw new Error('控えの名簿が、名簿の形の検査に通らない');
   const now = current.state && typeof current.state === 'object' ? current.state : { bookings: [], people: [] };
-  const kept = (list, ids) => (Array.isArray(list) ? list.filter(x => x && !ids.has(x.id)).length : 0);
-  const lost = { bookings: kept(now.bookings, new Set(state.bookings.map(b => b.id))), people: kept(now.people, new Set(state.people.map(p => p.id))) };
-  return { sql: RESTORE_SQL, params: [shop, JSON.stringify(state), at, current.version], people: state.people.length, from: snap.at || '', lost };
+  /* 戻すと消える分（今あって控えに無い）と、変わる分（両方にあるが中身が違う。健康の答え・確かめた印など、控えの時点に戻る） */
+  const diff = (list, base) => {
+    const byId = new Map(base.map(x => [x.id, JSON.stringify(x)]));
+    const items = Array.isArray(list) ? list.filter(x => x && typeof x.id === 'string') : [];
+    return { lost: items.filter(x => !byId.has(x.id)).length, changed: items.filter(x => byId.has(x.id) && byId.get(x.id) !== JSON.stringify(x)).length };
+  };
+  const b = diff(now.bookings, state.bookings);
+  const p = diff(now.people, state.people);
+  return { sql: RESTORE_SQL, params: [shop, JSON.stringify(state), at, current.version], people: state.people.length, from: snap.at || '',
+    lost: { bookings: b.lost, people: p.lost }, changed: { bookings: b.changed, people: p.changed } };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -58,8 +67,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const body = restoreBody(readFileSync(file, 'utf8'), { shop, at: new Date().toISOString(), current: currentOf(readFileSync(currentFile, 'utf8')) });
     console.error(`戻す名簿: ${body.people} 人（控えを取った時刻 ${body.from}）`);
-    console.error(`戻すと消える分（今の名簿にあって控えに無い）: 予約 ${body.lost.bookings} 件・人 ${body.lost.people} 人。必要なら、戻した後に入れ直す`);
-    const { people, from, lost, ...apiBody } = body;
+    console.error(`戻すと消える分（今の名簿にあって控えに無い）: 予約 ${body.lost.bookings} 件・人 ${body.lost.people} 人`);
+    console.error(`戻すと控えの時点に戻る分（健康の答え・確かめた印など）: 予約 ${body.changed.bookings} 件・人 ${body.changed.people} 人`);
+    console.error('どちらも、必要なら current.json を見て、戻した後に入れ直す');
+    const { people, from, lost, changed, ...apiBody } = body;
     process.stdout.write(`${JSON.stringify(apiBody)}\n`);
   } catch (e) {
     console.error(`止めた: ${e.message}`);

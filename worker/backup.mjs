@@ -10,41 +10,43 @@ import { periods } from './read-core.mjs';
 
 const DAY_MS = 86400000;
 const KEEP_S = BACKUP_KEEP_DAYS * 86400;
-const PAGE = 500;
-const MAX_PAGES = 10;   // 1 回に写すのは 5,000 行まで（残りは次の回）
+/* 1 回に写す済んだ便の行の数。KV は 1 回の呼び出しで使える回数に上限があり、Cron は全店を 1 回で回るので、小さく区切る（残りは 15 分後の次の回） */
+const COPY_PER_RUN = 50;
 
 async function readJson(kv, key) {
   try { return JSON.parse((await kv.get(key)) || 'null'); } catch (e) { return null; }
 }
 
-/* 済んだ便の行を、前に写した所の続きから写す。返すのは写した行の数 */
+/* 済んだ便の行を、前に写した所（カーソル）の続きから COPY_PER_RUN 行まで写す。同じ行を写し直しても中身は同じなので、先に確かめない（KV の回数を減らす）。
+   返すのは写した行の数 */
 async function copyPast(env, shop, now) {
-  let cursor = (await readJson(env.BACKUP, cursorKey(shop))) || { at: '', part: '' };
-  let copied = 0;
-  for (let page = 0; page < MAX_PAGES; page += 1) {
-    const rows = await getMovedSince(env.DB, shop, cursor.at, PAGE, cursor.part);
-    for (const row of rows) {
-      if ((await env.BACKUP.get(pastKey(shop, row.part))) === null) {
-        const expiration = Math.max(Math.floor(Date.parse(`${row.keepUntil}T00:00:00Z`) / 1000) + 2 * 86400, Math.floor(now / 1000) + 3600);
-        await env.BACKUP.put(pastKey(shop, row.part), JSON.stringify({ shop, part: row.part, day: row.day, keepUntil: row.keepUntil, body: row.body }), { expiration });
-        copied += 1;
-      }
-      cursor = { at: row.movedAt, part: row.part };
-    }
-    await env.BACKUP.put(cursorKey(shop), JSON.stringify(cursor));
-    if (rows.length < PAGE) break;
+  const cursor = (await readJson(env.BACKUP, cursorKey(shop))) || { at: '', part: '' };
+  const rows = await getMovedSince(env.DB, shop, cursor.at, COPY_PER_RUN, cursor.part);
+  for (const row of rows) {
+    const expiration = Math.max(Math.floor(Date.parse(`${row.keepUntil}T00:00:00Z`) / 1000) + 2 * 86400, Math.floor(now / 1000) + 3600);
+    await env.BACKUP.put(pastKey(shop, row.part), JSON.stringify({ shop, part: row.part, day: row.day, keepUntil: row.keepUntil, body: row.body }), { expiration });
   }
-  return copied;
+  if (rows.length) {
+    const last = rows[rows.length - 1];
+    await env.BACKUP.put(cursorKey(shop), JSON.stringify({ at: last.movedAt, part: last.part }));
+  }
+  return rows.length;
 }
 
 export async function dailyBackup(env, io, shop, note) {
   if (!env.BACKUP || typeof env.BACKUP.get !== 'function') { note.backup = 'off'; return; }
   const now = io.now();
   const today = periods(now).day;
-  const at = new Date(now).toISOString();
-  /* 今日はもう取った（名簿が無くて控えを取れなかった日は、警報を残したら終わり。15 分ごとに鳴らさない） */
-  if ((await env.BACKUP.get(dayKey(shop, today))) !== null || (await env.BACKUP.get(alertKey(shop, today))) !== null) return;
+  /* 控えと警報を先に（済んだ便の写しが重くても、こちらは止めない）。写しは毎回、続きから少しずつ */
+  if ((await env.BACKUP.get(dayKey(shop, today))) === null && (await env.BACKUP.get(alertKey(shop, today))) === null) {
+    await snapshotAndAlert(env, shop, now, today, note);
+  }
   note.pastCopied = await copyPast(env, shop, now);
+}
+
+/* 今日の控えを取り、直近の控えと比べて警報を出す（名簿が無くて控えを取れなかった日は、警報を残したら終わり。15 分ごとに鳴らさない） */
+async function snapshotAndAlert(env, shop, now, today, note) {
+  const at = new Date(now).toISOString();
   /* 直近の控え（昨日から LOOKBACK_DAYS 日前まで）。Cron が止まっていた日があっても、残っている控えと比べる */
   const recent = [];
   for (let i = 1; i <= LOOKBACK_DAYS; i += 1) recent.push(await readJson(env.BACKUP, dayKey(shop, periods(now - i * DAY_MS).day)));

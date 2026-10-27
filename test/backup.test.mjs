@@ -172,14 +172,19 @@ test('控えから戻す（tools/restore.mjs）: お店が違えば止め、今�
   /* 今の名簿: 控えのあとに 1 人足され、その後に 20 人が消えた（版 7） */
   const extra = { ...st.people[0], id: 'later1', name: '見本 あと' };
   const now = { ...st, people: [...st.people.slice(0, 10), extra] };
-  const current = currentOf(JSON.stringify({ result: [{ results: [{ version: 7, state: JSON.stringify(now) }] }] }));
+  const current = currentOf(JSON.stringify({ result: [{ results: [{ shop: 'default', version: 7, state: JSON.stringify(now) }] }] }));
   assert.equal(current.version, 7);
   const body = restoreBody(snapText, { shop: 'default', at, current });
   assert.equal(body.people, 30);
   assert.deepEqual(body.lost, { bookings: 0, people: 1 }, '戻すと消える 1 人を知らせる');
+  const answered = { ...now, people: now.people.map((x, i) => (i === 0 ? { ...x, checkedAt: '2026-10-28T09:00:00.000Z' } : x)) };
+  const body2 = restoreBody(snapText, { shop: 'default', at, current: { ...current, state: answered } });
+  assert.deepEqual(body2.changed, { bookings: 0, people: 1 }, '控えのあとで中身が変わった人も知らせる');
   assert.ok(!body.sql.includes('見本'), '名簿は SQL に埋めない');
   assert.throws(() => restoreBody(snapText, { shop: 'shop-b', at, current }), /お店/, '別のお店へは戻さない');
   assert.throws(() => restoreBody(snapText, { shop: 'default', at }), /current/);
+  assert.throws(() => restoreBody(snapText, { shop: 'default', at, current: { ...current, shop: 'shop-b' } }), /書き出しのお店/, '別のお店の書き出しでは戻さない');
+  assert.throws(() => currentOf(JSON.stringify({ result: [{ results: [{ version: 7, state: '{}' }] }] })), /お店/);
   assert.throws(() => restoreBody('{broken', { shop: 'default', at, current }), /JSON/);
   assert.throws(() => restoreBody(JSON.stringify({ shop: 'default', text: '{"v":1}' }), { shop: 'default', at, current }), /検査/);
   assert.throws(() => restoreBody(snapText, { shop: "x'; DROP", at, current }), /id/);
