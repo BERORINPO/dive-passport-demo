@@ -26,8 +26,9 @@
     { "name": "BOOKING_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
     { "name": "ASK_LIMIT", "namespace_id": "1003", "simple": { "limit": 30, "period": 60 } }
   ],
-  // 書類の自動化: 時刻が来た予定を動かす（9:00・20:00・6:00 の予定に、遅れても 15 分）
-  "triggers": { "crons": ["*/15 * * * *"] },
+  // 書類の自動化の Cron（"triggers": { "crons": ["*/15 * * * *"] }）は、まだ入れない。このアカウントは無料の枠の 5 本を
+  // ほかの Worker で使い切っている（2026-10-27 の置き直しで code 10072）。入れるまでは、お店の画面を開いている間に画面が 1 分ごとに予定を動かす。
+  // メールを本当に送るとき（plan/auto.md）に、ほかの Worker の Cron を減らすか Workers Paid にして入れる
   "kv_namespaces": [
     // 回数と費用の目安を数える。id は wrangler kv namespace create BUDGET が出した値（2026-10-22。id は鍵ではない）
     { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" }
