@@ -96,7 +96,10 @@
 
   const ROSTER_KEY = 'redux-roster-v1';
   const ROSTER_SHOP = 'B マリン（見本）';
-  const ROSTER_BACKUP = `${ROSTER_KEY}-broken-`;
+  const ROSTER_BACKUP = `${ROSTER_KEY}-broken-`;   // 読めなかった名簿の退避（数の上限と、容量切れで消してよいのはこれだけ）
+  /* 送れなかった直しの退避（別の端末とぶつかった・サーバーが断った・お店が変わった・版が新しくなった）。端末にしか無いので、
+     数の上限も容量切れの整理もかけない（1 年で消すのは同じ）。ジンのレビュー 2026-10-27 */
+  const OFFLINE_KEPT = `${ROSTER_KEY}-kept-`;
   const BACKUP_KEEP_MS = 366 * 24 * 60 * 60 * 1000;   // 退避した名簿も 1 年で消す
   /* 退避は新しい 3 つまで。端末の保存場所は 5 MB ほどしか無く、退避がたまると名簿の本体を保存できなくなる（ジンのレビュー 2026-10-27 MEDIUM 9） */
   const BACKUP_MAX = 3;
@@ -105,17 +108,18 @@
   let rosterNote = null;        // recovered（退避して空から始めた）/ unreadable（退避できず元のまま）/ conflict（別のタブと食い違い）/ newer（別のタブがこの版の知らない形で保存した）
   let rosterLocked = false;     // 読めない名簿を退避できなかった。元の名簿を上書きしないよう、この端末には書かない
   let rosterUnsaved = false;    // 最後の保存が端末に書けなかった
+  let rosterLost = false;       // 送れなかった直しを、端末に残せなかった（容量切れなど）
 
-  /* 退避の名前を古い順に（名前の後ろは退避した時刻） */
-  function backupKeys() {
+  /* 退避の名前を古い順に（名前の後ろは退避した時刻）。prefix は ROSTER_BACKUP か OFFLINE_KEPT */
+  function backupKeys(prefix = ROSTER_BACKUP) {
     const keys = [];
     try {
       for (let i = 0; i < localStorage.length; i += 1) {
         const k = localStorage.key(i);
-        if (k && k.startsWith(ROSTER_BACKUP)) keys.push(k);
+        if (k && k.startsWith(prefix)) keys.push(k);
       }
     } catch (e) { /* 保存場所が使えない */ }
-    return keys.sort((a, b) => Number(a.slice(ROSTER_BACKUP.length)) - Number(b.slice(ROSTER_BACKUP.length)));
+    return keys.sort((a, b) => Number(a.slice(prefix.length)) - Number(b.slice(prefix.length)));
   }
   /* 新しい keep 個だけ残す */
   function pruneBackups(keep) {
@@ -177,12 +181,12 @@
   function tidyBackups() {
     try {
       pruneBackups(BACKUP_MAX);
-      backupKeys().forEach(k => {
-        if (Date.now() - Number(k.slice(ROSTER_BACKUP.length)) > BACKUP_KEEP_MS) { localStorage.removeItem(k); return; }
+      [ROSTER_BACKUP, OFFLINE_KEPT].forEach(prefix => backupKeys(prefix).forEach(k => {
+        if (Date.now() - Number(k.slice(prefix.length)) > BACKUP_KEEP_MS) { localStorage.removeItem(k); return; }
         const v = localStorage.getItem(k);
         const tidied = v === null ? v : purgeBackup(stripPartnerHealth(v));
         if (tidied !== v) localStorage.setItem(k, tidied);
-      });
+      }));
     } catch (e) {
       // 保存場所が使えないときは何もしない
     }
@@ -249,13 +253,20 @@
      画面の名簿は confirmed に queue を順に当てた物。サーバーが別の端末の直しで先に進んでいたら、最新に queue を当て直して送り直す。
      電波が無いときは端末に貯め、次に送れたときに送る。読み込み直して関数が消えたあとは、版が同じときだけ端末の名簿をそのまま送る */
   const SYNC_KEY = `${ROSTER_KEY}-sync`;          // { version, pending, shop }
-  const OFFLINE_KEPT = ROSTER_BACKUP;   // 送れないうちに別の端末が直したとき、この端末の名簿を残す場所（読めない名簿の退避と同じく 1 年で消える）
   const SYNC_TRIES = 5;
   let sync = null;   // { version, confirmed, queue, flushing, allowShrink } — null はサーバーを使わない（GitHub Pages・手元・D1 がまだ無い）
   /* この端末の名簿を残してから、サーバーの名簿にする（送れなかった・断られた直しを消さないため。読めない名簿の退避と同じく 1 年で消える） */
   function keepLocal(state) {
-    try { localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, purgeBackup(stripPartnerHealth(JSON.stringify(state)))); } catch (e) { /* 残せなくても続ける */ }
-    pruneBackups(BACKUP_MAX);
+    const text = purgeBackup(stripPartnerHealth(JSON.stringify(state)));
+    try {
+      localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, text);
+    } catch (e) {
+      /* 容量切れ: 読めなかった名簿の退避を古い順に消して、もう一度。それでも残せなければ、画面に知らせる（黙って消さない） */
+      const saved = backupKeys().some(k => {
+        try { localStorage.removeItem(k); localStorage.setItem(`${OFFLINE_KEPT}${Date.now()}`, text); return true; } catch (e2) { return false; }
+      });
+      if (!saved) rosterLost = true;
+    }
   }
 
   function readSyncMeta() {
@@ -505,7 +516,7 @@
       update: updateRoster,
       /* デモの予約をすべて消す。サーバーには「わざと消す」と伝える（人が大きく消える書き込みは、これ以外では断られる） */
       reset: () => { if (sync) sync.allowShrink = true; return updateRoster(() => R.roster.blankState(ROSTER_SHOP)); },
-      note: () => rosterNote,
+      note: () => (rosterLost ? 'sync-lost' : rosterNote),
       /* サーバーの名簿（Worker 版だけ）。startSync はつないだら true、refresh は別の端末の直しの取り込み、whenSynced は送り終わるまで待つ */
       startSync,
       refresh: refreshSync,

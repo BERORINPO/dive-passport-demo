@@ -258,6 +258,20 @@ test('ジンのレビュー MEDIUM 10: 送ったあとに結果を書けなく�
   assert.equal(s.mail.sent.length, 1);
 });
 
+test('ジンのレビュー: 1 回に印を付けて送るのは 10 件まで。残りは次の回に送る', async () => {
+  const s = setup();
+  for (let i = 0; i < 12; i += 1) {
+    const r = await handle(booking({ ...GOOD, email: `guest${i}@mail.example`, name: `見本 ${i}` }, { ip: `203.0.113.${i + 10}` }), s.env, s.io);
+    assert.equal(r.status, 202);
+  }
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 10);
+  s.io.clock = NOW + 15 * 60000;
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 12);
+  assert.equal(new Set(s.mail.sent.map(m => m.to)).size, 12, '同じ人に 2 回は送らない');
+});
+
 /* 届いたメールの見本（Email Routing が渡す形） */
 const PASS = 'mx.cloudflare.net; dkim=pass header.d=shop.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass';
 function message(raw, from = 'forward@shop.example', auth = PASS) {

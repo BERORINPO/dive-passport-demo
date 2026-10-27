@@ -152,7 +152,7 @@ test('送れないうちに別の端末が直していたら、この端末の�
   await reopened.rosterStore.startSync();
   assert.equal(reopened.rosterStore.note(), 'sync-kept');
   assert.deepEqual(tripOf(reopened).partners, [PARTNER], 'サーバーの名簿（b の直し）になる');
-  const kept = [...localA.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-'));
+  const kept = [...localA.raw.keys()].filter(k => k.startsWith('redux-roster-v1-kept-'));
   assert.equal(kept.length, 1, 'この端末の名簿を 1 つ残す');
   assert.deepEqual(JSON.parse(localA.getItem(kept[0])).trips[0].guides, ['見本 ガイド', '見本 次郎']);
 });
@@ -236,7 +236,7 @@ test('人が大きく消える書き込みはサーバーが止め、端末は�
   assert.equal(peopleOnServer(srv), before, 'サーバーの名簿は消えない');
   assert.equal(b.rosterStore.note(), 'sync-shrink');
   assert.equal(b.rosterStore.get().people.length, before, '端末はサーバーの名簿に戻る');
-  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の名簿は別の場所に残す');
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-kept-')).length, 1, '端末の名簿は別の場所に残す');
   b.rosterStore.reset();   // 「デモの予約をすべて消す」
   await b.rosterStore.whenSynced();
   assert.equal(peopleOnServer(srv), 0, 'わざと消すときは通る');
@@ -327,7 +327,7 @@ test('開き直した端末の送れていなかった名簿は、送る間に�
   await reopened.rosterStore.whenSynced();
   assert.deepEqual(JSON.parse(srv.db.rows.get('default').state).trips[0].guides, ['見本 ガイド', '見本 次郎'], '別の端末の直しが残る');
   assert.equal(reopened.rosterStore.note(), 'sync-kept');
-  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の名簿は別の場所に残す');
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-kept-')).length, 1, '端末の名簿は別の場所に残す');
 });
 
 test('ジンのレビュー HIGH 8: 端末の名簿が別のお店の物なら、ログインしたお店に送らず、端末の別の場所に残して、そのお店の名簿にする', async () => {
@@ -346,7 +346,7 @@ test('ジンのレビュー HIGH 8: 端末の名簿が別のお店の物なら�
   assert.equal(srv.db.rows.has('shop-a'), false, 'default の名簿を shop-a に送らない');
   assert.equal(reopened.rosterStore.get().trips.length, 0, 'shop-a の名簿（空）にする');
   assert.equal(reopened.rosterStore.note(), 'sync-shop');
-  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の名簿は別の場所に残す');
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-kept-')).length, 1, '端末の名簿は別の場所に残す');
   assert.equal(JSON.parse(local.getItem('redux-roster-v1-sync')).shop, 'shop-a');
   /* shop-a で入れた直しは shop-a に届く */
   reopened.rosterStore.update(addTrip(reopened));
@@ -371,7 +371,7 @@ test('ジンのレビュー HIGH 8（開いたままの画面）: ログイン�
   assert.equal(a.rosterStore.note(), 'sync-shop-changed');
   assert.equal(JSON.parse(srv.db.rows.get('shop-a').state).trips.length, 0, 'shop-a の名簿に A の直しは入らない');
   assert.equal(srv.db.rows.get('default').state, before);
-  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1, '端末の直しは残す');
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-kept-')).length, 1, '端末の直しは残す');
   const calls = srv.calls;
   a.rosterStore.update(addGuide(a, '見本 三郎'));
   await a.rosterStore.whenSynced();
@@ -410,7 +410,7 @@ test('ジンのレビュー HIGH 7: サーバーの名簿がこの画面より�
   c.rosterStore.update(addGuide(c, '見本 次郎'));
   await c.rosterStore.whenSynced();
   assert.equal(c.rosterStore.note(), 'sync-newer');
-  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-broken-')).length, 1);
+  assert.equal([...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-kept-')).length, 1);
   const calls = srv.calls;
   c.rosterStore.update(addGuide(c, '見本 三郎'));
   await c.rosterStore.whenSynced();
@@ -459,6 +459,34 @@ test('ジンのレビュー MEDIUM 9: 退避は新しい 3 つまで。容量切
   assert.equal(saved, true, '本体を保存できた');
   assert.ok(kept().length < 3, '古い退避を消した');
   assert.ok(local.raw.get('redux-roster-v1').length > 30000);
+});
+
+test('ジンのレビュー（MEDIUM 9 の直しの穴）: 送れなかった直しの退避は、数の上限にも容量切れの整理にもかけない。残せなければ sync-lost と知らせる', async () => {
+  const srv = server();
+  const local = memory();
+  const a = await bigSynced(srv, local);
+  const t0 = Date.now() - 60000;
+  [1, 2, 3, 4, 5].forEach(i => local.raw.set(`redux-roster-v1-kept-${t0 + i}`, JSON.stringify({ v: 1, i })));
+  [1, 2, 3, 4].forEach(i => local.raw.set(`redux-roster-v1-broken-${t0 + i}`, JSON.stringify({ v: 1, i })));
+  device(srv, local).rosterStore.get();   // 開き直すと退避を片付ける
+  const keys = (p) => [...local.raw.keys()].filter(k => k.startsWith(p));
+  assert.equal(keys('redux-roster-v1-kept-').length, 5, '送れなかった直しの退避は消さない');
+  assert.equal(keys('redux-roster-v1-broken-').length, 3, '読めなかった名簿の退避は 3 つまで');
+  /* 容量切れで本体が書けない: 消すのは読めなかった名簿の退避だけ */
+  const set = local.setItem;
+  let room = 2;
+  local.setItem = (k, v) => { if (k === 'redux-roster-v1' && room > 0) { room -= 1; throw new Error('QuotaExceededError'); } set(k, v); };
+  a.rosterStore.update(addGuideToFirst(a, '見本 次郎'));
+  local.setItem = set;
+  assert.equal(keys('redux-roster-v1-kept-').length, 5);
+  assert.ok(keys('redux-roster-v1-broken-').length < 3);
+  /* 直しを残せない: sync-lost */
+  const lost = memory();
+  const b = await bigSynced(srv, lost);
+  lost.setItem = (k, v) => { if (k.startsWith('redux-roster-v1-kept-')) throw new Error('QuotaExceededError'); lost.raw.set(k, String(v)); };
+  b.rosterStore.update(() => b.roster.blankState('B マリン（見本）'));   // 人が大きく消える → サーバーが断り、端末の名簿を残そうとする
+  await b.rosterStore.whenSynced();
+  assert.equal(b.rosterStore.note(), 'sync-lost');
 });
 
 test('/api/roster が無い（GitHub Pages・D1 がまだ無い Worker）ときは、端末だけで今までどおり動く', async () => {

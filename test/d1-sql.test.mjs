@@ -17,7 +17,8 @@ import { handle } from '../worker/handler.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
 
 const first = await sqliteD1();
-if (!first) { console.log('skip (node:sqlite が無い)'); process.exit(0); }
+/* node:sqlite が無い Node では、何も確かめずに通さない（SKIP_SQLITE=1 を付けたときだけ飛ばす） */
+if (!first) { console.log(process.env.SKIP_SQLITE === '1' ? 'skip (node:sqlite が無い)' : 'FAIL node:sqlite が無い（Node 22.5 以上で流す）'); process.exit(process.env.SKIP_SQLITE === '1' ? 0 : 1); }
 
 vm.runInThisContext(readFileSync(new URL('../js/data-big-sample.js', import.meta.url), 'utf8'));
 const R = globalThis.REDUX;

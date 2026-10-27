@@ -192,8 +192,10 @@ export const queuedOf = (state) => (state.outbox || []).filter(o => o.status ===
    「送れたか分からない」（failed / maybe-sent）にして、お店に確かめてもらう（2 回送るより、お店に見せる方を選ぶ） */
 export const SENDING = 'sending:';
 export const SENDING_STALE_MS = 30 * 60 * 1000;
+/* 1 回に印を付ける数。途中で Worker が止まると、印を付けた物は全部「送れたか分からない」になるので、小さく区切る（残りは次の回。ジンのレビュー） */
+export const CLAIM_MAX = 10;
 export function claimQueued(state, { token }) {
-  const ids = new Set(queuedOf(state).map(o => o.id));
+  const ids = new Set(queuedOf(state).slice(0, CLAIM_MAX).map(o => o.id));
   if (!ids.size) return state;
   return { ...state, outbox: state.outbox.map(o => (ids.has(o.id) ? { ...o, why: `${SENDING}${token}` } : o)) };
 }
