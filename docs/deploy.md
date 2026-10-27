@@ -104,6 +104,8 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    - お店の Worker: `/` は Access のログインへ、`/api/roster` も止まる
    - お客さんの Worker: `/ask` は開ける。`/api/roster`・`/api/ask-link` は 404。`/api/ask` に間違った鍵を送ると 404
    - 2 台の端末で同じ名簿がそろう。「お客さんに聞くリンク」で作ったリンクを、ログインしていないスマホで開いて入れると、お店の画面に出る
+- Cron（15 分ごとの予定）はまだ入れていない。アカウントの無料の枠（5 本）をほかの Worker が使い切っているため。入れるまでは、お店の画面を開いている間に画面が予定を動かす
+- 2026-10-27 に置いた: お店の Worker と redux-ask（https://redux-ask.cibimaro-yousuke.workers.dev）。D1 は画面で作り、表はコンソールで 0001・0002 と同じ文を流した（wrangler の login に D1 の権限が付かなかったため）
 - サイトの予約フォーム（/api/bookings）とメールの送り受けは、まだ設定を入れない（無ければ止まる作り。入れる物は plan/auto.md の「置くときの設定」）
 - 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
 
