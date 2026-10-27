@@ -4,18 +4,23 @@
    守る順番: 道と method → 同じ場所からの呼び出し（Sec-Fetch-Site）→ 設定がそろっている → Access の JWT → 種類と大きさと形 → 上限（呼ぶ前）→ AI → 答えの形。
    ログは 1 要求 1 行。残すのは知っている道の名前・状態・doc・量・時間・外した行の数・健康が見えたか・止まった理由だけ
    （中身・メールアドレス・JWT は出さない）。
-   /api/roster はお店の名簿の正本（D1）。決まりは sync-core.mjs、D1 との境目は roster-db.mjs、計画は plan/server.md */
-import { checkRequest, readingFrom, costMicro, periods, limitsFrom, WORST_MICRO, MAX_BODY, MODEL } from './read-core.mjs';
+   /api/roster はお店の名簿の正本（D1）。決まりは sync-core.mjs、D1 との境目は roster-db.mjs、計画は plan/server.md。
+   /api/bookings だけは Access の外（お店のサイトの予約フォームから）。守りの順番: 許した origin（CORS）→ method → 設定 → 種類 → 1 つの IP の回数 → 大きさ
+   → Turnstile → 形。中身は auto.mjs、計画は plan/auto.md */
+import { checkRequest, periods, limitsFrom, MAX_BODY, MODEL } from './read-core.mjs';
 import { checkPut, readStored, MAX_PUT_BODY, SHOP_DEFAULT } from './sync-core.mjs';
 import { verifyAccess } from './access.mjs';
-import { reserve, spend, remaining } from './budget.mjs';
-import { callModel } from './anthropic.mjs';
+import { remaining } from './budget.mjs';
+import { askModel } from './ask.mjs';
+import { takeSiteBooking } from './auto.mjs';
+import { verifyTurnstile, underLimit } from './site-guard.mjs';
+import { MAX_BOOKING_BODY } from './auto-core.mjs';
 import { getRoster, putRoster } from './roster-db.mjs';
 
 /* どれか欠けたら置き方の誤り。欠けた名前はログにだけ出す。直し方は docs/deploy.md */
 const REQUIRED_SECRETS = ['ANTHROPIC_API_KEY', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS'];
 const REQUIRED_VARS = ['DAILY_LIMIT', 'MONTHLY_USD'];
-const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': ['GET', 'PUT'] };
+const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': ['GET', 'PUT'], '/api/bookings': ['POST', 'OPTIONS'] };
 
 const API_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -75,35 +80,10 @@ async function read(request, env, io, note) {
   const ask = checked.ask;
   Object.assign(note, { doc: ask.doc, size: ask.size, redacted: ask.redacted });
 
-  try {
-    const got = await reserve(env.BUDGET, keys, limitsFrom(env));
-    if (!got.ok) { note.why = got.why; return json(429, { error: 'limit', which: got.why }); }
-  } catch (e) {
-    note.why = 'kv';
-    return json(503, { error: 'kv' });
-  }
-
-  let answer;
-  try {
-    answer = await callModel(ask, env, io);
-  } catch (e) {
-    note.why = `upstream-${e.kind || 'error'}${e.status ? `-${e.status}` : ''}`;
-    /* 時間切れ・届かないときも、Anthropic 側では請求されうるので最大の見込みで数える */
-    const micro = e.usage ? costMicro(e.usage) : e.kind === 'network' ? WORST_MICRO : 0;
-    if (micro) await spend(env.BUDGET, keys, micro).catch(() => { note.why += ',spend-kv'; });
-    return json(502, { error: 'upstream' });
-  }
-  note.stop = answer.stopReason;
-  await spend(env.BUDGET, keys, costMicro(answer.usage)).catch(() => { note.why = 'spend-kv'; });
-
-  const reading = readingFrom(answer.text, ask.doc);
-  if (!reading.ok) {
-    /* 読み取りは使えないが、健康の情報が見えたと答えていたら画面に知らせる（送った記録に印を残し、同じ写真を送り直させない） */
-    Object.assign(note, { why: `answer-${reading.error}`.slice(0, 40), seen: reading.healthSeen });
-    return json(502, { error: 'answer', healthSeen: reading.healthSeen === true });
-  }
-  note.seen = reading.reading.healthSeen;
-  return json(200, reading.reading);
+  const got = await askModel(ask, env, io, note);
+  if (got.ok) return json(200, got.reading);
+  if (got.error === 'limit') return json(429, { error: 'limit', which: got.which });
+  return json(got.status, got.error === 'answer' ? { error: 'answer', healthSeen: got.healthSeen } : { error: got.error });
 }
 
 /* お店の名簿（plan/server.md）。GET は今の名簿、PUT は版を確かめて書く。版が違えば最新を返す（画面が当て直して送り直す） */
@@ -150,11 +130,43 @@ async function roster(request, env, io, note) {
   }
 }
 
+/* サイトの予約フォーム（Access の外）。許すのは SITE_ORIGINS に書いた origin だけで、その origin にだけ CORS のヘッダを返す */
+const BOOKING_NEEDS = ['SITE_ORIGINS', 'TURNSTILE_SECRET'];
+function corsFor(origin) {
+  return { 'access-control-allow-origin': origin, vary: 'Origin', 'cross-origin-resource-policy': 'cross-origin' };
+}
+async function bookings(request, env, io, note) {
+  const origin = request.headers.get('origin') || '';
+  const allowed = String(env.SITE_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!origin || !allowed.includes(origin)) { note.why = 'origin'; return json(403, { error: 'origin' }); }
+  const cors = corsFor(origin);
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: { ...cors, 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'content-type, cf-turnstile-response',
+      'access-control-max-age': '600', 'cache-control': 'no-store' } });
+  }
+  const miss = BOOKING_NEEDS.filter(k => typeof env[k] !== 'string' || env[k].trim() === '');
+  if (!(env.DB && typeof env.DB.prepare === 'function')) miss.push('DB');
+  if (!(env.BOOKING_LIMIT && typeof env.BOOKING_LIMIT.limit === 'function')) miss.push('BOOKING_LIMIT');
+  if (miss.length) { note.why = `config:${miss.join('+')}`; return json(503, { error: 'config' }, cors); }
+  if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' }, cors);
+  const ip = request.headers.get('cf-connecting-ip') || '';
+  if (!(await underLimit(env, ip))) { note.why = 'rate'; return json(429, { error: 'limit' }, cors); }
+  const raw = await readCapped(request, MAX_BOOKING_BODY);
+  if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }, cors); }
+  let given;
+  try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }, cors); }
+  const human = await verifyTurnstile(env, request.headers.get('cf-turnstile-response'), ip, io);
+  if (!human.ok) { note.why = human.why; return json(403, { error: 'turnstile' }, cors); }
+  const got = await takeSiteBooking(given, env, io, note);
+  return json(got.status, got.body, cors);
+}
+
 async function route(request, env, io, url, note) {
   /* ここに来た /api 以外は、Static Assets に無いファイル */
   if (!url.pathname.startsWith('/api/')) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   const methods = ROUTES[url.pathname];
   if (!methods) return json(404, { error: 'path' });
+  if (url.pathname === '/api/bookings') return methods.includes(request.method) ? bookings(request, env, io, note) : json(405, { error: 'method' }, { allow: methods.join(', ') });
   if (!methods.includes(request.method)) return json(405, { error: 'method' }, { allow: methods.join(', ') });   // OPTIONS も断る（CORS のヘッダは出さない）
   if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; return json(403, { error: 'site' }); }
 

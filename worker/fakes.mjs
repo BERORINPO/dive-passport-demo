@@ -100,3 +100,45 @@ export function fakeD1() {
   };
   return db;
 }
+
+/* mail.mjs の見本。送った物を覚える。fail に E_* の名前を入れると、その名前で失敗する */
+export function fakeMail() {
+  const mail = {
+    sent: [],
+    fail: '',
+    async send(msg) {
+      if (mail.fail) { const e = new Error('send failed'); e.code = mail.fail; throw e; }
+      mail.sent.push(msg);
+      return { messageId: `m${mail.sent.length}` };
+    }
+  };
+  return mail;
+}
+
+/* site-guard.mjs の Turnstile の見本。answer を返す。io.fetch の代わりに respond(init) を呼ぶ */
+export function fakeTurnstile() {
+  const t = {
+    calls: [],
+    success: true,
+    status: 200,
+    async respond(init) {
+      checkRedirect(init);
+      t.calls.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ success: t.success }), { status: t.status });
+    }
+  };
+  return t;
+}
+
+/* site-guard.mjs の回数の見本（Workers Rate Limiting の limit({ key })）。キーごとに max 回まで通す */
+export function fakeRateLimit(max = 5) {
+  const used = new Map();
+  return {
+    used,
+    async limit({ key }) {
+      const n = (used.get(key) || 0) + 1;
+      used.set(key, n);
+      return { success: n <= max };
+    }
+  };
+}

@@ -38,6 +38,33 @@ AquaGate（仲村さんのサイト）の予約フォームから届く予約を
 | js/roster-schema.js | shared | leadEmail・lang・jobs・outbox・trip.rosterAt の形 |
 | js/roster-auto.js | core | autoAdd（読み取り・フォームから入れて予定を作る）・planJobs・runDue・markSent・文面 |
 | js/booking.js ほか | entry | 自動で入れた印、1 件の流れ、送った連絡、当日の朝、デモの時刻 |
-| worker/auto-core.mjs | core | Worker で runDue をかける順番、/api/bookings の検査 |
-| worker/mail.mjs | adapter | Cloudflare Email Service で送る（見本 fakeMail） |
-| worker/handler.mjs・index.mjs | entry | scheduled（Cron）・email（届いたメール）・POST /api/bookings |
+| js/auto-flow.js | entry | 画面の B（1 件の流れ）・一覧の 1 行・デモの「見本のメールが届く」「時刻を進める」 |
+| worker/auto-core.mjs | core | /api/bookings の本文の検査と、名簿に入れる直し・届いたメール（MIME）から本文を取り出す・送り主の許可・送った結果を付ける |
+| worker/mail.mjs | adapter | Cloudflare Email Service（binding `EMAIL`）で送る。設定がそろうまでは unsent（見本 fakeMail） |
+| worker/site-guard.mjs | adapter | Turnstile の確かめ・1 つの IP の回数（見本 fakeTurnstile・fakeRateLimit） |
+| worker/ask.mjs | entry | AI に読ませる 1 回（上限 → Claude API → 費用 → 答えの形）。/api/read と届いたメールが使う |
+| worker/auto.mjs | entry | 名簿を読んで直して版つきで書く（ぶつかったら 3 回まで当て直す）・Cron・届いたメール・/api/bookings の中身 |
+| worker/handler.mjs・index.mjs | entry | POST /api/bookings の守り（CORS → 設定 → 種類 → 回数 → 大きさ → Turnstile）、index は scheduled と email をつなぐ |
+
+## 置くときの設定（Zaku のレビューと Yosuke の確認のあと。今は wrangler.jsonc に入れていない）
+
+置くまでは、設定が無ければ止まる作りにしてある（/api/bookings は 503、Cron は `config:DB` をログに出して何もしない、メールは unsent）。
+
+| 名前 | 種類 | 中身 | 無いとき |
+|---|---|---|---|
+| `DB` | D1 binding | 名簿の正本（plan/server.md） | Cron・メール・予約の口は何もしない |
+| `triggers.crons` | wrangler.jsonc | `"*/15 * * * *"`（15 分ごと。予定は 9:00・20:00・6:00 なので、遅れても 15 分） | 予定が動かない（画面を開いている間だけ動く） |
+| `EMAIL` | send_email binding | Email Service。お店のドメインを `wrangler email sending enable` で載せる（有料・ドメインが要る） | 送らず unsent（no-mail-config） |
+| `MAIL_FROM` | var | 送り元（お店のドメインのアドレス） | 同上 |
+| `APP_URL` | var | お客さんに渡すリンクの頭（Worker の URL）。**/ask は今 Access の内側なので、お客さんは開けない**。Access の外に出すのは plan/server.md の 4 | 同上 |
+| `MAIL_SENDERS` | var | 届いたメールを読む送り主（封筒の From、「,」区切り）。お店が予約サイトのメールを転送する元 | 全部断る |
+| Email Routing の rule | ダッシュボード | 受けるアドレス → この Worker | メールは届かない |
+| `SITE_ORIGINS` | var | 予約フォームを置くサイトの origin（「,」区切り） | /api/bookings は 503 |
+| `TURNSTILE_SECRET` | secret | Turnstile の秘密の鍵（サイト側にサイトキー） | 同上 |
+| `BOOKING_LIMIT` | ratelimits binding | `{ "name": "BOOKING_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } }` | 同上 |
+| `SHOP_NAME` | var | 名簿がまだ無いときのお店の名前（送るメールの差出人名） | 空 |
+
+残る穴（置く前に決める）:
+- 送ったあとに結果を書けなかったら、次の回にもう一度送る（重なる方を選んだ）
+- 読めなかった予約メールは断らずにログだけ残す。お店に知らせる道はまだ無い
+- お客さんのリンク（/ask）が Access の外に出るまでは、メールが送れても、お客さんは開けない

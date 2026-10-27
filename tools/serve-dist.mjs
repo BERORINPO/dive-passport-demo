@@ -7,7 +7,8 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, extname, normalize, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handle } from '../worker/handler.mjs';
-import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, checkRedirect } from '../worker/fakes.mjs';
+import { scheduled } from '../worker/auto.mjs';
+import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
 import '../js/data-samples.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
@@ -32,7 +33,15 @@ const access = await fakeAccess(TEAM);
 const api = fakeAnthropic();
 const kv = fakeKv();
 const env = { ANTHROPIC_API_KEY: 'local-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-  DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, DB: fakeD1() };   // お店の名簿は、この道具が動いている間だけ覚える（止めると消える）
+  DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, DB: fakeD1(),   // お店の名簿は、この道具が動いている間だけ覚える（止めると消える）
+  /* 書類の自動化（plan/auto.md）。サイトの予約フォームは SITE_ORIGINS に書いた origin から（例: SITE_ORIGINS=http://localhost:5173）。
+     Turnstile はどの答えも通す見本、メールは送らずにこの画面（端末）に出すだけの見本 */
+  SITE_ORIGINS: process.env.SITE_ORIGINS || '', TURNSTILE_SECRET: 'local-not-real', BOOKING_LIMIT: fakeRateLimit(30),
+  EMAIL: { send: async (m) => { console.log(`[メールの見本・送っていない] 宛先 ${m.to} / 件名 ${m.subject}
+${m.text}
+`); return { messageId: 'local' }; } },
+  MAIL_FROM: 'yoyaku@local.example', APP_URL: `http://localhost:${port}`, SHOP_NAME: 'B マリン（見本）' };
+const turnstile = fakeTurnstile();
 /* 見本の答え: 予約メールは見本の読み取り（data-samples.js）を、モデルの形（snake_case）に戻して返す */
 const SAMPLES = globalThis.REDUX.SAMPLE_READINGS;
 const MAILS = globalThis.REDUX.SAMPLE_MAILS;
@@ -48,6 +57,7 @@ const io = {
   now: () => Date.now(),
   fetch: async (url, init) => {
     checkRedirect(init);   // Workers と同じく、redirect: 'error' は例外にする
+    if (String(url).endsWith('/turnstile/v0/siteverify')) return turnstile.respond(init);
     if (url === access.certsUrl) return new Response(JSON.stringify({ keys: access.keys }));
     const body = JSON.parse(init.body);
     const text = body.messages[0].content.map(c => c.text || '').join('');
@@ -94,3 +104,5 @@ createServer((req, res) => serve(req, res).catch(() => {
   if (!res.headersSent) res.writeHead(400);
   res.end('Bad request');
 })).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています`));
+/* Cron の代わり。1 分ごとに時刻が来た予定を動かす（置いた Worker は 15 分ごと） */
+setInterval(() => { scheduled(env, io).catch(() => {}); }, 60 * 1000);

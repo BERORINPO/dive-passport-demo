@@ -1,0 +1,264 @@
+// 書類の自動化の Worker 側（worker/auto.mjs・auto-core.mjs・mail.mjs・site-guard.mjs）を、外との境目を見本に差し替えて確かめる。
+// サイトの予約フォーム（POST /api/bookings）の守りの順番、Cron で時刻が来た予定が動いて送られること、届いた予約メールが名簿に入ること。
+// 実行: node test/auto-worker.test.mjs （Node 18 以上。依存なし。本物の Cloudflare と Claude API は呼ばない）
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import { handle } from '../worker/handler.mjs';
+import { scheduled, receiveMail } from '../worker/auto.mjs';
+import { checkBooking, mailText, senderAllowed, TOURS, SWIM, EXP, WORRIES } from '../worker/auto-core.mjs';
+import { fakeKv, fakeAnthropic, fakeD1, fakeMail, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
+
+const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
+const SITE = 'https://aquagate.example.com';
+const NOW = Date.parse('2026-10-27T01:00:00Z');   // 日本では 10/27 の 10:00
+const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+const REAL_LOG = console.log;
+const logs = [];
+console.log = (line) => logs.push(String(line));
+
+function setup(over = {}) {
+  const db = fakeD1();
+  const mail = fakeMail();
+  const turnstile = fakeTurnstile();
+  const api = fakeAnthropic();
+  const env = {
+    SITE_ORIGINS: `${SITE}, https://other.example.com`, TURNSTILE_SECRET: 'turnstile-test-secret', DB: db, BOOKING_LIMIT: fakeRateLimit(5),
+    ANTHROPIC_API_KEY: 'sk-test-not-real', DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), SHOP_NAME: 'B マリン（見本）',
+    EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN, MAIL_SENDERS: 'forward@shop.example', ...over
+  };
+  const io = {
+    clock: NOW,
+    fetch: async (url, init) => {
+      checkRedirect(init);
+      if (url === SITEVERIFY) return turnstile.respond(init);
+      if (url === 'https://api.anthropic.com/v1/messages') return api.respond(init);
+      throw new Error(`unexpected fetch ${url}`);
+    },
+    now: () => io.clock
+  };
+  return { db, mail, turnstile, api, env, io };
+}
+
+const GOOD = { tour: 'dive', date: '2026-11-03', people: 2, name: '見本 花子', email: 'hanako@mail.example', lang: 'ja', swim: 'shallow', exp: 'first',
+  dives: '', worries: ['ears'], phone: '090-0000-0000', note: '' };
+
+function booking(body, { origin = SITE, token = 'ok-token', ip = '203.0.113.5', method = 'POST', type = 'application/json' } = {}) {
+  const h = {};
+  if (origin) h.origin = origin;
+  if (token) h['cf-turnstile-response'] = token;
+  if (ip) h['cf-connecting-ip'] = ip;
+  if (method === 'POST' && type) h['content-type'] = type;
+  return new Request(`${ORIGIN}/api/bookings`, { method, headers: h, body: method === 'POST' ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined });
+}
+const stored = (db) => JSON.parse(db.rows.get('default').state);
+
+const tests = [];
+const test = (name, fn) => tests.push({ name, fn });
+
+test('予約を受ける口の項目は、画面の js/data.js とそろっている', () => {
+  const ctx = vm.createContext({});
+  ctx.window = ctx;
+  ctx.REDUX = {};
+  vm.runInContext(readFileSync(new URL('../js/data.js', import.meta.url), 'utf8'), ctx);
+  const D = ctx.REDUX;
+  const plain = (v) => JSON.parse(JSON.stringify(v));   // vm の配列は別の realm なので、形だけで比べる
+  assert.deepEqual(TOURS.map(t => [t.id, t.diving, t.start, t.name.ja]), plain(D.TOURS.map(t => [t.id, t.diving, t.start, t.name.ja])));
+  assert.deepEqual(SWIM, plain(D.SWIM.map(x => x.id)));
+  assert.deepEqual(EXP, plain(D.EXP.map(x => x.id)));
+  assert.deepEqual(WORRIES, plain(D.WORRIES.map(x => x.id)));
+});
+
+test('予約の本文の検査: 足りない・余分・過去の日・メールが無い・電話に文字、を断る。メモの健康のことは外す', () => {
+  const today = '2026-10-27';
+  assert.equal(checkBooking(GOOD, { today }).ok, true);
+  const bad = (patch, want) => {
+    const r = checkBooking({ ...GOOD, ...patch }, { today });
+    assert.equal(r.ok, false, JSON.stringify(patch));
+    assert.ok(r.error.includes(want), `${JSON.stringify(patch)} → ${r.error}`);
+  };
+  bad({ extra: 1 }, 'keys');
+  bad({ date: '2026-10-26' }, 'date');
+  bad({ date: '2028-01-01' }, 'date');
+  bad({ email: '' }, 'email');
+  bad({ email: 'not-mail' }, 'email');
+  bad({ people: 0 }, 'people');
+  bad({ tour: 'jetski' }, 'tour');
+  bad({ phone: 'call me' }, 'phone');
+  bad({ worries: ['ears', 'x'] }, 'worries');
+  bad({ note: 'x'.repeat(401) }, 'note');
+  assert.equal(checkBooking([], { today }).ok, false);
+  const withNote = checkBooking({ ...GOOD, note: '2 人で行きます\n持病: 喘息があります' }, { today });
+  assert.ok(withNote.ok);
+  assert.ok(withNote.booking.note.includes('2 人で行きます'));
+  assert.ok(!withNote.booking.note.includes('喘息'), 'メモの健康のことは名簿に入れない');
+});
+
+test('POST /api/bookings: 許した origin だけ。OPTIONS はその origin にだけ CORS を返す', async () => {
+  const s = setup();
+  const other = await handle(booking(GOOD, { origin: 'https://evil.example.com' }), s.env, s.io);
+  assert.equal(other.status, 403);
+  assert.equal(other.headers.get('access-control-allow-origin'), null);
+  const none = await handle(booking(GOOD, { origin: '' }), s.env, s.io);
+  assert.equal(none.status, 403);
+  const pre = await handle(booking(null, { method: 'OPTIONS' }), s.env, s.io);
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers.get('access-control-allow-origin'), SITE);
+  assert.match(pre.headers.get('access-control-allow-headers'), /cf-turnstile-response/);
+  const get = await handle(booking(null, { method: 'GET' }), s.env, s.io);
+  assert.equal(get.status, 405);
+  assert.equal(s.db.writes, 0);
+});
+
+test('POST /api/bookings: 設定が欠けたら 503、種類が違えば 415、Turnstile が無い・通らなければ 403、本文が大きければ 413', async () => {
+  const s = setup({ TURNSTILE_SECRET: '' });
+  assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 503);
+  const t = setup();
+  assert.equal((await handle(booking(GOOD, { type: 'text/plain' }), t.env, t.io)).status, 415);
+  assert.equal((await handle(booking(GOOD, { token: '' }), t.env, t.io)).status, 403);
+  t.turnstile.success = false;
+  assert.equal((await handle(booking(GOOD), t.env, t.io)).status, 403);
+  assert.equal(t.turnstile.calls[0].secret, 'turnstile-test-secret');
+  assert.equal(t.turnstile.calls[0].remoteip, '203.0.113.5');
+  t.turnstile.success = true;
+  assert.equal((await handle(booking('x'.repeat(5000)), t.env, t.io)).status, 413);
+  assert.equal((await handle(booking('{bad'), t.env, t.io)).status, 400);
+  assert.equal((await handle(booking({ ...GOOD, email: '' }), t.env, t.io)).status, 400);
+  assert.equal(t.db.writes, 0, '断った予約は名簿に入れない');
+});
+
+test('POST /api/bookings: 1 つの IP からは 5 回まで。6 回目は Turnstile も呼ばずに 429', async () => {
+  const s = setup();
+  for (let i = 0; i < 5; i += 1) assert.equal((await handle(booking({ ...GOOD, name: `見本 ${i}` }), s.env, s.io)).status, 202);
+  const calls = s.turnstile.calls.length;
+  assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 429);
+  assert.equal(s.turnstile.calls.length, calls);
+  assert.equal((await handle(booking(GOOD, { ip: '203.0.113.9' }), s.env, s.io)).status, 202, '別の IP は通る');
+});
+
+test('POST /api/bookings: 予約が便に入り、予定が作られ、お願いのメールがすぐ送られる。ログに名前もメールも出ない', async () => {
+  const s = setup();
+  logs.length = 0;
+  const res = await handle(booking({ ...GOOD, note: '2 人とも初めてです' }), s.env, s.io);
+  assert.equal(res.status, 202);
+  assert.deepEqual(await res.json(), { ok: true });
+  assert.equal(res.headers.get('access-control-allow-origin'), SITE);
+  const st = stored(s.db);
+  const b = st.bookings[0];
+  assert.equal(b.leadEmail, 'hanako@mail.example');
+  assert.equal(b.leadPhone, '090-0000-0000');
+  assert.equal(b.note, '2 人とも初めてです');
+  assert.equal(st.trips[0].date, '2026-11-03');
+  assert.deepEqual(st.jobs.map(j => [j.kind, j.status]), [['request', 'done'], ['remind', 'waiting'], ['eve', 'waiting'], ['morning', 'waiting']]);
+  assert.equal(st.outbox.length, 1);
+  assert.equal(st.outbox[0].status, 'sent');
+  assert.equal(s.mail.sent.length, 1);
+  assert.equal(s.mail.sent[0].to, 'hanako@mail.example');
+  assert.deepEqual(s.mail.sent[0].from, { email: 'yoyaku@shop.example', name: 'B マリン（見本）' });
+  assert.ok(s.mail.sent[0].text.includes(`${ORIGIN}/#ask=${b.id}`), 'お客さんに聞くリンクが入る');
+  const line = logs.find(l => l.includes('/api/bookings'));
+  assert.ok(line && /"sent":1/.test(line), line);
+  assert.ok(!logs.join('\n').includes('hanako') && !logs.join('\n').includes('花子'), 'ログに中身を出さない');
+});
+
+test('メールの設定がそろわないうちは送らず、unsent（no-mail-config）にする。送れなかったら failed', async () => {
+  const s = setup({ MAIL_FROM: '' });
+  assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 202);
+  assert.deepEqual(stored(s.db).outbox.map(o => [o.status, o.why]), [['unsent', 'no-mail-config']]);
+  assert.equal(s.mail.sent.length, 0);
+  const f = setup();
+  f.mail.fail = 'E_DELIVERY_FAILED';
+  assert.equal((await handle(booking(GOOD), f.env, f.io)).status, 202);
+  assert.deepEqual(stored(f.db).outbox.map(o => [o.status, o.why]), [['failed', 'E_DELIVERY_FAILED']]);
+});
+
+test('Cron: 時刻が来た予定（2 日前・前日の夜・当日の朝）が動き、送る物を送る。名簿が無ければ何もしない', async () => {
+  const empty = setup();
+  await scheduled(empty.env, empty.io);
+  assert.equal(empty.db.writes, 0);
+  const s = setup();
+  await handle(booking(GOOD), s.env, s.io);
+  s.mail.sent.length = 0;
+  s.io.clock = Date.parse('2026-11-01T00:00:00Z');   // 日本で 11/1 の 9:00（2 日前）
+  await scheduled(s.env, s.io);
+  let st = stored(s.db);
+  assert.equal(st.jobs.find(j => j.kind === 'remind').status, 'done');
+  assert.deepEqual(s.mail.sent.map(m => m.to), ['hanako@mail.example']);
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 1, '同じ時刻にもう一度動いても、二度は送らない');
+  s.io.clock = Date.parse('2026-11-02T21:00:00Z');   // 日本で 11/3 の 6:00（当日の朝）
+  await scheduled(s.env, s.io);
+  st = stored(s.db);
+  assert.ok(st.jobs.every(j => j.status === 'done'));
+  assert.ok(st.trips[0].rosterAt, '当日の朝に名簿を作った印');
+  assert.ok(st.outbox.some(o => o.kind === 'staff' && o.status === 'notice'), '前日の夜までにそろわなければお店に知らせる');
+  assert.ok(s.mail.sent.length >= 2);
+});
+
+/* 届いたメールの見本（Email Routing が渡す形） */
+function message(raw, from = 'forward@shop.example') {
+  const bytes = new TextEncoder().encode(raw);
+  return {
+    from, to: 'yoyaku@shop.example', rawSize: bytes.byteLength, rejected: '',
+    raw: new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }),
+    setReject(why) { this.rejected = why; }
+  };
+}
+/* 生のメールは 1 バイト 1 文字（worker/auto.mjs の readRaw と同じ） */
+const latin1 = (text) => String.fromCharCode(...new TextEncoder().encode(text));
+const MAIL_RAW = (body) => `From: Booking Site <noreply@booking.example>\r\nTo: forward@shop.example\r\nSubject: =?UTF-8?B?5LqI57SE?=\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`;
+
+test('届いたメールの本文を取り出す: 平文・multipart の base64・quoted-printable・ISO-2022-JP・HTML だけ', () => {
+  assert.equal(mailText(latin1(MAIL_RAW('予約番号 A-1\r\n2 名'))).text, '予約番号 A-1\n2 名');
+  const b64 = Buffer.from('ご予約ありがとうございます。11/3 2 名', 'utf8').toString('base64');
+  const multi = 'Content-Type: multipart/alternative; boundary="b1"\r\n\r\n--b1\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>html</p>\r\n'
+    + `--b1\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${b64}\r\n--b1--\r\n`;
+  assert.equal(mailText(multi).text, 'ご予約ありがとうございます。11/3 2 名');
+  const qp = 'Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n=E4=BA=88=E7=B4=84 =\r\nOK';
+  assert.equal(mailText(qp).text, '予約 OK');
+  const jis = 'Content-Type: text/plain; charset=ISO-2022-JP\r\n\r\n\x1b$BM=Ls\x1b(B';
+  assert.equal(mailText(jis).text, '予約');
+  const html = 'Content-Type: text/html; charset=utf-8\r\n\r\n<div>日付: 11/3</div><script>x()</script><div>2 名 &amp; 子ども</div>';
+  assert.equal(mailText(latin1(html)).text, '日付: 11/3\n2 名 & 子ども');
+  const attach = 'Content-Type: multipart/mixed; boundary=z\r\n\r\n--z\r\nContent-Type: text/plain\r\nContent-Disposition: attachment\r\n\r\nsecret\r\n--z--';
+  assert.equal(mailText(attach).ok, false, '添付は読まない');
+  assert.equal(mailText('').ok, false);
+  assert.ok(senderAllowed('Forward@Shop.example', 'a@x.example, forward@shop.example'));
+  assert.ok(!senderAllowed('evil@x.example', 'forward@shop.example'));
+  assert.ok(!senderAllowed('', ''));
+});
+
+test('届いた予約メール: 許した送り主だけを読み、日付が読めたら便に入れてお願いを送る。それ以外の送り主は断り、AI を呼ばない', async () => {
+  const s = setup();
+  const evil = message(MAIL_RAW('予約です'), 'evil@x.example');
+  await receiveMail(evil, s.env, s.io);
+  assert.ok(evil.rejected);
+  assert.equal(s.api.calls.length, 0);
+  s.api.answer = JSON.stringify({ participants: [{ name: '見本 次郎' }], booking: { site: '予約サイト', date: '2026-11-05', start: '08:30', tour: '体験ダイビング', people: 1, lead_name: '見本 次郎', lead_email: 'jiro@mail.example' }, health_info_visible: false });
+  const ok = message(MAIL_RAW('予約サイトからのお知らせ\r\n11/5 体験ダイビング 1 名\r\n見本 次郎 様'));
+  await receiveMail(ok, s.env, s.io);
+  assert.equal(ok.rejected, '');
+  assert.equal(s.api.calls.length, 1);
+  const st = stored(s.db);
+  assert.equal(st.bookings.length, 1);
+  assert.equal(st.bookings[0].leadEmail, 'jiro@mail.example');
+  assert.equal(st.trips[0].date, '2026-11-05');
+  assert.deepEqual(s.mail.sent.map(m => m.to), ['jiro@mail.example']);
+  s.api.answer = JSON.stringify({ participants: [{ name: '見本 三郎' }], booking: { people: 1 }, health_info_visible: false });
+  await receiveMail(message(MAIL_RAW('日付の無いメール')), s.env, s.io);
+  assert.equal(stored(s.db).bookings.length, 1, '日付が読めないメールは自動では入れない（お店が画面で入れる）');
+});
+
+let failed = 0;
+for (const t of tests) {
+  try {
+    await t.fn();
+    REAL_LOG(`ok   ${t.name}`);
+  } catch (e) {
+    failed += 1;
+    REAL_LOG(`FAIL ${t.name}\n     ${e.stack || e.message}`);
+  }
+}
+REAL_LOG(`${tests.length - failed}/${tests.length} passed`);
+if (failed) process.exit(1);
