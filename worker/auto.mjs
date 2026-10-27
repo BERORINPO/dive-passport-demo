@@ -30,7 +30,7 @@ async function withLink(env, io, state, item) {
   if (!mailReady(env) || !item.body.includes(mark)) return item;
   const { today, at } = clockOf(io);
   const trip = state.trips.find(t => t.id === item.tripId);
-  const url = await mintLink(env.DB, { shop: SHOP_DEFAULT, bookingId: item.bookingId, personId: '', expiresOn: linkExpiry(trip, today), at, base: env.APP_URL });
+  const url = await mintLink(env.DB, { shop: SHOP_DEFAULT, bookingId: item.bookingId, personId: '', expiresOn: linkExpiry(trip, today), at, base: env.ASK_ORIGIN || env.APP_URL });
   return { ...item, body: item.body.split(mark).join(url) };
 }
 

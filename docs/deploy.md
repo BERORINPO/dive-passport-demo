@@ -76,6 +76,37 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 4. 2 台で同時に読まない（KV は同じキーへの書き込みが 1 秒に 1 回まで。重なると「届きませんでした」になる。目安の数なので、もう一度押せば読める）
 5. 通しを 2 回（本物と見本）
 
+## 7. 名簿のサーバーと、お客さんのリンクの Worker（2026-10-27 から）
+お店の名簿を D1 に置き（端末どうしでそろう）、書類の自動化の Cron を動かし、お客さんのリンクを Access の無い別の Worker（`redux-ask`）で開けるようにする。
+お店の Worker の Access の設定は触らない（お客さんの Worker にはお店の画面も名簿の道も無い。plan/meibo.md「お客さんのリンク」）。
+
+1. ★ D1 を作れるように入り直す（約 2 分・権限）: 2 の login に `d1:write` を足して打つ
+   ```bash
+   npx wrangler@4.151.0 login --scopes account:read user:read workers:write workers_kv:write workers_scripts:write workers_routes:write workers_tail:read d1:write
+   ```
+2. D1 を作る（無料の枠）。出た `database_id` を wrangler.jsonc と wrangler.ask.jsonc の `REPLACE_WITH_D1_ID` に入れて push する
+   ```bash
+   npx wrangler@4.151.0 d1 create redux-rosters
+   ```
+3. 表を作る（worker/migrations/ の 0001・0002）
+   ```bash
+   npx wrangler@4.151.0 d1 migrations apply redux-rosters --remote
+   ```
+4. 置く（お客さんの Worker を先に置いて URL を知り、お店の Worker に ASK_ORIGIN として入れてから、お店の Worker を置く）
+   ```bash
+   node tools/build-site.mjs
+   npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc
+   npx wrangler@4.151.0 secret put ASK_ORIGIN
+   npx wrangler@4.151.0 deploy
+   ```
+   - ASK_ORIGIN は `https://redux-ask.<アカウントの名前>.workers.dev`（最後の / は付けない）
+5. 確かめ（ログインしていない端末か curl で）
+   - お店の Worker: `/` は Access のログインへ、`/api/roster` も止まる
+   - お客さんの Worker: `/ask` は開ける。`/api/roster`・`/api/ask-link` は 404。`/api/ask` に間違った鍵を送ると 404
+   - 2 台の端末で同じ名簿がそろう。「お客さんに聞くリンク」で作ったリンクを、ログインしていないスマホで開いて入れると、お店の画面に出る
+- サイトの予約フォーム（/api/bookings）とメールの送り受けは、まだ設定を入れない（無ければ止まる作り。入れる物は plan/auto.md の「置くときの設定」）
+- 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
+
 ## 置き直したら（2 回目から）
 - 開いているタブを全部読み込み直す（スマホ・PC とも）。古い版の画面が残ったまま保存すると、古い形の名簿を書く
 - be0b404 から後の版は、別のタブが新しい形で保存したのに気づくと、その画面からは書かなくなる（「この画面より新しい版の名簿が保存されました」と出る）。921da0e までの版にはこの守りが無いので、置き直した日は特に読み込み直しを先にする

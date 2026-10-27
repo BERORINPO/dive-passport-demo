@@ -3,7 +3,9 @@
 // 当日の体調は Worker の日付が便の日のときだけ、名簿の中身は見せない、作り直したら古い鍵は止まる、回数の上限。
 // 実行: node test/ask-link.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
-import { handle } from '../worker/handler.mjs';
+import { handle, handleAsk } from '../worker/handler.mjs';
+import { askFiles, askHeaders } from '../tools/build-site.mjs';
+import { readFileSync } from 'node:fs';
 import { resetAccessCache } from '../worker/access.mjs';
 import { fakeKv, fakeAccess, fakeD1, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
 
@@ -217,6 +219,35 @@ test('中止になった便: 見られるが、入れられない', async () => 
   assert.deepEqual(v.trip.cancel, { reason: 'wind' });
   const r = await (await call(s, '/api/ask', { k: key, action: 'send', personId: people[0].id, input: { birthDate: '1990-05-01' } })).json();
   assert.deepEqual(r.problems, ['cancelled']);
+});
+
+test('お客さん用の Worker（Access なし）: /api/ask だけを受け、お店の道は無い。置くのは ask.html と、それが読むファイルだけ', async () => {
+  const { s, key } = await booked();
+  /* お客さんの Worker は D1 と回数の binding だけを持つ（Access・AI・KV の設定は無い） */
+  const env = { DB: s.env.DB, ASK_LIMIT: s.env.ASK_LIMIT };
+  const ASK_ORIGIN = 'https://redux-ask.example.workers.dev';
+  const req = (path, body, method = 'POST', site = 'same-origin') => handleAsk(new Request(ASK_ORIGIN + path, { method,
+    headers: { 'content-type': 'application/json', 'sec-fetch-site': site }, body: method === 'POST' ? JSON.stringify(body) : undefined }), env, s.io);
+  assert.equal((await req('/api/ask', { k: key, action: 'view' })).status, 200);
+  for (const path of ['/api/roster', '/api/ask-link', '/api/read', '/api/healthz', '/api/bookings']) assert.equal((await req(path, {})).status, 404, path);
+  assert.equal((await req('/api/ask', null, 'GET')).status, 405);
+  assert.equal((await req('/api/ask', { k: key, action: 'view' }, 'POST', 'cross-site')).status, 403);
+  const made = await (await req('/api/ask', { k: key, action: 'person-link', personId: (await (await req('/api/ask', { k: key, action: 'view' })).json()).people[0].person.id })).json();
+  assert.ok(made.url.startsWith(`${ASK_ORIGIN}/ask#k=`), '1 人ずつのリンクは、お客さんの Worker の URL で作る');
+  const files = askFiles();
+  assert.equal(files[0], 'ask.html');
+  assert.ok(files.includes('js/ask-page.js') && files.includes('css/app.css'));
+  for (const shopOnly of ['index.html', 'js/booking.js', 'js/roster-sync.js', 'js/ai-reader.js', 'js/app.js', 'css/fonts.css']) assert.ok(!files.includes(shopOnly), shopOnly);
+  const h = askHeaders(readFileSync(new URL('../index.html', import.meta.url), 'utf8'));
+  assert.ok(h.includes("/ask\n  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'self'"));
+  assert.ok(!h.includes('cdn.jsdelivr.net') && !/^\/index/m.test(h), 'お店の画面のヘッダは写さない');
+});
+
+test('お店の Worker がリンクを作るとき、ASK_ORIGIN があればお客さんの Worker の URL にする', async () => {
+  const { s, booking } = await booked();
+  s.env.ASK_ORIGIN = 'https://redux-ask.example.workers.dev';
+  const got = await (await call(s, '/api/ask-link', { bookingId: booking.id }, { staff: true })).json();
+  assert.ok(got.url.startsWith('https://redux-ask.example.workers.dev/ask#k='));
 });
 
 test('ログに鍵も名前も出ない', async () => {

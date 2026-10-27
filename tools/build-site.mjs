@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'dist');
+/* お客さんのリンクだけの Worker（wrangler.ask.jsonc）に置く物。ask.html と、ask.html が読むファイルだけ（お店の画面は置かない） */
+const outAsk = join(root, 'dist-ask');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
 const KEEP = [/^index\.html$/, /^pass\.html$/, /^ask\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
@@ -73,4 +75,38 @@ function build() {
   console.log(`dist/: ${files.length} files + _headers`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) build();
+/* ask.html が読む js と css（script の src と stylesheet の href）。これ以外はお客さん用の Worker に置かない */
+export function askFiles(html = readFileSync(join(root, 'ask.html'), 'utf8')) {
+  const refs = [...html.matchAll(/<script src="([^"]+)"><\/script>|<link rel="stylesheet" href="([^"]+)">/g)].map(m => m[1] || m[2]);
+  if (!refs.every(f => /^(js|css)\/[\w.-]+\.(js|css)$/.test(f))) throw new Error('ask.html が js/ と css/ のほかを読んでいる');
+  return ['ask.html', ...refs];
+}
+
+export function askHeaders(indexHtml) {
+  const all = headers(indexHtml).split('\n');
+  /* 共通（/*）と、ask.html・/ask の CSP、js と css のキャッシュだけを、同じ書き方で写す */
+  const keep = new Set(['/*', '/ask.html', '/ask', '/js/*', '/css/*']);
+  const out = [];
+  let on = false;
+  for (const line of all) {
+    if (/^\S/.test(line)) on = keep.has(line.trim());
+    if (on && line) out.push(line);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+function buildAsk(index) {
+  rmSync(outAsk, { recursive: true, force: true });
+  const files = askFiles();
+  for (const f of files) {
+    mkdirSync(dirname(join(outAsk, f)), { recursive: true });
+    cpSync(join(root, f), join(outAsk, f));
+  }
+  writeFileSync(join(outAsk, '_headers'), askHeaders(index));
+  console.log(`dist-ask/: ${files.length} files + _headers`);
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  build();
+  buildAsk(readFileSync(join(root, 'index.html'), 'utf8'));
+}

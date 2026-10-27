@@ -191,7 +191,8 @@ async function askLink(request, env, io, url, note) {
   if (raw === null) return json(413, { error: 'size' });
   let given;
   try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
-  const got = await makeAskLink(given, env, io, note, url.origin);
+  /* 置いた形では、お客さんのリンクは Access の無い別の Worker（ASK_ORIGIN）で開く。手元（serve-dist）は同じ場所 */
+  const got = await makeAskLink(given, env, io, note, env.ASK_ORIGIN || url.origin);
   return json(got.status, got.body);
 }
 
@@ -218,6 +219,26 @@ async function route(request, env, io, url, note) {
   if (url.pathname === '/api/roster') return roster(request, env, io, note);
   if (url.pathname === '/api/ask-link') return askLink(request, env, io, url, note);
   return url.pathname === '/api/healthz' ? healthz(env, io) : read(request, env, io, note);
+}
+
+/* お客さんのリンクだけの Worker（worker/ask-index.mjs、Access を付けない）の入口。/api/ask の POST だけを受け、ほかの /api は 404。
+   お店の画面・名簿の道（/api/roster）・リンクを作る道（/api/ask-link）・AI の読み取りは、この Worker には無い */
+export async function handleAsk(request, env, io) {
+  const started = io.now();
+  const url = new URL(request.url);
+  const note = { worker: 'ask', route: url.pathname === '/api/ask' ? '/api/ask' : url.pathname.startsWith('/api/') ? '/api/other' : 'other' };
+  let res;
+  try {
+    if (url.pathname !== '/api/ask') res = json(404, { error: 'path' });
+    else if (request.method !== 'POST') res = json(405, { error: 'method' }, { allow: 'POST' });
+    else if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; res = json(403, { error: 'site' }); }
+    else res = await ask(request, env, io, url, note);
+  } catch (e) {
+    note.why = 'crash';
+    res = json(500, { error: 'server' });
+  }
+  console.log(JSON.stringify({ ...note, status: res.status, ms: io.now() - started }));
+  return res;
 }
 
 export async function handle(request, env, io) {

@@ -35,6 +35,17 @@
     return data.state && typeof data.state === 'object' && R.roster.validateState(data.state).ok ? { version: data.version, state: data.state } : null;
   }
 
+  /* Worker が返したお客さんのリンクの形（置いた形では別の Worker の https、手元では localhost）。/ask と # の後ろの鍵だけ */
+  function linkOk(u) {
+    try {
+      const x = new URL(u);
+      return (x.protocol === 'https:' || (x.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(x.hostname)))
+        && x.pathname === '/ask' && !x.search && /^#k=[A-Za-z0-9_-]{43}$/.test(x.hash);
+    } catch (e) {
+      return false;
+    }
+  }
+
   R.rosterSync = {
     /* { ok: true, version, state } か { ok: false, why } */
     async pull() {
@@ -55,7 +66,7 @@
     async askLink(bookingId) {
       const r = await call('POST', { bookingId }, '/api/ask-link');
       const d = r.data;
-      if (r.status === 200 && d && typeof d.url === 'string' && d.url.startsWith(`${location.origin}/ask#k=`)) return { ok: true, url: d.url, expiresOn: String(d.expiresOn || '') };
+      if (r.status === 200 && d && typeof d.url === 'string' && linkOk(d.url)) return { ok: true, url: d.url, expiresOn: String(d.expiresOn || '') };
       return { ok: false, why: r.status || 'network' };
     }
   };
