@@ -172,9 +172,10 @@ test('端末の退避も、便の日から 1 年を過ぎた便は消える（�
   assert.deepEqual(tidied.trips.map(t => t.id), ['t1'], '1 年を過ぎた便だけが消える');
 });
 
-test('別の端末が便を消して当てられなくなった直しは外し、知らせる', async () => {
+test('別の端末が便を消して当てられなくなった直しは外し、知らせる（外した直しは別の場所に残す）', async () => {
   const srv = server();
-  const a = device(srv);
+  const local = memory();
+  const a = device(srv, local);
   a.rosterStore.update(addTrip(a));
   await a.rosterStore.startSync();
   const b = device(srv);
@@ -185,6 +186,9 @@ test('別の端末が便を消して当てられなくなった直しは外し�
   await a.rosterStore.whenSynced();
   assert.equal(a.rosterStore.note(), 'sync-dropped');
   assert.equal(a.rosterStore.get().trips.length, 0);
+  const kept = [...local.raw.keys()].filter(k => k.startsWith('redux-roster-v1-kept-'));
+  assert.equal(kept.length, 1, '外した直しは消さずに残す');
+  assert.ok(local.getItem(kept[0]).includes('見本 次郎'), '残した名簿に外した直しが入っている');
 });
 
 test('直しの中で作った id は、送るときの当て直しでも変わらない（その id を指す後の直しが外れない）', async () => {

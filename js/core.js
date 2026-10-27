@@ -310,7 +310,8 @@
   }
   function adopt() {
     const { state, dropped } = rebase();
-    if (dropped && rosterNote !== 'sync-kept') rosterNote = 'sync-dropped';
+    /* 外した直しは、この端末で見えていた名簿（外す前）ごと別の場所に残す（黙って消さない。Codex のレビュー 2026-10-28） */
+    if (dropped && rosterNote !== 'sync-kept') { keepLocal(roster); rosterNote = 'sync-dropped'; }
     roster = state;
     writeRoster(state);
     writeSyncMeta();
