@@ -50,14 +50,14 @@ const LIST_PROMPT = `${RULES}
 const MAIL_PROMPT = (today) => `${RULES}
 
 この書類は予約のメールです。参加者のほかに、予約そのものも "booking" に書いてください。
-- site: 予約を受けたサイトやフォームの名前。ref: 予約番号。date: 潜る日（YYYY-MM-DD）。start: 集合か開始の時刻（HH:MM、24 時間）。tour: ツアーの名前。people: 人数。lead_name・lead_phone: 代表者の名前と電話。
+- site: 予約を受けたサイトやフォームの名前。ref: 予約番号。date: 潜る日（YYYY-MM-DD）。start: 集合か開始の時刻（HH:MM、24 時間）。tour: ツアーの名前。people: 人数。lead_name・lead_phone・lead_email: 代表者の名前と電話とメールアドレス（本文や差出人に書かれていれば。お店や予約サイトのアドレスは入れない）。
 - 今日は ${today}。年が書かれていない日付は、今日か今日より後の一番近い日にする。
 - 分からない所は null にし、少しでも自信がない項目は booking の unsure に入れる。
 - 「${R.healthRedact.REDACTED_LINE}」「${R.healthRedact.REDACTED_PART}」は、お店が送らなかった所。中身を推測しない。
 - 答えは次の形の JSON 1 つだけ。前後に説明を書かない。
 
 形式:
-{"participants": [{"name": null, "birth_date": null, "phone": null, "address": null, "emergency_name": null, "emergency_relation": null, "emergency_phone": null, "cert_course": null, "cert_date": null, "dive_count": null, "last_dive": null, "height_cm": null, "weight_kg": null, "foot_cm": null, "unsure": []}], "booking": {"site": null, "ref": null, "date": null, "start": null, "tour": null, "people": null, "lead_name": null, "lead_phone": null, "unsure": []}, "health_info_visible": false}`;
+{"participants": [{"name": null, "birth_date": null, "phone": null, "address": null, "emergency_name": null, "emergency_relation": null, "emergency_phone": null, "cert_course": null, "cert_date": null, "dive_count": null, "last_dive": null, "height_cm": null, "weight_kg": null, "foot_cm": null, "unsure": []}], "booking": {"site": null, "ref": null, "date": null, "start": null, "tour": null, "people": null, "lead_name": null, "lead_phone": null, "lead_email": null, "unsure": []}, "health_info_visible": false}`;
 
 /* 日付は日本の時刻で決める（便も名簿も沖縄の日付）。core は時計を使わないので、受け取った ms から暦の日を計算する
    （1970-01-01 からの日数を年月日に直す。グレゴリオ暦の 400 年の周期で数える） */

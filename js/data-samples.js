@@ -369,6 +369,7 @@
    "people": 2,
    "leadName": "見本 花子",
    "leadPhone": "090-1234-5678",
+   "leadEmail": "hanako@mail.example",
    "unsure": []
   },
   "people": [
@@ -542,6 +543,7 @@
    "people": 3,
    "leadName": "見本 大輔",
    "leadPhone": "090-0101-2323",
+   "leadEmail": "daisuke@mail.example",
    "unsure": [
     "date",
     "start"

@@ -600,7 +600,10 @@
     if (!trips.size && !removed) return state;
     return withLog(
       { ...state, trips: state.trips.filter(t => !trips.has(t.id)), bookings: state.bookings.filter(b => !bookings.has(b.id)),
-        people: state.people.filter(p => !people.has(p.id)), log },
+        people: state.people.filter(p => !people.has(p.id)), log,
+        /* 書類の自動化の予定と送る連絡も、便と一緒に消す（送る連絡には名前とメールアドレスが入るので、名簿と同じく 1 年まで） */
+        ...(state.jobs ? { jobs: state.jobs.filter(j => !bookings.has(j.bookingId)) } : {}),
+        ...(state.outbox ? { outbox: state.outbox.filter(o => !bookings.has(o.bookingId)) } : {}) },
       entry(at, 'system', 'remove', 'state', '', { after: { trips: trips.size, people: people.size, log: removed } }));
   }
 

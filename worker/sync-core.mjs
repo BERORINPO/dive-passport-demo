@@ -4,6 +4,8 @@
 import '../js/roster-schema.js';
 import '../js/roster-core.js';
 import '../js/roster-share.js';
+import '../js/roster-guest.js';
+import '../js/roster-auto.js';
 
 const R = globalThis.REDUX;
 
@@ -26,7 +28,7 @@ function tidy(state, { today, at }) {
    - 名簿・お店・記録の 1 件は、決まった項目だけ（余分な項目に中身を紛れ込ませない）
    - 便・予約・人の id は重ならない（同じ id の人を 2 人入れて、他のお店のお客さんの健康の答えを外す決まりを抜けさせない。ザクのレビュー 2026-10-27）
    記録の before / after の中身は、まだ項目を絞っていない。お客さんのリンク（/ask）を Access の外に出す前に絞る（plan/server.md） */
-const STATE_KEYS = ['v', 'shop', 'trips', 'bookings', 'people', 'log'];
+const STATE_KEYS = ['v', 'shop', 'trips', 'bookings', 'people', 'log', 'jobs', 'outbox'];
 const SHOP_KEYS = ['name'];
 const LOG_KEYS = ['at', 'who', 'act', 'kind', 'id', 'fields', 'before', 'after', 'sent', 'demo'];
 const onlyKeys = (o, keys) => Object.keys(o).every(k => keys.includes(k));
@@ -35,7 +37,7 @@ function strictProblem(s) {
   if (!onlyKeys(s, STATE_KEYS)) return 'keys';
   if (!onlyKeys(s.shop, SHOP_KEYS)) return 'shop-keys';
   if (!s.log.every(e => onlyKeys(e, LOG_KEYS))) return 'log-keys';
-  if (!unique(s.trips) || !unique(s.bookings) || !unique(s.people)) return 'ids';
+  if (!unique(s.trips) || !unique(s.bookings) || !unique(s.people) || !unique(s.jobs || []) || !unique(s.outbox || [])) return 'ids';
   return '';
 }
 
