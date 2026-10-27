@@ -1,0 +1,14 @@
+Subject: New booking: Kerama Fun Dive (2 tanks) - Oct 24, 2026
+From: Booking Platform (sample) <noreply@tours.example>
+
+Booking ref: TB-88231
+Activity: Fun Dive, 2 tanks
+Date: Saturday, October 24, 2026
+Lead traveler: Seo-yeon Kim
+Phone: +82 10-1234-5678
+Participants: 2
+
+Answers to your questions:
+- Date of birth of each participant: Seo-yeon 1990-06-15 / Min-jun 1988-02-03
+- Certification level and year: Seo-yeon Open Water (2018). Min-jun has no certification, wants a Discover Scuba.
+- Hotel for pickup: Sample Hotel Naha

@@ -7,6 +7,7 @@
   const { el, L } = R;
   const T = () => R.T;
   const root = document.getElementById('intake');
+  const tourRoot = document.getElementById('tour');   // 画面の題・ツアー・このツアーのこと（入力の form の外。選んだツアーは draft に持つ）
 
   function blank() {
     const day = R.ymd(R.addDays(new Date(), 2));
@@ -75,18 +76,31 @@
   }
 
   function choices(name, options, isOn, onPick, type) {
-    return el('div', { class: 'choices' }, options.map(o =>
+    return el('div', { class: R.choiceClass(options.map(L)) }, options.map(o =>
       el('label', { class: 'choice' },
         el('input', { type: type || 'radio', name, value: o.id, checked: isOn(o.id), onchange: (e) => onPick(o.id, e.target.checked) }),
         el('span', { text: L(o) }))));
   }
 
+  /* このツアーのこと: 罫線の表（色の箱にしない）。時間と料金は数字の書体 */
   function factsBox() {
     const tour = R.TOURS.find(t => t.id === draft.tour);
-    return el('div', { class: 'facts', id: 'facts' },
-      el('p', { class: 'facts__title', text: L(T().factsTitle) }),
-      el('ul', { class: 'facts__list' }, tour.facts.map(f => el('li', { text: L(f) }))),
-      el('p', { class: 'facts__meta', text: `${tour.start}〜${tour.end} ・ ${tour.price} ${R.lang === 'en' ? 'yen' : '円'}` }));
+    const row = (k, v) => el('div', { class: 'facts__row' }, el('span', { class: 'facts__k', text: k }), el('p', { class: 'facts__v' }, v));
+    return el('div', { class: 'facts', id: 'facts', 'aria-label': L(T().factsTitle) },
+      row(L(T().factTime), el('span', { class: 'facts__fig', text: `${tour.start}–${tour.end}` })),
+      tour.facts.map(f => row('', L(f))),
+      row(L(T().factPrice), [el('span', { class: 'facts__price', text: tour.price }), R.lang === 'en' ? ' yen' : ' 円']));
+  }
+
+  function renderTour() {
+    const t = T();
+    R.fill(tourRoot,
+      el('h1', { class: 'page__h1', text: L(t.intakeTitle) }),
+      el('section', { class: 'guest-sec' },
+        el('h2', { class: 'h2', text: L(t.fTour) }),
+        choices('tour', R.TOURS.map(x => ({ id: x.id, ...x.name })), (id) => draft.tour === id,
+          (id) => { set({ tour: id }); swap('facts', factsBox()); }),
+        factsBox()));
   }
 
   function healthGroup() {
@@ -111,17 +125,12 @@
       field(L(T().fFlightDate), date, 'f-fdate'), field(L(T().fFlightTime), time, 'f-ftime'));
   }
 
-  const swap = (id, node) => { const old = root.querySelector(`#${id}`); if (old) old.replaceWith(node); };
+  const swap = (id, node) => { const old = root.querySelector(`#${id}`) || tourRoot.querySelector(`#${id}`); if (old) old.replaceWith(node); };
 
   /* ---------- 入力の画面 ---------- */
   function renderForm() {
     const t = T();
     const errors = el('p', { class: 'errors', id: 'errors', role: 'alert' });
-
-    const tour = group(L(t.fTour),
-      choices('tour', R.TOURS.map(x => ({ id: x.id, ...x.name })), (id) => draft.tour === id,
-        (id) => { set({ tour: id }); swap('facts', factsBox()); }),
-      factsBox());
 
     const basics = el('div', { class: 'row' },
       field(L(t.fDate), el('input', { class: 'input', type: 'date', id: 'f-date', value: draft.date, onchange: (e) => set({ date: e.target.value }) }), 'f-date'),
@@ -153,15 +162,12 @@
       flightInputs());
 
     const form = el('form', { class: 'form', novalidate: true },
-      tour, basics, who, swim, exp, worries, health, flight, errors,
+      basics, who, swim, exp, worries, health, flight, errors,
       el('button', { class: 'btn btn--big', type: 'submit', text: L(t.submit) }));
     form.addEventListener('submit', (e) => { e.preventDefault(); submit(errors); });
 
-    R.fill(root,
-      el('h2', { class: 'h2', text: L(t.intakeTitle) }),
-      el('p', { class: 'lead', text: L(t.intakeLead) }),
-      passBanner(),
-      form);
+    renderTour();
+    R.fill(root, passBanner(), form);
   }
 
   function submit(errorsNode) {
@@ -185,9 +191,24 @@
       source: draft.source,
       checked: false
     };
+    intake.bookingId = toRoster(intake);
     R.store.update(s => ({ ...s, intakes: [intake, ...s.intakes] }));
     doneId = intake.id;
     render();
+  }
+
+  /* 予約の一覧と名簿にも入れる（決定ログ form-to-roster）。名簿に入れるのは代表者の名前と経験だけで、健康の答えは入れない（roster-core.js の bookingFromIntake）。
+     入れられなかったら ''（予約前の確認はお店の受付の画面に出るので、お店はそこから予約を入れられる） */
+  function toRoster(intake) {
+    const tour = R.TOURS.find(x => x.id === intake.tour);
+    if (!tour) return '';
+    let bookingId = '';
+    try {
+      R.rosterStore.update(s => { const out = R.rosterCore.addFromIntake(s, { intake, tour, at: intake.at, newId: R.newId }); bookingId = out.bookingId; return out.state; });
+    } catch (e) {
+      bookingId = '';
+    }
+    return bookingId;
   }
 
   /* ---------- 送ったあとの画面 ---------- */
@@ -214,12 +235,17 @@
     }
     const { flags } = R.assess(intake, s);
     const msgs = R.guestMessages(intake, flags);
+    tourRoot.replaceChildren();
     root.replaceChildren(
       el('div', { class: 'done' },
         el('h2', { class: 'h2', text: L(t.doneTitle) }),
         el('p', { class: 'lead', text: L(t.doneBody) }),
         msgs.length ? el('ul', { class: 'done__list' }, msgs.map(m => el('li', { text: L(m) }))) : null,
         passSave(intake),
+        intake.bookingId && R.rosterStore.get().bookings.some(b => b.id === intake.bookingId)
+          ? el('div', { class: 'passbar passbar--col' }, el('span', { text: L(t.rosterLead) }),
+            el('button', { class: 'btn btn--small', type: 'button', text: L(t.rosterNow), onclick: () => R.openAsk(intake.bookingId) }))
+          : null,
         el('div', { class: 'actions' },
           el('button', { class: 'btn', type: 'button', text: L(t.seeShop), onclick: () => R.showTab('shop') }),
           el('button', { class: 'btn btn--ghost', type: 'button', text: L(t.again), onclick: () => { doneId = null; savedNote = ''; draft = blank(); render(); } }))));

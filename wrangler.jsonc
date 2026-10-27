@@ -1,0 +1,30 @@
+// Cloudflare Worker の設定（P6）。置き方は docs/deploy.md。
+// この repo は公開なので、鍵・チームのメールアドレス・Access の値はここに書かず、wrangler secret put で入れる
+// （ANTHROPIC_API_KEY・ACCESS_TEAM_DOMAIN・ACCESS_AUD・ALLOWED_EMAILS）。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dive-passport-demo",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  // 版ごとの別の URL を作らない（Access を付けた URL のほかに入口を増やさない）
+  "preview_urls": false,
+  "assets": {
+    // node tools/build-site.mjs が作る。repo の中身を丸ごとは置かない
+    "directory": "./dist",
+    // Worker を通すのは /api だけ。画面のファイルは Static Assets が _headers の CSP を付けて配る
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "none"
+  },
+  "kv_namespaces": [
+    // 回数と費用の目安を数える。id は wrangler kv namespace create BUDGET が出した値（2026-10-22。id は鍵ではない）
+    { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" }
+  ],
+  "vars": {
+    // 1 日に AI を呼ぶ回数の上限（日本の日付）と、今月の費用の上限（ドル、目安）。本当の上限は Anthropic のワークスペースで付ける
+    "DAILY_LIMIT": "200",
+    "MONTHLY_USD": "5"
+  },
+  // Cloudflare の画面のログに要求を残さない（Worker のログは console.log の 1 行だけで、中身は出さない）
+  "observability": { "enabled": false }
+}

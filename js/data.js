@@ -121,15 +121,22 @@
   /* 客の画面の文。お店の画面は日本語だけ */
   R.T = {
     brandSub: { ja: '受付（試作）', en: 'front desk (prototype)' },
-    tabGuest: { ja: 'お客さまの画面', en: 'Guest view' },
-    tabShop: { ja: 'お店の画面', en: 'Shop view' },
+    tabGuest: { ja: 'お客さま', en: 'Guest' },
+    tabShop: { ja: '受付', en: 'Front desk' },
+    tabBooking: { ja: '予約と名簿', en: 'Bookings' },
     langBtn: { ja: 'English', en: '日本語' },
+    demoSwitch: { ja: 'デモの画面', en: 'Demo screens' },
     demoNote: { ja: 'デモです。入力した内容はこのブラウザの中だけに残り、どこにも送りません。答えはお店が書いた文だけで、AI は文章を作りません。',
                 en: 'Demo. What you enter stays in this browser and is not sent anywhere. Answers are written by the shop; no AI-written text.' },
+    demoNoteReal: { ja: 'デモです。中身はすべて架空の見本です。本物の AI にしているので、予約メールの文面と写真（健康の所は外して・塗って）を AI に送ります。',
+                    en: 'Demo with made-up sample data only. The real AI is on, so booking emails and photos (health parts removed or blacked out) are sent to the AI.' },
     chatTitle: { ja: 'ウミガメのリドに聞く', en: 'Ask Lido the sea turtle' },
     greet: { ja: 'こんにちは、リドだよ。答えられるのは、お店が書いた答えがあることだけ。分からないことは、お店の人に聞いてもらうね。',
              en: "Hi, I'm Lido. I only answer with what the shop has written. If I don't know, I'll pass your question to the shop." },
-    placeholder: { ja: '聞きたいことを書いてね', en: 'Type your question' },
+    placeholder: { ja: 'ほかに聞きたいこと', en: 'Anything else?' },
+    faqTitle: { ja: 'よく聞かれること', en: 'Common questions' },
+    faqMore: { ja: 'ほかの質問', en: 'More questions' },
+    faqNote: { ja: '答えはお店が書いた文だけです。合う答えが無いときは、お店に回します。', en: 'Answers are only what the shop wrote. If none fits, we pass your question to the shop.' },
     ask: { ja: '聞く', en: 'Ask' },
     shopAnswer: { ja: 'お店の答え', en: "Shop's answer" },
     updated: { ja: '更新', en: 'updated' },
@@ -140,7 +147,9 @@
     didYouMean: { ja: 'もしかして、このどれかのこと？', en: 'Did you mean one of these?' },
     noneOfThese: { ja: 'どれでもない（お店に聞く）', en: 'None of these (ask the shop)' },
     sent: { ja: 'お店に送ったよ。返事はお店の人から届くね。（デモなので「お店の画面」に入ります）', en: "Sent to the shop. A person will reply. (In this demo it shows up in the shop view.)" },
-    intakeTitle: { ja: '予約前の確認', en: 'Before you book' },
+    intakeTitle: { ja: '予約の前に', en: 'Before you book' },
+    factTime: { ja: '時間', en: 'Time' },
+    factPrice: { ja: '料金', en: 'Price' },
     intakeLead: { ja: '答えてもらうと、お店が当日の準備をしやすくなります。これだけでは予約は決まりません。', en: 'Your answers help the shop prepare. This does not confirm a booking yet.' },
     fTour: { ja: 'ツアー', en: 'Tour' },
     factsTitle: { ja: 'このツアーの中身（予約の前に読んでください）', en: 'What this tour is like (please read before booking)' },
@@ -183,7 +192,9 @@
     msgEars: { ja: '前の日に、耳抜きのやり方をお送りします。', en: "The day before, we'll send you how to equalise your ears." },
     msgSeasick: { ja: '酔い止めは、出発の 30 分前に飲んでください。', en: 'Take seasickness medicine 30 minutes before departure.' },
     again: { ja: 'もう 1 件入力する', en: 'Fill in another' },
-    seeShop: { ja: 'お店の画面で見る', en: 'See it in the shop view' }
+    seeShop: { ja: 'お店の画面で見る', en: 'See it in the shop view' },
+    rosterLead: { ja: '当日の名簿（沖縄県の条例で決まった項目）も、いま入れておくと当日の受付が早く済みます。', en: 'You can also fill in the dive roster now (items required by Okinawa rules). It makes check-in on the day faster.' },
+    rosterNow: { ja: '名簿の項目も入れる', en: 'Fill in the roster' }
   };
 
   /* 見本の受付 4 件（日付は今日から数える）。4 件目はパスポートから来た受付で、質問票が古い */
