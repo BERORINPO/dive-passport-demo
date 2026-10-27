@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ja" data-layer="staff">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>浜のテスト 旧と新</title>
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="../../favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../css/fonts.css">
+<link rel="stylesheet" href="../../css/app.css">
+<style>
+/* 浜のテスト用。旧（v7 海のモック）と新（今の公開版の「今日の名簿」）に、同じ 10 人を同じ並びで出す。
+   新は app.css をそのまま使う。旧は app.css が混ざらないよう Shadow DOM の中に v7 の CSS を写して描く。何も保存しない */
+body { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+#old { display: block; }
+#old[hidden], #new[hidden] { display: none; }
+/* 新の行は app.css のまま。10 行をなるべく 1 画面に入れるため、行のボタン（お客さんに聞く・確かめる）と上の「← 予約」を外し、見出しとの間だけ詰めた */
+.beach-new .wrap { padding-top: 4px; }
+.beach-new .sheet { margin-top: 12px; }
+
+/* 下に固定する小さい帯（テストする人が触る所。画面の一部ではない） */
+.tb { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); background: oklch(22% 0.01 200 / 0.94); color: oklch(97% 0 0); font-size: 14px; }
+.tb__seg { display: flex; border: 1px solid oklch(70% 0 0); border-radius: 8px; overflow: hidden; flex: none; }
+.tb button { min-height: 44px; border: 0; font: inherit; font-weight: 700; cursor: pointer; }
+.tb__seg button { min-width: 52px; padding: 0 12px; background: transparent; color: inherit; }
+.tb__seg button[aria-pressed="true"] { background: oklch(97% 0 0); color: oklch(22% 0.01 200); }
+.tb__mix { padding: 0 14px; border-radius: 8px; background: oklch(97% 0 0); color: oklch(22% 0.01 200); flex: none; }
+.tb__n { margin-left: auto; font-family: var(--font-figure); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="old"></div>
+<div id="new" class="beach-new"></div>
+<nav class="tb" aria-label="テストの操作">
+  <div class="tb__seg" role="group" aria-label="見せる画面">
+    <button type="button" data-v="old" aria-pressed="false">旧</button>
+    <button type="button" data-v="new" aria-pressed="false">新</button>
+  </div>
+  <button type="button" class="tb__mix" id="mix">並べ替える</button>
+  <span class="tb__n" id="count" aria-live="polite"></span>
+</nav>
+<script>
+(() => {
+  /* テスト計画のページと同じ 10 人。st: ok そろった / wait まだ / check 確かめる。why はお客さんの入力待ちか確かめる所 */
+  const PEOPLE = [
+    { name: '見本 健', st: 'ok' },
+    { name: '見本 美咲', st: 'wait', why: ['既往症', '当日の健康状態'] },
+    { name: '見本 翔太', st: 'check', why: ['生年月日'] },
+    { name: '見本 由美', st: 'wait', why: ['住所', '既往症', '当日の健康状態'] },
+    { name: 'Sample Noah', st: 'ok' },
+    { name: '見本 和夫', st: 'wait', why: ['当日の健康状態'] },
+    { name: '見本 恵', st: 'ok' },
+    { name: '見本 拓也', st: 'check', why: ['緊急時の連絡先'] },
+    { name: 'Kim Jiwoo', st: 'wait', why: ['既往症', '当日の健康状態'] },
+    { name: '見本 早苗', st: 'ok' }
+  ];
+  const TRIP = { time: '13:00', tour: 'ファンダイビング（ボート 2 本）', boat: 'ボート・サンプル丸', shop: 'B マリン（見本）' };
+
+  const h = (tag, attrs, ...kids) => {
+    const n = document.createElement(tag);
+    Object.entries(attrs || {}).forEach(([k, v]) => { if (v !== undefined) n.setAttribute(k, v); });
+    kids.flat().forEach(k => { if (k !== null && k !== undefined) n.append(k); });
+    return n;
+  };
+  const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+  const d = new Date();
+  const today = `${d.getMonth() + 1}/${d.getDate()}（${WEEK[d.getDay()]}）`;
+
+  /* 新: js/day-roster.js の checkLine と同じ並び（名前・状態・理由）。そろった人は「✓ そろった」だけ */
+  const newLabel = p => p.st === 'ok' ? '✓ そろった' : p.st === 'check' ? '! 確かめる' : `・まだ ${p.why.length}`;
+  const newMeta = p => p.st === 'check' ? `確かめる: ${p.why.join('・')}` : p.st === 'wait' ? `お客さんの入力待ち: ${p.why.join('・')}` : null;
+  function drawNew(order) {
+    const box = document.getElementById('new');
+    box.replaceChildren(h('main', { class: 'wrap' }, h('section', { class: 'view view--desk' },
+      h('h2', { class: 'sr-only' }, '今日の名簿'),
+      h('div', { class: 'mast' },
+        h('span', { class: 'mast__t' }, TRIP.time),
+        h('span', { class: 'mast__d' }, today),
+        h('span', { class: 'mast__w' }, TRIP.tour, '　', h('b', {}, String(PEOPLE.length)), ' 人')),
+      h('div', { class: 'sheet' },
+        h('p', { class: 'sheet__title' }, 'この便の人', h('small', {}, `${PEOPLE.length} 人`)),
+        h('ul', { class: 'bks bks--sheet' }, order.map(p => h('li', { class: 'bk' },
+          h('span', { class: 'bk__name' }, p.name),
+          h('span', { class: `st st--${p.st}` }, newLabel(p)),
+          newMeta(p) ? h('span', { class: 'bk__meta' }, newMeta(p)) : null)))))));
+  }
+
+  /* 旧: v7 海のモック（v7-ocean.local.html）の「予約と名簿」の面。CSS はそこから写した。字の大きさも v7 のまま */
+  const OLD_CSS = `
+:host { all: initial; display: block; }
+* { box-sizing: border-box; }
+.screen { --ink: oklch(98% 0.005 220); --ink-2: oklch(86% 0.02 220); --ink-3: oklch(74% 0.03 220);
+  --glass: oklch(26% 0.05 235 / 0.62); --glass-line: oklch(100% 0 0 / 0.26); --glass-line-2: oklch(100% 0 0 / 0.14);
+  --ok: oklch(86% 0.12 165); --warn: oklch(84% 0.09 40); --info: oklch(85% 0.07 220);
+  --font-display: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDPGothic", sans-serif;
+  --font-body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  --font-figure: "BIZ UDGothic", "BIZ UDPGothic", sans-serif;
+  --r-panel: 26px;
+  --shafts: conic-gradient(from 112deg at 40% -4%,
+    transparent 8deg, oklch(97% 0.03 210 / .16) 10deg, transparent 13deg,
+    transparent 20deg, oklch(97% 0.03 210 / .3) 21deg, transparent 22.5deg,
+    transparent 30deg, oklch(97% 0.03 210 / .14) 33deg, transparent 36deg,
+    transparent 44deg, oklch(97% 0.03 210 / .26) 45deg, transparent 46.5deg,
+    transparent 55deg, oklch(97% 0.03 210 / .12) 58deg, transparent 61deg,
+    transparent 70deg, oklch(97% 0.03 210 / .22) 71deg, transparent 72.5deg,
+    transparent 84deg, oklch(97% 0.03 210 / .1) 87deg, transparent 90deg);
+  position: relative; min-height: 100dvh; padding: 12px 16px 88px; overflow: hidden; isolation: isolate;
+  background: linear-gradient(180deg, oklch(46% 0.085 228) 0%, oklch(36% 0.075 235) 38%, oklch(25% 0.06 240) 100%);
+  color: var(--ink); font: 400 15px/1.7 var(--font-body); -webkit-font-smoothing: antialiased; }
+.screen::before { content: ""; position: absolute; inset: 0; background: var(--shafts); opacity: .9; z-index: -1; pointer-events: none; }
+.screen::after { content: ""; position: absolute; inset: auto 0 0 0; height: 45%; background: linear-gradient(180deg, transparent, oklch(18% 0.05 240 / .55)); z-index: -1; }
+.eyebrow { margin: 0 0 6px; font: 700 10.5px/1 var(--font-body); letter-spacing: .22em; color: var(--ink-3); }
+.trip { margin-top: 0; padding: 16px; border-radius: var(--r-panel); background: var(--glass); border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.trip__head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: baseline; }
+.time { font: 700 30px/1 var(--font-figure); letter-spacing: -.01em; }
+.trip__title { font: 700 16px/1.4 var(--font-display); }
+.trip__title small { display: block; font: 400 12px/1.5 var(--font-body); color: var(--ink-3); }
+.count { font: 700 15px/1 var(--font-figure); white-space: nowrap; }
+.count small { font: 400 11px/1 var(--font-body); color: var(--ink-3); }
+.bks { margin: 12px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--glass-line-2); }
+.bk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 10px 2px; border-bottom: 1px solid var(--glass-line-2); font-size: 14px; }
+.bk small { display: block; font-size: 11.5px; color: var(--ink-3); }
+.st { font: 700 12.5px/1.6 var(--font-body); white-space: nowrap; }
+.st--ok { color: var(--ok); } .st--warn { color: var(--warn); } .st--info { color: var(--info); }
+.note { margin: 14px 4px 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-3); }`;
+  /* 旧の言い方は v7 のまま: そろった・確かめる（珊瑚色）・名簿のまだ（水色） */
+  const oldSt = p => p.st === 'ok' ? ['ok', '✓ そろった'] : p.st === 'check' ? ['warn', '! 確かめる'] : ['info', `・まだ ${p.why.length}`];
+  const oldMeta = p => p.st === 'check' ? `確かめる: ${p.why.join('・')}` : p.st === 'wait' ? `入力待ち: ${p.why.join('・')}` : null;
+  const oldRoot = document.getElementById('old').attachShadow({ mode: 'open' });
+  function drawOld(order) {
+    oldRoot.replaceChildren(h('style', {}, OLD_CSS), h('div', { class: 'screen' },
+      h('p', { class: 'eyebrow' }, `${TRIP.shop}・今日の名簿`),
+      h('section', { class: 'trip' },
+        h('div', { class: 'trip__head' },
+          h('span', { class: 'time' }, TRIP.time),
+          h('span', { class: 'trip__title' }, TRIP.tour, h('small', {}, TRIP.boat)),
+          h('span', { class: 'count' }, String(PEOPLE.length), h('small', {}, ' 人'))),
+        h('ul', { class: 'bks' }, order.map(p => {
+          const [cls, label] = oldSt(p);
+          return h('li', { class: 'bk' },
+            h('span', {}, p.name, oldMeta(p) ? h('small', {}, oldMeta(p)) : null),
+            h('span', { class: `st st--${cls}` }, label));
+        }))),
+      h('p', { class: 'note' }, '見出しの丸い字体（Zen Maru Gothic）はここでは読まないので、代わりの字体で出ています。')));
+  }
+
+  /* 並べ替え。毎回ばらばらにし、直前と同じ並びになったら引き直す */
+  let order = PEOPLE.slice();
+  let mixes = 0;
+  function shuffle(list) {
+    const a = list.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  const same = (a, b) => a.every((p, i) => p === b[i]);
+  function draw() {
+    drawNew(order);
+    drawOld(order);
+    document.getElementById('count').textContent = mixes ? `並べ替え ${mixes} 回目` : '最初の並び';
+  }
+  document.getElementById('mix').addEventListener('click', () => {
+    let next = shuffle(order);
+    while (same(next, order)) next = shuffle(order);
+    order = next;
+    mixes += 1;
+    draw();
+  });
+
+  /* 旧と新の切り替え。?v=old / ?v=new で直接開ける。切り替えたら URL も合わせる（読み直しても同じ画面） */
+  function show(v) {
+    document.getElementById('old').hidden = v !== 'old';
+    document.getElementById('new').hidden = v !== 'new';
+    document.querySelectorAll('.tb__seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    const url = new URL(location.href);
+    url.searchParams.set('v', v);
+    history.replaceState(null, '', url);
+    window.scrollTo(0, 0);
+  }
+  document.querySelectorAll('.tb__seg button').forEach(b => b.addEventListener('click', () => show(b.dataset.v)));
+
+  draw();
+  show(new URLSearchParams(location.search).get('v') === 'new' ? 'new' : 'old');
+})();
+</script>
+</body>
+</html>
