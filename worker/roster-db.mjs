@@ -2,6 +2,7 @@
    書くときは版の番号で守る: base が 0 なら新しく作り（同じお店が既にあれば書かない）、それ以外は今の版が base のときだけ書き換える。
    済んだ便（past-core.mjs の splitPast が分けた物）は、名簿の本体と同じ batch（1 つの transaction）で書く。済んだ便の行は、版がまだ base の
    ときだけ足す（別の端末が先に書いて名簿の本体を書けなかったときに、済んだ便だけが書かれないように）。
+   一度書いた行は上書きしない（DO NOTHING）。同じ便が後から届くのは、古い写しを持った端末からだけなので（past-core.mjs の splitPast）。
    見本は worker/fakes.mjs の fakeD1 */
 
 /* 返すのは { version, text }。まだ無ければ { version: 0, text: null } */
@@ -16,7 +17,7 @@ const WRITE_NEXT = 'UPDATE rosters SET version = version + 1, state = ?2, update
 const ADD_PAST = `INSERT INTO roster_past (shop, part, day, keep_until, body, moved_at)
   SELECT ?1, json_extract(value, '$.part'), json_extract(value, '$.day'), json_extract(value, '$.keepUntil'), json_extract(value, '$.body'), ?3
   FROM json_each(?2) WHERE COALESCE((SELECT version FROM rosters WHERE shop = ?1), 0) = ?4
-  ON CONFLICT(shop, part) DO UPDATE SET day = excluded.day, keep_until = excluded.keep_until, body = excluded.body, moved_at = excluded.moved_at`;
+  ON CONFLICT(shop, part) DO NOTHING`;
 /* 1 年を過ぎた済んだ便を消す（名簿の本体と同じ。済んだ便を足すときに一緒に。Cron が動けば Cron でも） */
 const DROP_PAST = 'DELETE FROM roster_past WHERE shop = ?1 AND keep_until < ?2';
 

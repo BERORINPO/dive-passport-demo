@@ -16,6 +16,7 @@ export const ARCHIVE_DAYS = R.rosterAuto.KEEP_DONE_DAYS;
 export const MAX_PAST_DAYS = 93;
 export const MAX_PAST_ROWS = 400;
 const LOG_PART = 'log:';
+const TRIP_PART = 'trip:';
 const TRIP_BODY_KEYS = ['v', 'trip', 'bookings', 'people', 'jobs', 'outbox', 'log'];
 const LOG_BODY_KEYS = ['v', 'log'];
 
@@ -23,8 +24,10 @@ const isDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && R
 const logDay = (e) => e.at.slice(0, 10);
 
 /* 名簿を、本体（state）と済んだ便（parts）に分ける。parts の 1 つは { part, day, keepUntil, body }（body は JSON の文字）。
-   part は便の id か 'log:YYYY-MM-DD'。keepUntil を過ぎた行は消す（名簿と同じ 1 年。js/roster-core.js の purgeExpired と同じ数え方） */
-export function splitPast(state, { today }) {
+   part は 'trip:<便の id>' か 'log:YYYY-MM-DD@<tag>'（tag は書く版の番号。書けるのは 1 つの版に 1 回だけなので重ならない）。keepUntil を過ぎた行は消す（名簿と同じ 1 年。js/roster-core.js の purgeExpired と同じ数え方）。
+   行は一度書いたら上書きしない（roster-db.mjs の DO NOTHING）。便を最初に移すのは、その便の最新を持つ書き込み（版で守る）なので、
+   後から同じ便が届くのは古い写しだけ。記録は、遅れて届いた 1 日分（時計のずれた端末など）で前の分を消さないよう、書き込みごとに別の行にする（ジンのレビュー 2026-10-27） */
+export function splitPast(state, { today, tag = '' }) {
   if (!isDay(today)) throw new Error(`splitPast: today は YYYY-MM-DD (${today})`);
   const cut = R.rosterAuto.dayAdd(today, -ARCHIVE_DAYS);
   const oldTrips = state.trips.filter(t => t.date !== '' && t.date < cut);
@@ -43,12 +46,12 @@ export function splitPast(state, { today }) {
     pids.forEach(id => moved.person.add(id));
     const body = { v: R.roster.VERSION, trip, bookings, people,
       jobs: (state.jobs || []).filter(j => j.tripId === trip.id), outbox: (state.outbox || []).filter(o => o.tripId === trip.id), log };
-    return { part: trip.id, day: trip.date, keepUntil: R.rosterCore.keepUntil(trip.date), body: JSON.stringify(body) };
+    return { part: `${TRIP_PART}${trip.id}`, day: trip.date, keepUntil: R.rosterCore.keepUntil(trip.date), body: JSON.stringify(body) };
   });
   const days = [...new Set(oldLog.map(logDay))].sort();
   days.forEach(day => {
     const body = { v: R.roster.VERSION, log: oldLog.filter(e => logDay(e) === day) };
-    parts.push({ part: `${LOG_PART}${day}`, day, keepUntil: R.rosterCore.keepUntil(R.roster.nextDay(day)), body: JSON.stringify(body) });
+    parts.push({ part: `${LOG_PART}${day}@${tag}`, day, keepUntil: R.rosterCore.keepUntil(R.roster.nextDay(day)), body: JSON.stringify(body) });
   });
 
   const gone = (e) => (e.id === '' ? logDay(e) < cut : moved[e.kind] && moved[e.kind].has(e.id));
@@ -83,16 +86,19 @@ function partOf(row, shopName) {
   const isLog = String(row.part).startsWith(LOG_PART);
   const keys = isLog ? LOG_BODY_KEYS : TRIP_BODY_KEYS;
   if (Object.keys(body).length !== keys.length || !keys.every(k => Object.prototype.hasOwnProperty.call(body, k))) return null;
-  if (isLog ? !(row.part === `${LOG_PART}${row.day}` && Array.isArray(body.log) && body.log.every(e => e && e.id === ''))
-    : !(body.trip && body.trip.id === row.part && body.trip.date === row.day)) return null;
+  if (isLog ? !(String(row.part).startsWith(`${LOG_PART}${row.day}@`) && Array.isArray(body.log) && body.log.every(e => e && e.id === ''))
+    : !(body.trip && row.part === `${TRIP_PART}${body.trip.id}` && body.trip.date === row.day)) return null;
   return joinPast([body], shopName).ok ? body : null;
 }
 
-/* 済んだ便をつないで、読むだけの名簿にする。返すのは { ok, state } か { ok: false }（名簿の形の検査に落ちた） */
+/* 済んだ便をつないで、読むだけの名簿にする。返すのは { ok, state } か { ok: false }（名簿の形の検査に落ちた）。
+   記録は、同じ物が 2 つの行に入ることがある（古い写しを持った端末が送り直したとき）ので、中身が同じ物は 1 つにする */
 export function joinPast(bodies, shopName) {
   const all = (key) => bodies.flatMap(b => b[key] || []);
+  const seen = new Set();
+  const once = (e) => { const k = JSON.stringify(e); if (seen.has(k)) return false; seen.add(k); return true; };
   const state = { ...R.roster.blankState(shopName), trips: bodies.filter(b => b.trip).map(b => b.trip), bookings: all('bookings'), people: all('people'),
-    log: all('log').sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)), jobs: all('jobs'), outbox: all('outbox') };
+    log: all('log').filter(once).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0)), jobs: all('jobs'), outbox: all('outbox') };
   return R.roster.validateState(state).ok ? { ok: true, state } : { ok: false };
 }
 

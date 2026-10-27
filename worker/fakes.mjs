@@ -68,7 +68,7 @@ export function fakeAnthropic() {
    知らない文は例外にする（roster-db.mjs に文を足したら、ここにも足してテストを通す。済んだ便の SQL は test/past.test.mjs が node:sqlite でも確かめる） */
 const ADD_PAST_SQL = "INSERT INTO roster_past (shop, part, day, keep_until, body, moved_at) SELECT ?1, json_extract(value, '$.part'), json_extract(value, '$.day'), " +
   "json_extract(value, '$.keepUntil'), json_extract(value, '$.body'), ?3 FROM json_each(?2) WHERE COALESCE((SELECT version FROM rosters WHERE shop = ?1), 0) = ?4 " +
-  'ON CONFLICT(shop, part) DO UPDATE SET day = excluded.day, keep_until = excluded.keep_until, body = excluded.body, moved_at = excluded.moved_at';
+  'ON CONFLICT(shop, part) DO NOTHING';
 
 export function fakeD1() {
   const rows = new Map();
@@ -124,7 +124,10 @@ export function fakeD1() {
           } else if (text === ADD_PAST_SQL) {
             const row = rows.get(args[0]);
             if ((row ? row.version : 0) === args[3]) {
-              for (const p of JSON.parse(args[1])) { past.set(`${args[0]}\n${p.part}`, { shop: args[0], part: p.part, day: p.day, keep_until: p.keepUntil, body: p.body, moved_at: args[2] }); changes += 1; }
+              for (const p of JSON.parse(args[1])) {
+                const key = `${args[0]}\n${p.part}`;
+                if (!past.has(key)) { past.set(key, { shop: args[0], part: p.part, day: p.day, keep_until: p.keepUntil, body: p.body, moved_at: args[2] }); changes += 1; }
+              }
             }
           } else if (/^DELETE FROM roster_past WHERE shop = \?1 AND keep_until < \?2$/.test(text)) {
             for (const [k, p] of past) if (p.shop === args[0] && p.keep_until < args[1]) { past.delete(k); changes += 1; }

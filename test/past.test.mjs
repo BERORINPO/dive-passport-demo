@@ -83,9 +83,9 @@ const test = (name, fn) => tests.push({ name, fn });
 test(`core: 済んで ${ARCHIVE_DAYS} 日を過ぎた便を、予約・人・予定・連絡・記録ごと便ごとに分ける。日付の無い便・最近の便は本体に残り、何も消えない`, () => {
   const st = sample();
   const old = st.trips.find(t => t.date === '2026-10-01');
-  const { state: live, parts } = splitPast(st, { today: TODAY });
+  const { state: live, parts } = splitPast(st, { today: TODAY, tag: 'v1' });
   assert.deepEqual(live.trips.map(t => t.date).sort(), ['', '2026-10-24']);
-  assert.deepEqual(parts.map(p => p.part), [old.id, 'log:2026-10-02']);
+  assert.deepEqual(parts.map(p => p.part), [`trip:${old.id}`, 'log:2026-10-02@v1'], '便の行と記録の行の名前は重ならない。記録は書き込みごとに別の行');
   assert.equal(parts[0].day, '2026-10-01');
   assert.equal(parts[0].keepUntil, '2027-10-01', '名簿と同じ 1 年');
   assert.equal(parts[1].keepUntil, '2027-10-03', 'お店全体の記録は、その日の次の日から 1 年（purgeExpired と同じ）');
@@ -221,6 +221,35 @@ test('読む口の守り: 日付の形・順番・今日より先・長すぎる
   assert.equal((await pastOf(s, '2026-09-27', TODAY)).status, 403);
 });
 
+test('ジンのレビュー: 一度移した便の行は、古い写しで上書きしない。遅れて届いた記録で、前の記録を消さない。便の id が log: で始まっても記録の行と重ならない', async () => {
+  const s = setup();
+  s.clock.now = Date.parse('2026-10-02T01:00:00Z');
+  const first = (await put(s, 0, aiLog(big(S.blankState(OWN), '2026-10-01'), '2026-10-01T05:00:00.000Z'))).body;
+  const stale = first.state;   // 便 T を持ったままの古い写し
+  s.clock.now = NOW;
+  const tripId = stale.trips[0].id;
+  /* 端末 B が最新を元に T に印を付けて書く。この書き込みで T が移る */
+  const b = await put(s, 1, C.editTrip(stale, { tripId, patch: { site: '最新' }, at: '2026-10-27T01:00:00.000Z' }));
+  assert.equal(b.status, 200);
+  /* 端末 A が古い写しを、版だけ合わせて送り直す（端末の当て直しの誤りと同じ形） */
+  const lateLog = aiLog(stale, '2026-10-01T09:00:00.000Z');
+  assert.equal((await put(s, 2, lateLog)).status, 200);
+  const p = await pastOf(s, '2026-10-01', '2026-10-01');
+  assert.equal(p.body.state.trips[0].site, '最新', '先に移した最新の中身が残る');
+  const ai = p.body.state.log.filter(e => e.id === '');
+  assert.equal(ai.length, 2, '前の記録も、遅れて届いた記録も残る（同じ物は 1 つ）');
+  /* 便の id が log: で始まっても、記録の行と重ならない */
+  const odd = { ...stale, trips: stale.trips.map(t => ({ ...t, id: 'log:2026-10-01' })), bookings: stale.bookings.map(x => ({ ...x, tripId: 'log:2026-10-01' })) };
+  const parts = splitPast(odd, { today: TODAY, tag: 'v9' }).parts.map(x => x.part);
+  assert.equal(new Set(parts).size, parts.length);
+});
+
+test('ジンのレビュー: 開き直した端末の「送れていなかった名簿」は、その間に別の端末が書いていたら当てず、端末の名簿を残す', () => {
+  /* core.js の replaceWith と同じ決まりを、サーバー側の入口で確かめる: 古い版を元にした書き込みは 409 */
+  const checked = checkPut({ base: 1, state: sample() }, { today: TODAY, at: 'x' });
+  assert.ok(checked.ok && checked.parts.every(p => p.part.startsWith('trip:') || p.part.startsWith('log:')));
+});
+
 test('サーバーの自動の書き込み（changeRoster）でも、済んだ便を移す', async () => {
   const s = setup();
   s.db.rows.set('default', { version: 3, state: JSON.stringify(sample()), updated_at: 'x' });
@@ -259,11 +288,12 @@ test('SQL を本物の SQLite（node:sqlite）で流す: 版の守り・上書�
   assert.deepEqual(await putRoster(db, 's', 0, checked.text, at, { parts: [{ ...checked.parts[0], part: 'x' }], today: TODAY }), { ok: false });
   assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM roster_past').get().n, 2, '負けた書き込みは足さない');
   raw.prepare("INSERT INTO roster_past VALUES ('s', 'gone', '2025-01-01', '2026-01-01', '{}', 'x')").run();
-  const again = checkPut({ base: 1, state: st }, { today: TODAY, at });   // 同じ済んだ便をもう一度移しても、行は増えない（上書き）
+  const again = checkPut({ base: 1, state: st }, { today: TODAY, at });   // 古い写しをもう一度送る: 便の行は上書きせず、記録は別の行
   assert.deepEqual(await putRoster(db, 's', 1, again.text, at, { parts: again.parts, today: TODAY }), { ok: true, version: 2 });
   assert.equal(raw.prepare("SELECT COUNT(*) AS n FROM roster_past WHERE part = 'gone'").get().n, 0, '1 年を過ぎた行は消えた');
   const rows = await getPast(db, 's', '2026-09-27', TODAY, TODAY, 400);
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3, '便 1 行 + 記録 2 行（同じ中身は読むときに 1 つにする）');
+  assert.equal(raw.prepare("SELECT moved_at FROM roster_past WHERE part LIKE 'trip:%'").get().moved_at, at, '便の行は最初の物のまま');
   const got = readPast(rows, OWN);
   assert.equal(got.skipped, 0);
   assert.equal(got.state.people.length, 30);

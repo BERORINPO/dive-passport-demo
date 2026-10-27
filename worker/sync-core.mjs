@@ -69,7 +69,7 @@ export function checkPut(given, { today, at }) {
   if (!v.ok) return { ok: false, error: `state:${v.errors.slice(0, 3).join(',')}` };
   const strict = strictProblem(scrubbed);
   if (strict) return { ok: false, error: `strict:${strict}` };
-  const split = splitPast(tidy(scrubbed, { today, at }), { today });
+  const split = splitPast(tidy(scrubbed, { today, at }), { today, tag: `v${base + 1}` });
   const text = JSON.stringify(split.state);
   if (bytes(text) > MAX_ROSTER_BYTES) return { ok: false, error: 'size' };
   return { ok: true, base, state: split.state, text, parts: split.parts, allowShrink: given.allowShrink === true };
