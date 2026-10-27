@@ -45,7 +45,11 @@
     const { tour, flags } = R.assess(x, s);
     const needs = flags.some(f => f.level === 'warn') && !x.checked;
     const st = x.checked ? ['ok', '✓ 確認済み'] : needs ? ['check', '! 確かめる'] : ['wait', '・未確認'];
-    const meta = [ja(tour.name), `連絡: ${langLabel(x.lang)}`, x.source === 'passport' ? 'パスポートから' : ''].filter(Boolean).join('　');
+    /* 自社の予約フォームから来た予約は、予約の一覧と名簿にも入る（intake.js の toRoster）。入れられなかった物は、お店が電話の予約の画面から入れる。
+       bookingId の無い受付（つなぐ前の見本）には何も出さない */
+    const inRoster = !!x.bookingId && R.rosterStore.get().bookings.some(b => b.id === x.bookingId);
+    const roster = inRoster ? '予約の一覧に入れた' : x.bookingId !== undefined ? '予約の一覧に入っていない（電話の予約から入れる）' : '';
+    const meta = [ja(tour.name), `連絡: ${langLabel(x.lang)}`, x.source === 'passport' ? 'パスポートから' : '', roster].filter(Boolean).join('　');
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, x.name, el('span', { class: 'nw', text: `（${x.people} 人）` })),
       el('span', { class: `st st--${st[0]}`, text: st[1] }),

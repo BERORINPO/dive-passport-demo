@@ -11,7 +11,8 @@
   const C = () => R.rosterCore;
   const X = () => R.rosterShare;
 
-  const KIND_JA = { app: '予約アプリの一覧の画面', paper: '紙の名簿・申込書の表' };
+  /* 申込書（健康の質問が付く）はここで撮らせない（塗らずに送れる種類なので。ザクのレビュー 2026-10-27）。申込書は名簿の取り込みの画面で、塗ってから送る */
+  const KIND_JA = { app: '予約アプリの一覧の画面', paper: '紙の名簿' };
   const SAMPLE = { id: 'l1', src: 'assets/samples/l1.jpg', label: '見本の写真（C ダイブの予約の一覧）' };
   const ERROR_JA = {
     input: '送れない写真です。写真を選び直してください',
@@ -118,7 +119,7 @@
     const edit = (rects) => { shot.rects = rects; shot.confirmed = false; ui.rerender(); };
     const paper = shot.kind === 'paper';
     return [
-      el('p', { class: 'note', text: paper ? '健康の欄が写っていたら、写真の上をなぞって黒く塗ってください。黒い所は AI に送りません。'
+      el('p', { class: 'note', text: paper ? '申込書は撮らないでください。名簿に健康やメモの欄があれば、写真の上をなぞって黒く塗ってください。黒い所は AI に送りません。'
         : '健康やメモの欄が写っていたら、写真の上をなぞって黒く塗ってください。黒い所は AI に送りません。' }),
       R.photoIntake.maskEditor(shot.img, shot.rects, (r) => edit([...shot.rects, r]), locked),
       shot.rects.length ? el('div', { class: 'actions' },

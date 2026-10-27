@@ -209,6 +209,34 @@
     return { state: addBooking(st, { trip, booking, reading, src, at, newId }), trip };
   }
 
+  /* ---------- 自社の予約フォーム（予約前の確認、js/intake.js）から（決定ログ form-to-roster） ---------- */
+  /* 予約前の確認で送られた中身を、予約の一覧と名簿に入れる形にする。名簿に入れるのは代表者の名前と、ダイビングの経験だけ。
+     健康の答えは入れない: 予約前の確認の同意は「参加できるかを確かめるためだけ・ツアーの 30 日後に消す」で、
+     1 年残す条例の名簿とは使い道と残す長さが違う。名簿の健康の欄は、お客さんに聞く画面で本人が名簿の同意をして答える。
+     tour は R.TOURS の 1 つ（日本語の名前・開始時刻・ダイビングか） */
+  function bookingFromIntake(intake, tour) {
+    const kind = tour.diving ? 'dive' : 'snorkel';
+    const people = Number.isInteger(intake.people) ? Math.min(Math.max(intake.people, 1), S().MAX_PEOPLE) : 1;
+    const lead = { name: String(intake.name || '').trim().slice(0, 60) };
+    if (kind === 'dive' && intake.exp === 'first') Object.assign(lead, { dives: 0, cert: { course: 'NONE', date: '' } });
+    if (kind === 'dive' && intake.exp === 'card' && /^\d{1,5}$/.test(String(intake.dives || ''))) lead.dives = Number(intake.dives);
+    return {
+      want: { date: intake.date, start: tour.start || '', tour: tour.name.ja, kind },
+      booking: { source: 'form', leadName: lead.name, people },   // 出どころの名前（自社のフォーム）が画面に出るので、サイトの欄は空
+      lead
+    };
+  }
+
+  /* 予約前の確認を、同じ日・同じ種類・同じ開始時刻の便に入れる（無ければ便を作る）。{ state, bookingId } */
+  function addFromIntake(state, { intake, tour, at, newId }) {
+    const f = bookingFromIntake(intake, tour);
+    const { tripId } = suggestTrip(state, f.want);
+    const { state: st } = addBookingToTrip(state, { tripId, want: f.want, booking: f.booking, reading: null, src: 'guest', at, newId });
+    const booking = st.bookings[st.bookings.length - 1];
+    const lead = st.people.find(p => p.bookingId === booking.id);
+    return { state: editPerson(st, { id: lead.id, patch: f.lead, who: 'guest', src: 'guest', at }), bookingId: booking.id };
+  }
+
   /* AI の読み取りから、予約の形を組む */
   function bookingFromReading(reading) {
     const b = reading.booking || {};
@@ -288,7 +316,7 @@
     const fixed = { ...b, people: Math.max(want, people.length) };
     const v = S().validateBooking(fixed);
     if (!v.ok) throw new Error(`addBooking: 予約の形が合わない (${v.errors.join(',')})`);
-    const who = AI_SRC.includes(src) ? 'ai' : 'staff';
+    const who = AI_SRC.includes(src) ? 'ai' : src === 'guest' ? 'guest' : 'staff';   // guest: お客さんが自社の予約フォームから入れた
     return withLog(
       { ...state, bookings: [...state.bookings, fixed], people: [...state.people, ...people] },
       entry(at, who, 'add', 'booking', fixed.id, { fields }),
@@ -578,7 +606,7 @@
 
   R.rosterCore = {
     COURSE_JA, isPartnerBooking, isHeld, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
-    kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromReading, missingForReading, bookingProblems, bookingRows,
+    kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
     addPerson, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,

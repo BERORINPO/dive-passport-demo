@@ -191,9 +191,24 @@
       source: draft.source,
       checked: false
     };
+    intake.bookingId = toRoster(intake);
     R.store.update(s => ({ ...s, intakes: [intake, ...s.intakes] }));
     doneId = intake.id;
     render();
+  }
+
+  /* 予約の一覧と名簿にも入れる（決定ログ form-to-roster）。名簿に入れるのは代表者の名前と経験だけで、健康の答えは入れない（roster-core.js の bookingFromIntake）。
+     入れられなかったら ''（予約前の確認はお店の受付の画面に出るので、お店はそこから予約を入れられる） */
+  function toRoster(intake) {
+    const tour = R.TOURS.find(x => x.id === intake.tour);
+    if (!tour) return '';
+    let bookingId = '';
+    try {
+      R.rosterStore.update(s => { const out = R.rosterCore.addFromIntake(s, { intake, tour, at: intake.at, newId: R.newId }); bookingId = out.bookingId; return out.state; });
+    } catch (e) {
+      bookingId = '';
+    }
+    return bookingId;
   }
 
   /* ---------- 送ったあとの画面 ---------- */
@@ -227,6 +242,10 @@
         el('p', { class: 'lead', text: L(t.doneBody) }),
         msgs.length ? el('ul', { class: 'done__list' }, msgs.map(m => el('li', { text: L(m) }))) : null,
         passSave(intake),
+        intake.bookingId && R.rosterStore.get().bookings.some(b => b.id === intake.bookingId)
+          ? el('div', { class: 'passbar passbar--col' }, el('span', { text: L(t.rosterLead) }),
+            el('button', { class: 'btn btn--small', type: 'button', text: L(t.rosterNow), onclick: () => R.openAsk(intake.bookingId) }))
+          : null,
         el('div', { class: 'actions' },
           el('button', { class: 'btn', type: 'button', text: L(t.seeShop), onclick: () => R.showTab('shop') }),
           el('button', { class: 'btn btn--ghost', type: 'button', text: L(t.again), onclick: () => { doneId = null; savedNote = ''; draft = blank(); render(); } }))));

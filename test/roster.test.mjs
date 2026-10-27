@@ -539,6 +539,40 @@ test('AI に送った記録は量と印だけで、中身は入らない', () =>
   assert.ok(S.validateState(s).ok);
 });
 
+/* ---------- 自社の予約フォーム（予約前の確認）から予約の一覧と名簿へ（決定ログ form-to-roster） ---------- */
+const DIVE_TOUR = freeze({ id: 'dive', diving: true, start: '08:30', name: { ja: '体験ダイビング（ボート 2 本）' } });
+const SNORKEL_TOUR = freeze({ id: 'snorkel', diving: false, start: '09:00', name: { ja: 'ボートスノーケル（1 回）' } });
+const intakeOf = (extra) => freeze({ id: 'i1', at: AT, tour: 'dive', date: '2026-10-30', people: 2, name: ' 見本 花子 ', lang: 'ja',
+  exp: 'first', dives: '', health: { consent: true, answers: ['yes', 'no', 'no', 'no', 'no'] }, medicalAt: '2026-10-27', ...(extra || {}) });
+
+test('予約前の確認から: 同じ日・種類・開始時刻の便に入る（無ければ作る）。代表者の名前と経験だけで、健康の答えは入れない', () => {
+  const one = C.addFromIntake(S.blankState('見本の店'), { intake: intakeOf(), tour: DIVE_TOUR, at: AT, newId });
+  const st = one.state;
+  assert.equal(st.trips.length, 1);
+  assert.deepEqual([st.trips[0].date, st.trips[0].start, st.trips[0].kind, st.trips[0].tour], ['2026-10-30', '08:30', 'dive', '体験ダイビング（ボート 2 本）']);
+  const b = st.bookings.find(x => x.id === one.bookingId);
+  assert.deepEqual([b.source, b.site, b.leadName, b.people], ['form', '', '見本 花子', 2]);
+  const [lead, other] = st.people.filter(p => p.bookingId === b.id);
+  assert.deepEqual([lead.name, lead.dives, lead.cert.course, lead.src.name], ['見本 花子', 0, 'NONE', 'guest']);
+  assert.ok(lead.health.answers.every(a => a === null) && lead.health.historyAt === '', '健康の答えは名簿に入れない（同意の使い道と残す長さが違う）');
+  assert.equal(other.name, '', '2 人目の名前は、お客さんに聞く');
+  assert.ok(st.log.some(e => e.act === 'add' && e.kind === 'booking' && e.who === 'guest'), 'お客さんが入れた記録');
+  assert.ok(S.validateState(st).ok);
+  const two = C.addFromIntake(st, { intake: intakeOf({ id: 'i2', name: '見本 次郎', people: 1 }), tour: DIVE_TOUR, at: AT, newId });
+  assert.equal(two.state.trips.length, 1, '同じ便に入る');
+  assert.equal(two.state.bookings.length, 2);
+});
+
+test('予約前の確認から: C カードありは本数、スノーケルは経験を入れない。数でない本数は入れない', () => {
+  const card = C.addFromIntake(S.blankState('見本の店'), { intake: intakeOf({ exp: 'card', dives: '85' }), tour: DIVE_TOUR, at: AT, newId });
+  const lead = card.state.people[0];
+  assert.deepEqual([lead.dives, lead.cert.course], [85, '']);
+  const odd = C.addFromIntake(S.blankState('見本の店'), { intake: intakeOf({ exp: 'card', dives: '10本くらい' }), tour: DIVE_TOUR, at: AT, newId });
+  assert.equal(odd.state.people[0].dives, '');
+  const sn = C.addFromIntake(S.blankState('見本の店'), { intake: intakeOf({ tour: 'snorkel' }), tour: SNORKEL_TOUR, at: AT, newId });
+  assert.deepEqual([sn.state.trips[0].kind, sn.state.people[0].dives, sn.state.people[0].cert.course], ['snorkel', '', '']);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

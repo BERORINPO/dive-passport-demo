@@ -192,7 +192,9 @@
     msgEars: { ja: '前の日に、耳抜きのやり方をお送りします。', en: "The day before, we'll send you how to equalise your ears." },
     msgSeasick: { ja: '酔い止めは、出発の 30 分前に飲んでください。', en: 'Take seasickness medicine 30 minutes before departure.' },
     again: { ja: 'もう 1 件入力する', en: 'Fill in another' },
-    seeShop: { ja: 'お店の画面で見る', en: 'See it in the shop view' }
+    seeShop: { ja: 'お店の画面で見る', en: 'See it in the shop view' },
+    rosterLead: { ja: '当日の名簿（沖縄県の条例で決まった項目）も、いま入れておくと当日の受付が早く済みます。', en: 'You can also fill in the dive roster now (items required by Okinawa rules). It makes check-in on the day faster.' },
+    rosterNow: { ja: '名簿の項目も入れる', en: 'Fill in the roster' }
   };
 
   /* 見本の受付 4 件（日付は今日から数える）。4 件目はパスポートから来た受付で、質問票が古い */
