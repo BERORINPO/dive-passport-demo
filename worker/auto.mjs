@@ -51,7 +51,7 @@ export async function changeRoster(env, io, change, { fromOutside = false, shop 
     const checked = checkPut({ base: got.version, state: withShopName(out.state, name) }, { today, at });
     if (!checked.ok) return { ok: false, why: checked.error.slice(0, 40) };
     if (fromOutside && !roomForPublic(checked.text)) return { ok: false, why: 'full' };
-    const put = await putRoster(env.DB, shop, got.version, checked.text, at);
+    const put = await putRoster(env.DB, shop, got.version, checked.text, at, { parts: checked.parts, today });
     if (put.ok) return { ok: true, state: checked.state, out };
   }
   return { ok: false, why: 'conflict' };

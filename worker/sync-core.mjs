@@ -6,10 +6,11 @@ import '../js/roster-core.js';
 import '../js/roster-share.js';
 import '../js/roster-guest.js';
 import '../js/roster-auto.js';
+import { splitPast } from './past-core.mjs';
 
 const R = globalThis.REDUX;
 
-/* 名簿 1 つの上限。D1 の 1 行は 2 MB まで。1 年分の予約が入る見込み（超えたら便ごとに分けて持つ形へ直す。plan/server.md） */
+/* 名簿の本体 1 つの上限。D1 の 1 行は 2 MB まで。済んで 7 日を過ぎた便は便ごとに分けて置くので（past-core.mjs）、本体には先の予約の分だけが入る */
 export const MAX_ROSTER_BYTES = 1000000;
 /* 依頼の本文の上限。名簿 + { base, state } の囲み */
 export const MAX_PUT_BODY = MAX_ROSTER_BYTES + 4096;
@@ -54,7 +55,8 @@ export function shrinkProblem(prev, next) {
   return gone > SHRINK_MIN && gone > prev.people.length * SHRINK_SHARE;
 }
 
-/* PUT の本文 { base, state, allowShrink? } を確かめる。返すのは { ok, base, state, text, allowShrink } か { ok: false, error } */
+/* PUT の本文 { base, state, allowShrink? } を確かめる。返すのは { ok, base, state, text, parts, allowShrink } か { ok: false, error }。
+   state と text は名簿の本体、parts は分けた済んだ便（past-core.mjs の splitPast。roster-db.mjs の putRoster が一緒に書く） */
 export function checkPut(given, { today, at }) {
   if (!given || typeof given !== 'object' || Array.isArray(given)) return { ok: false, error: 'shape' };
   const { base, state } = given;
@@ -67,13 +69,14 @@ export function checkPut(given, { today, at }) {
   if (!v.ok) return { ok: false, error: `state:${v.errors.slice(0, 3).join(',')}` };
   const strict = strictProblem(scrubbed);
   if (strict) return { ok: false, error: `strict:${strict}` };
-  const next = tidy(scrubbed, { today, at });
-  const text = JSON.stringify(next);
+  const split = splitPast(tidy(scrubbed, { today, at }), { today });
+  const text = JSON.stringify(split.state);
   if (bytes(text) > MAX_ROSTER_BYTES) return { ok: false, error: 'size' };
-  return { ok: true, base, state: next, text, allowShrink: given.allowShrink === true };
+  return { ok: true, base, state: split.state, text, parts: split.parts, allowShrink: given.allowShrink === true };
 }
 
-/* 置いてある名簿の文字を読み直す。形の検査に落ちたら null（壊れた物を画面に広げない）。期限切れの便は、読むときにも消す */
+/* 置いてある名簿の文字を読み直す。形の検査に落ちたら null（壊れた物を画面に広げない）。期限切れの便は、読むときにも消す。
+   済んだ便はここでは分けない（分けた物を書く前に画面へ渡すと、次の書き込みで消えてしまうため。分けるのは書くときだけ） */
 export function readStored(text, { today, at }) {
   let parsed = null;
   try { parsed = JSON.parse(text); } catch (e) { return null; }

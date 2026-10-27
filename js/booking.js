@@ -215,6 +215,8 @@
       /* 書類の自動化のデモ: 見本のメールが届いた形と、次の予定の時刻まで進める */
       el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本のメールが届く（デモ）', onclick: () => R.autoFlow.demoMail(ui) })),
       (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
+      /* 済んで 7 日を過ぎた便は、サーバーが便ごとに分けて置く（読むだけ）。サーバーを使わない版には無い */
+      R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '済んだ便を見る（7 日より前）', onclick: () => go('past') })) : null,
       s.trips.length ? resetButton() : null,
       dock(
         el('button', { class: 'btn', type: 'button', text: 'メールを貼る', onclick: () => go('mail') }),
@@ -520,7 +522,7 @@
   const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back, dock };
   const DAY_MODES = { day: 'renderDay', spo2: 'renderSpo2', cancel: 'renderCancel', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
   const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', partnerpaper: 'renderPartnerPaper', joint: 'renderJoint', jointprint: 'renderJointPrint', boat: 'renderBoat', callout: 'renderCallout' };
-  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint'];
+  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint', 'pastprint'];
 
   function render() {
     mailOut = null;
@@ -533,7 +535,9 @@
             : mode === 'flow' ? R.autoFlow.render({ bookingId: askBooking, ui })
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })
               : SHARE_MODES[mode] ? R.shareRoster[SHARE_MODES[mode]]({ tripId: dayTrip, shop: shareShop, ui })
-                : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui }) : renderList();
+                : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui })
+                  : mode === 'past' ? R.pastTrips.renderList({ ui })
+                    : mode === 'pastprint' ? R.pastTrips.renderPrint({ tripId: dayTrip, ui }) : renderList();
     R.fill(root, body);
     /* 印刷では名簿の紙だけを出す（css/app.css）。紙が無い画面では白紙にしない */
     document.body.classList.toggle('print-roster', PRINT_MODES.includes(mode) && !!root.querySelector('.paper'));

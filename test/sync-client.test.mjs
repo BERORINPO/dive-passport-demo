@@ -284,6 +284,27 @@ test('サーバーが中身を断った直し（400）は送り直さず、端�
   assert.deepEqual(JSON.parse(srv.db.rows.get('default').state).trips[0].guides, ['見本 ガイド', '見本 次郎'], '後の直しは止まらない');
 });
 
+test('済んで 7 日を過ぎた便は、送るとサーバーが便ごとに分けて置き、端末の名簿から外れる。済んだ便の画面の口で読める（ジンのレビュー CRITICAL）', async () => {
+  const srv = server();
+  const a = device(srv);
+  a.rosterStore.update(s => a.rosterShare.addBigSample(s, { day: '2026-10-01', at: AT, newId: a.newId }).state);
+  a.rosterStore.update(addTrip(a));
+  const kept = a.rosterStore.get().trips.find(t => t.date !== '2026-10-01').id;
+  await a.rosterStore.startSync();
+  await a.rosterStore.whenSynced();
+  assert.deepEqual(a.rosterStore.get().trips.map(t => t.id), [kept], '端末には先の便だけ');
+  assert.equal(a.rosterStore.note(), null);
+  const past = await a.rosterStore.past('2026-10-01', '2026-10-20');   // サーバーの今日は 10/27。今日より先は断る
+  assert.equal(past.ok, true);
+  assert.equal(past.state.people.length, 30);
+  assert.equal(past.skipped, 0);
+  assert.equal((await a.rosterStore.past('2026-10-01', '2027-01-31')).ok, false, '長すぎる範囲・今日より先はサーバーが断る');
+  /* サーバーを使わない端末では読めない */
+  const local = device({ fetch: async () => new Response('{}', { status: 404 }) });
+  await local.rosterStore.startSync();
+  assert.equal(JSON.stringify(await local.rosterStore.past('2026-10-01', '2026-10-20')), JSON.stringify({ ok: false, why: 'local' }));
+});
+
 test('/api/roster が無い（GitHub Pages・D1 がまだ無い Worker）ときは、端末だけで今までどおり動く', async () => {
   const srv = server();
   srv.fetch = async () => new Response('{"error":"config"}', { status: 503 });

@@ -436,6 +436,8 @@
       refresh: refreshSync,
       whenSynced: flushSync,
       synced: () => !!sync,
+      /* 済んで 7 日を過ぎた便（サーバーが便ごとに分けて置いた物。読むだけ）。サーバーを使わないときは { ok: false, why: 'local' } */
+      past: (from, to) => (sync ? R.rosterSync.past(from, to) : Promise.resolve({ ok: false, why: 'local' })),
       subscribe: (fn) => { rosterListeners.push(fn); }
     },
     today: () => ymd(new Date(Date.now() + clockOffset)),

@@ -65,6 +65,16 @@
       if (got && r.status === 409) return r.data && r.data.error === 'shrink' ? { shrink: true, ...got } : { conflict: true, ...got };
       return { ok: false, why: r.status || 'network' };
     },
+    /* 済んで 7 日を過ぎた便（読むだけ。同じ場所の /api/roster/past）。from・to は YYYY-MM-DD（93 日まで）。
+       { ok: true, state, skipped, full }（state は済んだ便だけの名簿。skipped は形が合わずにサーバーが外した行の数、full は上限まで読んだ印）か { ok: false, why } */
+    async past(from, to) {
+      const r = await call('GET', undefined, `${URL_PATH}/past?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      const d = r.data;
+      if (r.status === 200 && d && d.state && typeof d.state === 'object' && R.roster.validateState(d.state).ok && Number.isInteger(d.skipped)) {
+        return { ok: true, state: d.state, skipped: d.skipped, full: d.full === true };
+      }
+      return { ok: false, why: r.status || 'network' };
+    },
     /* お客さんに送るリンクを作る（同じ場所の /api/ask-link。Access の内）。作り直すと前のリンクは開けない。
        { ok: true, url, expiresOn } か { ok: false, why }（why 404 = サーバーにまだこの予約が無い） */
     async askLink(bookingId) {
