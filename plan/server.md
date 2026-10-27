@@ -69,7 +69,7 @@ CREATE TABLE rosters (
 - 一覧が空（表が無い D1 も）のあいだは、今までどおり 1 店（default）で動く
 - 判定は worker/shop-core.mjs（core）、読み出しは worker/shop-db.mjs。テストは test/shops.test.mjs
 
-お店を足す（今は D1 のコンソールで。画面は後で）:
+お店を足す（今は D1 のコンソールで。画面は後で）。`node tools/shop.mjs add --id … --name … --member …` が値を確かめて 1 文を作る（remove・keep-sample も）:
 ```sql
 INSERT INTO shops (id, name, members, sites, inbox, senders) VALUES ('shop-a', 'A ダイブ', '["staff@example.com"]', '["https://shop-a.example.com"]', '', '[]');
 ```

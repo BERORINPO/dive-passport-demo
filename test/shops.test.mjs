@@ -213,6 +213,21 @@ test('ザクのレビュー: 一覧から消したお店は、Cron もリンク�
   assert.equal(r.status, 404);
 });
 
+test('お店を足す道具（tools/shop.mjs）: 作る値を Worker がそのまま読める。合わない値は止める', async () => {
+  const { shopSql, parseArgs } = await import('../tools/shop.mjs');
+  const sql = shopSql(parseArgs(['add', '--id', 'shop-a', '--name', "A's ダイブ", '--member', 'Staff@Example.com', '--site', 'https://shop-a.example.com', '--inbox', 'A@reduxdive.com', '--sender', 'fwd@shop-a.example.com']));
+  const m = sql.match(/VALUES \('((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)'\)/);
+  const [id, name, members, sites, inbox, senders] = m.slice(1).map(x => x.replace(/''/g, "'"));
+  const read = shopsFromRows([{ id, name, members, sites, inbox, senders }]);
+  assert.equal(read.length, 1);
+  assert.deepEqual(read[0], { id: 'shop-a', name: "A's ダイブ", members: ['staff@example.com'], sites: ['https://shop-a.example.com'], inbox: 'a@reduxdive.com', senders: ['fwd@shop-a.example.com'] });
+  for (const bad of [['add', '--id', 'Bad Id', '--name', 'x', '--member', 'a@b.co'], ['add', '--id', 'x', '--name', 'x'], ['add', '--id', 'x', '--name', 'x', '--member', 'a@b.co', '--site', 'http://evil.example.com'],
+    ['add', '--id', 'x', '--name', 'x', '--member', "a'@b.co"], ['drop', '--id', 'x']]) {
+    assert.throws(() => shopSql(parseArgs(bad)), undefined, bad.join(' '));
+  }
+  assert.match(shopSql(parseArgs(['keep-sample', '--member', 'a@b.co'])), /VALUES \('default'/);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {
