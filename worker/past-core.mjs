@@ -78,10 +78,20 @@ export function checkPastRange(from, to, { today }) {
   return { ok: true, from, to };
 }
 
+/* 前の版で移した行を、今の版に上げる（名簿の形にくるんで roster-schema.js の upgradeState を通し、元の形に戻す） */
+function upgradeBody(body) {
+  if (!body || typeof body !== 'object' || !Number.isInteger(body.v) || body.v >= R.roster.VERSION) return body;
+  const isLog = !body.trip;
+  const up = R.roster.upgradeState({ v: body.v, shop: { name: '' }, trips: isLog ? [] : [body.trip], bookings: body.bookings || [], people: body.people || [],
+    log: body.log || [], jobs: body.jobs || [], outbox: body.outbox || [] });
+  if (up.v !== R.roster.VERSION) return body;
+  return isLog ? { v: up.v, log: up.log } : { v: up.v, trip: up.trips[0], bookings: up.bookings, people: up.people, jobs: up.jobs, outbox: up.outbox, log: up.log };
+}
+
 /* D1 の 1 行（{ part, day, body }）を読み直す。形が合わなければ null。読んだ物は、名簿の形の検査に通る 1 つの名簿にまとめて確かめる */
 function partOf(row, shopName) {
   let body;
-  try { body = JSON.parse(String(row.body)); } catch (e) { return null; }
+  try { body = upgradeBody(JSON.parse(String(row.body))); } catch (e) { return null; }
   if (!body || typeof body !== 'object' || body.v !== R.roster.VERSION) return null;
   const isLog = String(row.part).startsWith(LOG_PART);
   const keys = isLog ? LOG_BODY_KEYS : TRIP_BODY_KEYS;

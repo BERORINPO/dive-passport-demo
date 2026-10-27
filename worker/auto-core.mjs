@@ -194,3 +194,26 @@ export function markResults(state, { results, at }) {
 
 /* 時刻が来た予定を動かす直し（js/roster-auto.js の runDue） */
 export const runDue = (state, opts) => R.rosterAuto.runDue(state, opts).state;
+
+/* ---------- 読めなかった予約メール（plan/auto.md。ジンのレビュー 2026-10-27 HIGH 6） ---------- */
+
+/* 残す日数・画面に出す数・1 お店で 1 日に残す数の上限（同じ送り主から大量に届いても、表が育たないように） */
+export const UNREAD_KEEP_DAYS = 30;
+export const UNREAD_SHOW_MAX = 50;
+export const UNREAD_DAILY_MAX = 60;
+/* 画面に出す理由の言葉 */
+export const UNREAD_WHY = ['limit', 'size', 'text', 'no-date', 'full', 'roster', 'error', 'ai'];
+
+/* 届いたメールを名簿に入れられなかった理由（ログの note.why）を、画面に出す短い言葉にする。
+   宛先・送り主・送り主のドメインの確かめで断ったメールと、設定の誤りは残さない（null。お店のメールとは限らないため） */
+export function unreadWhy(why) {
+  if (!why || ['inbox', 'sender', 'auth', 'config'].includes(why)) return null;
+  if (why === 'mail-daily') return 'limit';
+  if (why === 'size') return 'size';
+  if (why === 'empty' || why === 'no-text' || why.startsWith('input-')) return 'text';
+  if (why === 'no-date') return 'no-date';
+  if (why === 'add-full') return 'full';
+  if (why.startsWith('add-')) return 'roster';
+  if (why === 'crash') return 'error';
+  return 'ai';   // AI の上限・答えの形・届かない
+}

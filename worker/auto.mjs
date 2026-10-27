@@ -5,8 +5,9 @@ import { getRoster, putRoster } from './roster-db.mjs';
 import { checkPut, readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { checkRequest, periods } from './read-core.mjs';
 import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, queuedOf, markResults, runDue, roomForPublic,
-  MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX, SITE_DAILY_MAX_ALL, MAIL_DAILY_MAX_ALL } from './auto-core.mjs';
+  MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX, SITE_DAILY_MAX_ALL, MAIL_DAILY_MAX_ALL, unreadWhy, UNREAD_KEEP_DAYS, UNREAD_DAILY_MAX } from './auto-core.mjs';
 import { takeDaily } from './budget.mjs';
+import { addUnread } from './unread-db.mjs';
 import { listShops, rosterShops } from './shop-db.mjs';
 import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName } from './shop-core.mjs';
 import { mailReady, sendOne } from './mail.mjs';
@@ -120,7 +121,8 @@ async function readRaw(stream, max) {
 }
 
 /* 届いた予約メールを AI に読ませ、名簿の便に入れて、お願いを送る。送り主は MAIL_SENDERS に書いた物だけ（封筒の From で見る）。
-   読めなかったメールは断らない（予約サイトに戻ると困る）。ログに理由を残す */
+   読めなかったメールは断らない（予約サイトに戻ると困る）。ログに理由を残し、お店の画面にも「何時に届いたメールが、なぜ入らなかったか」を出す
+   （黙って落とさない。ジンのレビュー 2026-10-27 HIGH 6。件名・本文・送り主は残さない。お店は自分の受信箱で元のメールを探して「メールを貼る」で入れる） */
 export async function receiveMail(message, env, io) {
   const started = io.now();
   const note = { route: 'mail' };
@@ -129,7 +131,22 @@ export async function receiveMail(message, env, io) {
   } catch (e) {
     note.why = 'crash';
   }
+  await rememberUnread(env, io, note);
   logLine(note, io, started);
+}
+
+async function rememberUnread(env, io, note) {
+  const why = note.shop && !note.added ? unreadWhy(note.why) : null;
+  if (!why || !dbReady(env) || !env.BUDGET) return;
+  const now = io.now();
+  const { at, today } = clockOf(io);
+  try {
+    if (!(await takeDaily(env.BUDGET, `unread:${note.shop}:${today}`, UNREAD_DAILY_MAX))) { note.unread = 'daily'; return; }
+    await addUnread(env.DB, note.shop, { id: newId(), at, why, before: new Date(now - UNREAD_KEEP_DAYS * 86400000).toISOString() });
+    note.unread = why;
+  } catch (e) {
+    note.unread = 'db';   // 残せなかったことはログに残す
+  }
 }
 
 async function takeMail(message, env, io, note) {
@@ -159,7 +176,7 @@ async function takeMail(message, env, io, note) {
   if (!checked.ok) { note.why = `input-${checked.error}`.slice(0, 40); return; }
   Object.assign(note, { size: checked.ask.size, redacted: checked.ask.redacted });
   const got = await askModel(checked.ask, env, io, note);
-  if (!got.ok) return;
+  if (!got.ok) { note.why = note.why || 'ai'; return; }
   /* 画面の「メールを貼る」と同じく、日付が読めた予約だけを自動で入れる（日付が無いものはお店が画面で入れる） */
   if (!got.reading.booking || !got.reading.booking.date) { note.why = 'no-date'; return; }
   const { at, nowJst } = clockOf(io);

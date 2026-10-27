@@ -64,6 +64,8 @@ export function checkPut(given, { today, at }) {
   if (given.allowShrink !== undefined && typeof given.allowShrink !== 'boolean') return { ok: false, error: 'allowShrink' };
   if (!Number.isInteger(base) || base < 0) return { ok: false, error: 'base' };
   if (!state || typeof state !== 'object' || Array.isArray(state)) return { ok: false, error: 'state' };
+  /* 古い版の画面からの名簿は上げずに断る（上げると、画面が知らない新しい欄を消して書くため。handler は 426 で読み込み直しを頼む） */
+  if (Number.isInteger(state.v) && state.v < R.roster.VERSION) return { ok: false, error: 'old-version' };
   const scrubbed = R.rosterCore.scrubLog(state);
   const v = R.roster.validateState(scrubbed);
   if (!v.ok) return { ok: false, error: `state:${v.errors.slice(0, 3).join(',')}` };
@@ -79,7 +81,7 @@ export function checkPut(given, { today, at }) {
    済んだ便はここでは分けない（分けた物を書く前に画面へ渡すと、次の書き込みで消えてしまうため。分けるのは書くときだけ） */
 export function readStored(text, { today, at }) {
   let parsed = null;
-  try { parsed = JSON.parse(text); } catch (e) { return null; }
+  try { parsed = R.roster.upgradeState(JSON.parse(text)); } catch (e) { return null; }   // 前の版で置いた名簿は、今の版に上げて読む
   if (!parsed || typeof parsed !== 'object' || !R.roster.validateState(parsed).ok) return null;
   return tidy(parsed, { today, at });
 }
