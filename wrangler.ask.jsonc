@@ -1,8 +1,12 @@
 // Access を付けない Worker の設定（plan/meibo.md「お客さんのリンク」・plan/auto.md「予約を受ける口」）。
-// ask.html と、それが読むファイル（node tools/build-site.mjs が作る dist-ask/）と、/api/ask と /api/bookings（お店のサイトの予約フォーム）だけを置く。
-// secret: ASK_ORIGIN は使わない。SITE_ORIGINS（予約フォームを置くサイトの住所）と TURNSTILE_SECRET を wrangler secret put -c wrangler.ask.jsonc で入れる
-// お店の画面・名簿の道（/api/roster）は置かない。名簿の D1 はお店の Worker（wrangler.jsonc）と同じ物を使う。
-// 置き方: node tools/build-site.mjs && npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc（docs/deploy.md）
+// ask.html と、それが読むファイル（node tools/build-site.mjs が作る dist-ask/）と、/api/ask と /api/bookings（お店のサイトの予約フォーム）と /api/health だけを置く。
+// この Worker は D1 を持たない（2026-10-28 ask-service-binding。SEC-13）。名簿・鍵の行・お店の一覧は、お店の Worker（wrangler.jsonc）の
+// ShopRpc を Service Binding の SHOP で呼ぶ（口は 4 つ: askView・askApply・siteHosts・siteBooking。worker/shop-service.mjs）。お店の画面・名簿の道（/api/roster）は置かない。
+// secret: TURNSTILE_SECRET を wrangler secret put -c wrangler.ask.jsonc で入れる。サイトの住所（SITE_ORIGINS）と SINGLE_SHOP は、お店の一覧を引くお店の Worker 側に要る
+// （この Worker では使わない。前に入れた SITE_ORIGINS は消してよい）。ASK_ORIGIN は使わない。
+// 置き方: node tools/build-site.mjs && npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc（docs/deploy.md）。**お店の Worker を先に置く**:
+// 相手の Worker が先に無いと、この Worker は置けない。ShopRpc を export する前のお店の Worker に当てると、呼んだ口が無く 500 になる（docs/deploy.md の 7 節）。
+// Service Binding の置き順: https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/ の「Deployment」
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "redux-ask",
@@ -17,22 +21,20 @@
     "run_worker_first": ["/api/*"],
     "not_found_handling": "none"
   },
-  "d1_databases": [
-    // お店の Worker と同じ名簿。database_id は鍵ではない（wrangler d1 create が出した値）
-    { "binding": "DB", "database_name": "redux-rosters", "database_id": "f74f3e8d-7869-4899-9bdf-33c3737a5654" }
+  "services": [
+    // お店の Worker の ShopRpc（worker/shop-rpc.mjs）。公開の URL も Access も通らない。service はお店の Worker の name（wrangler.jsonc）
+    { "binding": "SHOP", "service": "dive-passport-demo", "entrypoint": "ShopRpc" }
   ],
   "ratelimits": [
-    // 1 つの IP から /api/ask を呼べる回数（1 分に 30 回）。鍵 1 つの 1 日の回数は D1 で数える
+    // 1 つの IP から /api/ask を呼べる回数（1 分に 30 回）。鍵 1 つの 1 日の回数は、お店の Worker が D1 で数える
     { "name": "ASK_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
     // サイトの予約フォームの、1 つの IP の回数（1 分に 5 回）
     { "name": "BOOKING_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } }
   ],
   "kv_namespaces": [
-    // 1 日の件数（サイトの予約）は D1 の daily_counts で数える（migration 0006）。KV は Cron が最後に動いた時刻（cron:last）を
+    // 1 日の件数（サイトの予約）はお店の Worker が D1 の daily_counts で数える（migration 0006）。KV は Cron が最後に動いた時刻（cron:last）を
     // /api/health が読むためだけに残す（お店の Worker と同じ KV。id は鍵ではない）
     { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" }
   ],
-  // お店の Worker（wrangler.jsonc）と同じ SINGLE_SHOP: D1 の shops が空のとき、これを書いた場合だけ 1 店で動く。無くて空なら 503
-  "vars": { "SINGLE_SHOP": "default" },
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } }
 }

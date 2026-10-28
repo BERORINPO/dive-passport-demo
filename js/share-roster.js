@@ -33,15 +33,11 @@
   const when = (ui, trip) => `${ui.md(trip.date)} ${trip.start ? clock(trip.start) : '時刻未定'}`;
   const notFound = (ui, title) => [...ui.head(title), el('p', { class: 'errors', text: 'この便が見つかりません。' }), ui.back()];
 
-  /* 保存して描き直す。fn は state か { state, problem } を返す。problem があれば、state は変えずに知らせる。
-     onOk は保存できたときだけ呼ぶ（入れかけの文字を空にするなど。失敗したら打った字を残す） */
-  function apply(ui, fn, next, problemText, onOk) {
-    let problem = null;
-    const r = ui.save(st => {
-      const out = fn(st);
-      if (out && out.state) { problem = out.problem || null; return out.state; }
-      return out;
-    });
+  /* 保存して描き直す。op は roster-core.js の ops の名前（core の関数は state か { state, problem } を返す）、args は押した時に決まる入力。
+     problem があれば、state は変えずに知らせる。onOk は保存できたときだけ呼ぶ（入れかけの文字を空にするなど。失敗したら打った字を残す） */
+  function apply(ui, op, args, next, problemText, onOk) {
+    const r = ui.save(op, args);
+    const problem = (r.out && r.out.problem) || null;
     if (r.error) return ui.go(next.mode, { ...next.ctx, warn: '入れられませんでした。長すぎないか確かめてください' });
     if (problem) return ui.go(next.mode, { ...next.ctx, warn: problemText(problem) });
     if (onOk) onOk();
@@ -79,13 +75,13 @@
       el('span', { class: `st st--${st[0]}`, text: st[1] }),
       el('span', { class: 'bk__meta', text: [`${people.length} 人`, guide ? `ガイド ${guide}` : '', health].filter(Boolean).join('・') }),
       button(`${group.name}役で入れる（この端末で）`, () => ui.go('partner', { tripId, shop: group.name })),
-      people.length ? null : button('外す', () => apply(ui, st2 => X().removePartner(st2, { tripId, name: group.name, at: nowIso() }),
+      people.length ? null : button('外す', () => apply(ui, 'share.removePartner', { tripId, name: group.name, at: nowIso() },
         { mode: 'share', ctx: { tripId } }, () => '人のいるお店は外せません'), 'linkbtn linkbtn--muted'));
   }
 
   function addShopRow(trip, ui) {
     const d = draftFor(`share:${trip.id}`);
-    const add = (name, onOk) => apply(ui, st => X().addPartner(st, { tripId: trip.id, name, at: nowIso() }),
+    const add = (name, onOk) => apply(ui, 'share.addPartner', { tripId: trip.id, name, at: nowIso() },
       { mode: 'share', ctx: { tripId: trip.id } }, (p) => SHOP_PROBLEM_JA[p] || p, onOk);
     return [
       el('div', { class: 'addrow' },
@@ -104,8 +100,8 @@
     if (!g) return notFound(ui, '乗り合い');
     const { trip } = g;
     const partners = g.groups.filter(x => !x.own);
-    const setBoat = (boat) => apply(ui, st => C().editTrip(st, { tripId, patch: { boat }, at: nowIso() }), { mode: 'share', ctx: { tripId } }, String);
-    const setHost = (host) => apply(ui, st => X().setHost(st, { tripId, host, at: nowIso() }), { mode: 'share', ctx: { tripId } }, () => '乗り合いのお店から選んでください');
+    const setBoat = (boat) => apply(ui, 'core.editTrip', { tripId, patch: { boat }, at: nowIso() }, { mode: 'share', ctx: { tripId } }, String);
+    const setHost = (host) => apply(ui, 'share.setHost', { tripId, host, at: nowIso() }, { mode: 'share', ctx: { tripId } }, () => '乗り合いのお店から選んでください');
     return [
       ...ui.head('乗り合い', `${ui.md(trip.date)} ${ui.tripLabel(trip)}`),
       el('div', { class: 'sheet' },
@@ -147,11 +143,11 @@
   /* 他のお店役: 乗せる人（ガイドと人）の面 */
   function partnerPeopleSheet(v, ui) {
     const { tripId, shop, people, d, guide } = v;
-    const add = (list, onOk) => apply(ui, st => X().addPartnerPeople(st, { tripId, shop, people: list, guide, at: nowIso(), newId: R.newId }),
+    const add = (list, onOk) => apply(ui, 'share.addPartnerPeople', { tripId, shop, people: list, guide, at: nowIso() },
       v.back, (p) => ADD_PROBLEM_JA[p] || GUIDE_FIRST, onOk);
     const setGuide = (value) => {
       if (!people.length) { d.guide = value.trim(); ui.rerender(); return; }
-      apply(ui, st => X().setPartnerGuide(st, { tripId, shop, guide: value, at: nowIso() }), v.back, () => GUIDE_FIRST);
+      apply(ui, 'share.setPartnerGuide', { tripId, shop, guide: value, at: nowIso() }, v.back, () => GUIDE_FIRST);
     };
     const addOne = () => {
       const name = d.name.trim();
@@ -196,14 +192,14 @@
     const others = g.groups.filter(x => x.key !== shop).map(x => x.name).join('・');
     const owner = X().boatOwner(s, trip);
     const handOver = () => {
-      const r = ui.save(st => X().handOver(st, { tripId, shop, today: R.today(), at: nowIso() }));
+      const r = ui.save('share.handOver', { tripId, shop, today: R.today(), at: nowIso() });
       if (r.error) { ui.go('partner', { tripId, shop, warn: '渡せませんでした。もう一度押してください' }); return; }
       ui.go('share', { tripId, saved: r.saved, notice: `${shop}から ${people.length} 人を受け取りました（健康の 2 欄は${shop}が確かめる）` });
     };
     const [, ...head] = ui.head(owner === shop ? '自分の船に乗せる人' : `${owner}の船に乗せる人`, `${when(ui, trip)}　${trip.boat || ''}`.trim());
     const acked = !!trip.cancel && trip.cancel.acked.includes(shop);
     const ack = () => {
-      const r = ui.save(st => C().ackCancel(st, { tripId, shop, at: nowIso() }));
+      const r = ui.save('core.ackCancel', { tripId, shop, at: nowIso() });
       const took = !r.error && (R.rosterStore.get().trips.find(t => t.id === tripId).cancel || { acked: [] }).acked.includes(shop);
       ui.go('partner', took ? { tripId, shop, saved: r.saved, notice: `${owner}に「確かめた」と返しました` }
         : { tripId, shop, warn: r.error ? '記録できませんでした。もう一度押してください' : 'このお店は乗り合いから外れているので、確かめを返せません' });
@@ -249,7 +245,7 @@
     const guide = X().partnerGuide(s, tripId, shop);
     const csv = () => {
       R.saveFile(`meibo-${fileSafe(shop)}-${trip.date}${trip.start ? `-${trip.start.replace(':', '')}` : ''}.csv`, C().toCsv(table), 'text/csv;charset=utf-8');
-      const r = ui.save(st => C().logOutput(st, { tripId, act: 'csv', people: table.rows.length, health: false, paper: 'partner', at: nowIso() }));
+      const r = ui.save('core.logOutput', { tripId, act: 'csv', people: table.rows.length, health: false, paper: 'partner', at: nowIso() });
       ui.go('partnerpaper', { tripId, shop, saved: r.saved, notice: `CSV に書き出しました（${table.rows.length} 人）。${shop}に渡したら消してください` });
     };
     return [
@@ -351,13 +347,13 @@
   /* ガイドが口で「全員戻りました」と伝えたら、そのお店を 1 回押す。全部のお店が戻るまで、ポイントを離れられない */
   function backLine(x, r, ui) {
     const tripId = r.trip.id;
-    const go = (fn) => apply(ui, st => fn(st, { tripId, shop: x.key, at: nowIso() }), { mode: 'boat', ctx: { tripId } }, (p) => BOAT_PROBLEM_JA[p] || p);
+    const go = (op) => apply(ui, op, { tripId, shop: x.key, at: nowIso() }, { mode: 'boat', ctx: { tripId } }, (p) => BOAT_PROBLEM_JA[p] || p);
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name', text: x.own ? `${x.name}（この店）` : x.name }),
       x.backAt ? el('span', { class: 'st st--ok', text: `✓ ${hm(x.backAt)}` })
-        : el('button', { class: 'btn btn--small', type: 'button', text: '全員戻った', onclick: () => go(X().recordReturn) }),
+        : el('button', { class: 'btn btn--small', type: 'button', text: '全員戻った', onclick: () => go('share.recordReturn') }),
       el('span', { class: 'bk__meta', text: `${x.people.length} 人・${guidesText(x)}${x.backAt ? '' : '・まだ'}` }),
-      x.backAt ? button('押し間違いを取り消す', () => go(X().undoReturn), 'linkbtn linkbtn--muted')
+      x.backAt ? button('押し間違いを取り消す', () => go('share.undoReturn'), 'linkbtn linkbtn--muted')
         : button('人数が合わない', () => ui.go('callout', { tripId, shop: x.key })));
   }
 
@@ -367,9 +363,9 @@
     const { trip } = r;
     const back = r.shops.length - r.waiting.length;
     const leave = () => {
-      let problem = null;
       const at = nowIso();
-      const out = ui.save(st => { const x = X().recordLeave(st, { tripId, at }); problem = x.problem; return x.state; });
+      const out = ui.save('share.recordLeave', { tripId, at });
+      const problem = out.out ? out.out.problem : null;
       if (out.error) { ui.go('boat', { tripId, warn: '記録できませんでした。もう一度押してください' }); return; }
       if (problem) { ui.go('boat', { tripId, warn: BOAT_PROBLEM_JA[problem] || problem }); return; }
       ui.go('boat', { tripId, saved: out.saved, notice: `${r.dive} 本目のポイントを離れました（${hm(at)}、${r.shops.length} 店・${r.people} 人）` });
@@ -397,8 +393,8 @@
     if (!r) return notFound(ui, '名前を呼ぶ');
     const x = r.shops.find(y => y.key === shop);
     if (!x) return [...ui.head('名前を呼ぶ'), el('p', { class: 'errors', text: BOAT_PROBLEM_JA.shop }), ui.back()];
-    const here = (personId) => apply(ui, st => X().recordHere(st, { tripId, shop, personId, at: nowIso() }), { mode: 'callout', ctx: { tripId, shop } }, (p) => BOAT_PROBLEM_JA[p] || p);
-    const allHere = () => apply(ui, st => X().recordReturn(st, { tripId, shop, at: nowIso() }), { mode: 'boat', ctx: { tripId, notice: `${x.name}: 全員いました` } }, (p) => BOAT_PROBLEM_JA[p] || p);
+    const here = (personId) => apply(ui, 'share.recordHere', { tripId, shop, personId, at: nowIso() }, { mode: 'callout', ctx: { tripId, shop } }, (p) => BOAT_PROBLEM_JA[p] || p);
+    const allHere = () => apply(ui, 'share.recordReturn', { tripId, shop, at: nowIso() }, { mode: 'boat', ctx: { tripId, notice: `${x.name}: 全員いました` } }, (p) => BOAT_PROBLEM_JA[p] || p);
     const left = x.people.filter(m => !x.here.has(m.person.id));
     return [
       ...boatMast(r.trip, '名前を呼ぶ', ui, `${x.name}　${x.people.length} 人・${guidesText(x)}`, '← 戻ったお店', () => ui.go('boat', { tripId })),

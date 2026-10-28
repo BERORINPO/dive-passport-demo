@@ -20,7 +20,7 @@
     const nowJst = R.nowJst();
     if (!(s.jobs || []).some(j => j.status === 'waiting' && j.due <= nowJst)) return false;
     const at = R.nowIso();
-    save(st => A().runDue(st, { nowJst, at, newId: R.newId, askBase: askBase() }).state);
+    save('auto.runDue', { nowJst, at, askBase: askBase() });
     return true;
   }
 
@@ -28,16 +28,15 @@
   function addReading(save, reading, lang) {
     const at = R.nowIso();
     const nowJst = R.nowJst();
-    let bookingId = '';
-    const r = save(st => { const out = A().addFromReading(st, { reading, lang, at, nowJst, newId: R.newId }); bookingId = out.bookingId; return out.state; });
+    const r = save('auto.addFromReading', { reading, lang, at, nowJst });
     if (!r.error) tick(save);
-    return { ...r, bookingId };
+    return { ...r, bookingId: r.out ? r.out.bookingId : '' };
   }
 
   /* 予約 1 件の予定を作る（電話の予約など、予定のまだ無い予約） */
   function plan(save, bookingId) {
     const nowJst = R.nowJst();
-    const r = save(st => A().planJobs(st, { bookingId, nowJst, newId: R.newId }));
+    const r = save('auto.planJobs', { bookingId, nowJst });
     if (!r.error) tick(save);
     return r;
   }
@@ -137,17 +136,17 @@
       el('button', { class: 'linkbtn', type: 'button', text: '開く', onclick: () => ui.go('board') }));
   }
 
-  /* 送り直す・届いていた。名簿を直す関数を当てる（サーバーの版とぶつかったら、最新に当て直しても 2 つは作らない） */
-  function act(ui, fn, okText) {
-    let problem = '';
-    const r = ui.save(st => { const out = fn(st); problem = out.problem; return out.state; });
+  /* 送り直す・届いていた。名簿を直す op を当てる（サーバーの版とぶつかったら、最新に当て直しても 2 つは作らない） */
+  function act(ui, op, args, okText) {
+    const r = ui.save(op, args);
+    const problem = r.out ? r.out.problem : '';
     ui.go('board', { saved: r.saved, warn: r.error ? '直せませんでした' : problem ? RESEND_JA[problem] || '直せませんでした' : null, notice: r.error || problem ? null : okText });
   }
   /* サーバーにつながっている版は、送り直しを頼む印だけを付ける（連絡は次の Cron が今の予約から作る）。試作は画面で作る */
   const resendIt = (ui, id) => (R.rosterStore.synced()
-    ? act(ui, st => A().requestResend(st, { id, nowJst: R.nowJst() }), '送り直しを頼みました。次の送信（15 分以内）で 1 通だけ送ります')
-    : act(ui, st => A().resend(st, { id, nowJst: R.nowJst(), at: R.nowIso(), newId: R.newId, askBase: askBase() }), '送る準備をしました（この端末の試作では送りません）'));
-  const confirmIt = (ui, id) => act(ui, st => A().confirmSent(st, { id, at: R.nowIso() }), '届いていた連絡として残しました');
+    ? act(ui, 'auto.requestResend', { id, nowJst: R.nowJst() }, '送り直しを頼みました。次の送信（15 分以内）で 1 通だけ送ります')
+    : act(ui, 'auto.resend', { id, nowJst: R.nowJst(), at: R.nowIso(), askBase: askBase() }, '送る準備をしました（この端末の試作では送りません）'));
+  const confirmIt = (ui, id) => act(ui, 'auto.confirmSent', { id, at: R.nowIso() }, '届いていた連絡として残しました');
 
   function boardLine({ at, name, st, meta, next, extra }) {
     return el('li', { class: next ? 'bk bk--next' : 'bk' },
@@ -235,7 +234,7 @@
     const text = R.sampleMail(id, R.today()).text;
     try {
       const { reading, sent } = await R.aiReader.read({ doc: 'mail', text, sampleId: id });
-      ui.save(s => R.rosterCore.logAi(s, { at: new Date().toISOString(), sent }));
+      ui.save('core.logAi', { at: new Date().toISOString(), sent });
       const r = addReading(ui.save, reading, id === 'e2' ? 'en' : 'ja');
       ui.go('flow', { bookingId: r.bookingId, saved: r.saved, notice: r.error ? null : `見本のメール（${id}）が届き、自動で入れました`, warn: r.error ? '見本のメールを入れられませんでした' : null });
     } catch (e) {

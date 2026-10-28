@@ -32,6 +32,9 @@
     'sync-shop': 'この端末には、別のお店の名簿がありました。送らずに端末の別の場所に残し、ログインしたお店の名簿にしました。',
     'sync-lost': '送れなかった直しを、端末の容量が足りず残せませんでした。予約と名簿を確かめ、足りない物を入れ直してください。',
     'sync-shop-changed': 'ログインしたお店が変わりました。画面を読み込み直してください。この端末の直しは送らず、別の場所に残してあります。',
+    'sync-conflict': '別の端末が先に直した項目を、この端末の直しで書き換えました。記録の画面で、前と後を確かめてください。',
+    'sync-gone': 'サーバーの名簿が見つかりません。この端末の直しは送らず、名簿を別の場所に残しました。お店の管理者に知らせてください。',
+    'sync-shrunk': 'サーバーの名簿は、この端末の名簿より人が大きく減っていました。この端末の名簿は消さず、別の場所に残しました。予約と名簿を確かめてください。',
     'sync-newer': 'REDUX が新しくなりました。画面を読み込み直してください。この端末の直しは別の場所に残してあります。',
     'sync-login': 'ログインが切れました。画面を読み込み直してください。直しはこの端末に残してあり、ログインし直したら送ります。',
     'sync-shrink': 'この端末から、名簿の人が大きく消える書き込みがあったので、サーバーが止めました。サーバーの名簿に戻し、この端末の名簿は別の場所に残しました。',
@@ -60,6 +63,7 @@
                             // day（今日の名簿）/ spo2（血中酸素）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
                             // share（乗り合い）/ partner（他のお店役）/ partnerpaper / joint（合同名簿）/ jointprint / boat（船の上）/ callout（名前で呼ぶ）は share-roster.js
                             // partnerphoto（他のお店が写真で名前を渡す）は partner-photo.js
+                            // kept（端末に残した名簿を見て戻す）
   let intakeTrip = '';
   let reviewPerson = '';
   let askBooking = '';
@@ -89,12 +93,14 @@
   const tripLabel = (t) => `${t.start ? `${t.start < '12:00' ? '午前便' : '午後便'} ${clock(t.start)}` : '時刻未定の便'} ${t.tour || KIND_JA[t.kind]}`;
   const tour = (id) => R.TOURS.find(t => t.id === id);
 
-  /* 保存は rosterStore を通す。形が合わなければ例外、端末に書けなければ saved: false */
-  function save(fn) {
+  /* 保存は rosterStore.apply を通す。op は roster-core.js の ops の名前、args は押した時に決まる入力を全部入れた物（時刻もここで決める）。
+     形が合わなければ error、端末に書けなければ saved: false。out は core の関数の答え（bookingId など） */
+  function save(op, args, opts) {
     try {
-      return { error: null, saved: R.rosterStore.update(fn) };
+      const r = R.rosterStore.apply(op, args, opts);
+      return { error: null, saved: r.saved, out: r.out };
     } catch (e) {
-      return { error: e, saved: false };
+      return { error: e, saved: false, out: null };
     }
   }
 
@@ -102,6 +108,7 @@
   function go(next, ctx = {}) {
     mode = next;
     armedReset = false;
+    armedKept = '';
     notice = ctx.saved === false ? { kind: 'warn', text: NOT_SAVED } : ctx.warn ? { kind: 'warn', text: ctx.warn } : ctx.notice ? { kind: 'ok', text: ctx.notice } : null;
     if (ctx.tripId) { intakeTrip = ctx.tripId; dayTrip = ctx.tripId; }
     if (ctx.personId) reviewPerson = ctx.personId;
@@ -110,6 +117,7 @@
     if (ctx.day) day = ctx.day;
     if (next === 'mail') mail = blankMail();
     if (next === 'phone') phone = blankPhone();
+    if (BOOK_MODES.includes(next)) bk = null;   // 開くたびに、今の予約から入力を作り直す（bookTarget）
     if (next === 'ask') copied = null;
     render();
   }
@@ -122,10 +130,27 @@
     render();
   }
 
+  /* サーバーにつながっていない間は、どの画面でも上に出す（直しは端末に貯めて、試し直している） */
+  function linkBanner() {
+    if (R.rosterStore.link() !== 'down') return null;
+    const n = R.rosterStore.pending();
+    return el('p', { class: 'flag flag--warn', role: 'status',
+      text: `サーバーにつながっていません。${n ? `直した ${n} 件はこの端末に残してあり、つながったら送ります。` : '直しはこの端末に残し、つながったら送ります。'}` });
+  }
+  /* 名簿の知らせ。つながっていない知らせ（sync-offline）は linkBanner が出す */
+  function storeNote() {
+    const key = R.rosterStore.note();
+    if (!key || key === 'sync-offline') return null;
+    const seen = key === 'sync-conflict';
+    return el('p', { class: 'flag flag--warn' }, `${STORE_NOTE_JA[key]}${seen ? `（${R.rosterStore.conflicts().length} 件）` : ''}`,
+      seen ? el('button', { class: 'linkbtn', type: 'button', text: '確かめた', onclick: () => R.rosterStore.clearConflicts() }) : null);
+  }
+
   const head = (title, sub) => [
     el('p', { class: 'note', text: R.rosterStore.get().shop.name }),
     el('h2', { class: 'page__title', text: title }),
     sub ? el('p', { class: 'page__sub', text: sub }) : null,
+    linkBanner(),
     notice ? el('p', { class: `flag flag--${notice.kind}`, role: 'status', text: notice.text }) : null
   ];
   const back = () => el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '予約の一覧に戻る', onclick: () => go('list') }));
@@ -148,6 +173,11 @@
     const others = Math.max(b.people, total) - 1;
     const where = C().isPartnerBooking(b) ? `${b.shop}（乗り合い）` : b.site ? `${b.site}（${SOURCE_JA[b.source]}）` : SOURCE_JA[b.source];
     const auto = R.autoFlow.rowNote(R.rosterStore.get(), b.id);   // 書類の自動化: 送ったお願い・お店への知らせ
+    /* 直す・別の便へ・取り消す（乗り合いの他のお店の予約は、そのお店の名簿が元なので出さない） */
+    const acts = C().isPartnerBooking(b) ? null : el('div', { class: 'bk__acts' },
+      el('button', { class: 'linkbtn', type: 'button', text: '直す', onclick: () => go('bedit', { bookingId: b.id }) }),
+      el('button', { class: 'linkbtn', type: 'button', text: '別の便へ', onclick: () => go('bmove', { bookingId: b.id }) }),
+      el('button', { class: 'linkbtn linkbtn--warn', type: 'button', text: '取り消す', onclick: () => go('bcancel', { bookingId: b.id }) }));
     const status = unsure ? '確かめてほしい所がある' : auto ? auto.text : guests ? `${guests} 人分の入力を待っている`
       : heldToday ? `当日の体調は${b.shop}が便の日に確かめる` : waiting ? '便のポイントかガイドがまだ' : '';
     return el('li', { class: 'bk' },
@@ -155,7 +185,8 @@
       el('span', { class: `st st--${st[0]}`, text: st[1] }),
       el('span', { class: 'bk__meta', text: `${where}　${status}`.trim() }),
       R.autoFlow.hasPlan(R.rosterStore.get(), b.id) ? el('button', { class: 'linkbtn', type: 'button', text: '流れを見る', onclick: () => go('flow', { bookingId: b.id }) })
-        : guests ? el('button', { class: 'linkbtn', type: 'button', text: 'お客さんに聞く', onclick: () => go('ask', { bookingId: b.id }) }) : null);
+        : guests ? el('button', { class: 'linkbtn', type: 'button', text: 'お客さんに聞く', onclick: () => go('ask', { bookingId: b.id }) }) : null,
+      acts);
   }
 
   function tripCard(s, trip) {
@@ -213,7 +244,7 @@
   function healthModeRow(s) {
     const paper = C().paperOf(s);
     const pick = (on) => () => {
-      const r = save(st => C().setHealthPaper(st, { paper: on, at: now() }));
+      const r = save('core.setHealthPaper', { paper: on, at: now() });
       notice = r.error ? { kind: 'warn', text: '切り替えられませんでした' }
         : { kind: 'ok', text: on ? '健康の質問は、紙の申込書で聞きます。お客さんのリンクと自動の連絡では聞きません。' : '健康の質問を、お客さんのリンクで聞きます。' };
       render();
@@ -233,7 +264,7 @@
     return [
       ...head('予約'),
       aiRow(),
-      R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
+      storeNote(),
       R.autoFlow.boardRow(s, { unread: unread.items.length, ui }),
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
         class: 'day', type: 'button', 'aria-pressed': String(d === day), 'aria-label': md(d),
@@ -247,7 +278,7 @@
       !R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本の乗り合い便を作る（4 店・30 人）',
         onclick: () => {
           /* 開いている日でなく今日に作り、今日を開く（見本の便は「今日の 13:00」。小禄さんの不具合さがし 2026-10-27） */
-          const r = save(st => R.rosterShare.addBigSample(st, { day: R.today(), at: new Date().toISOString(), newId: R.newId }).state);
+          const r = save('share.addBigSample', { day: R.today(), at: now() });
           if (!r.error) day = R.today();
           notice = r.error ? { kind: 'warn', text: '見本の便を作れませんでした' } : { kind: 'ok', text: '見本の乗り合い便を作りました（13:00、4 店・お客さん 30 人）' };
           render();
@@ -258,6 +289,8 @@
       /* デモの時計はつながっていない試作だけ（サーバーの版では予定を動かすのは Cron） */
       !R.rosterStore.synced() && (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
       healthModeRow(s),
+      R.rosterStore.kept().length ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button',
+        text: `端末に残した名簿（${R.rosterStore.kept().length}）`, onclick: () => go('kept') })) : null,
       /* 済んで 7 日を過ぎた便は、サーバーが便ごとに分けて置く（読むだけ）。サーバーを使わない版には無い */
       R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '済んだ便を見る（7 日より前）', onclick: () => go('past') })) : null,
       !R.rosterStore.synced() && s.trips.length ? resetButton() : null,
@@ -383,7 +416,7 @@
     fillMail();
     try {
       const { reading, sent } = await R.aiReader.read({ doc: 'mail', text: job.text, sampleId: job.sampleId });
-      save(s => C().logAi(s, { at: now(), sent }));
+      save('core.logAi', { at: now(), sent });
       job.reading = reading;
       job.tripId = '';
       /* 書類の自動化: 日付が読めたら、確かめずに便へ入れて予定を作る（自信の無い所は印が付き、名簿の「確かめる」に出る） */
@@ -392,7 +425,7 @@
         if (!r.error) { go('flow', { bookingId: r.bookingId, saved: r.saved, notice: '予約メールを読んで、自動で入れました' }); return; }
       }
     } catch (e) {
-      if (e.sent) save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
+      if (e.sent) save('core.logAi', { at: now(), sent: e.sent });   // 送ったあとに失敗しても、送った記録は残す
       job.error = ERROR_JA[e.kind] || ERROR_JA.bad;
       if (e.sent && e.sent.healthSeen) job.error += '。AI が「健康の情報が見えた」と答えました。送った文面を確かめてください';
     } finally {
@@ -404,7 +437,7 @@
   function commitMail() {
     const want = { ...mailWant(), kind: mail.kind || C().suggestTrip(R.rosterStore.get(), mailWant()).kind };
     const booking = C().bookingFromReading(mail.reading);
-    const r = save(s => C().addBookingToTrip(s, { tripId: mail.tripId, want, booking, reading: mail.reading, src: 'mail', at: now(), newId: R.newId }).state);
+    const r = save('core.addBookingToTrip', { tripId: mail.tripId, want, booking, reading: mail.reading, src: 'mail', at: now() });
     if (r.error) { mail.error = '予約を入れられませんでした。読み取りを確かめて、もう一度試してください。'; fillMail(); return; }
     done(want.date, `予約を入れました: ${booking.leadName || '名前の分からない予約'}`, r.saved);
   }
@@ -452,10 +485,11 @@
     const email = phone.email.trim();
     if (email && !R.roster.emailOk(email)) { errorsNode.textContent = '確かめてください: メールアドレス'; return; }
     const booking = { source: phone.source, leadName: input.leadName, leadPhone: input.leadPhone, people: input.people, note: input.note, ...(email ? { leadEmail: email } : {}) };
-    let bookingId = '';
-    const r = save(s => { const st = C().addBookingToTrip(s, { tripId: phone.tripId, want: phoneWant(), booking, reading: null, src: 'staff', at: now(), newId: R.newId }).state; bookingId = st.bookings[st.bookings.length - 1].id; return st; });
+    /* 画面の「今の」入力（phone）は、ここで全部写す。貯めた直しが、あとで別の予約の入力を読まないように */
+    const r = save('core.addBookingToTrip', { tripId: phone.tripId, want: phoneWant(), booking, reading: null, src: 'staff', at: now() });
     if (r.error) { errorsNode.textContent = '予約を入れられませんでした。入力を確かめて、もう一度試してください。'; return; }
-    R.autoFlow.plan(save, bookingId);   // 書類の自動化: お願い・2 日前・前日の夜・当日の朝の予定
+    const bookings = r.out.state.bookings;
+    R.autoFlow.plan(save, bookings[bookings.length - 1].id);   // 書類の自動化: お願い・2 日前・前日の夜・当日の朝の予定
     done(phone.date, `予約を入れました: ${booking.leadName || '名前の分からない予約'}（${booking.people} 人）`, r.saved);
   }
 
@@ -486,6 +520,188 @@
           '健康のことは書かないでください。名簿の健康の欄は、お客さんが自分で選びます。')),
       back(),
       dock(errorsNode, el('button', { class: 'btn', type: 'button', text: '予約を入れる', onclick: () => commitPhone(errorsNode) }))
+    ];
+  }
+
+  /* ---------- 予約を直す・別の便へ・取り消す（H4） ----------
+     取り消しと別の便へは、押すと確かめの文に変わり、もう一度押すと実行する（window.confirm は使わない）。
+     入力の途中は bk に持ち、押した時に args へ全部写す（貯めた直しが、あとで別の予約の入力を読まないように） */
+  const BOOK_MODES = ['bedit', 'bmove', 'bcancel'];
+  const CANCEL_JA = { guest: 'お客さんの都合', dup: '同じ予約が二つある', shop: 'お店の都合', other: 'その他' };
+  let bk = null;            // { id, name, phone, email, note, names: { 人の id: 名前 }, date, start, tourId, tripId, moveTo, reason, armed, error }
+  let bkPick = null;
+
+  function blankBk(b, trip) {
+    return { id: b.id, name: b.leadName, phone: b.leadPhone, email: b.leadEmail || '', note: b.note, names: {},
+      date: trip.date, start: trip.start, tourId: '', tripId: b.tripId, moveTo: '', reason: 'guest', armed: false, error: '' };
+  }
+  /* 開いている予約。見つからない（別の端末が取り消した）・乗り合いの他のお店の予約・便が無い予約は null */
+  function bookTarget() {
+    const s = R.rosterStore.get();
+    const b = s.bookings.find(x => x.id === askBooking);
+    const trip = b && s.trips.find(x => x.id === b.tripId);
+    if (!b || !trip || C().isPartnerBooking(b)) return null;
+    if (!bk || bk.id !== b.id) bk = blankBk(b, trip);
+    return { s, b, trip, people: s.people.filter(p => p.bookingId === b.id) };
+  }
+  const bookLead = (t) => t.b.leadName || (t.people[0] && t.people[0].name) || '名前の分からない予約';
+  const bookHead = (title, t) => head(title, `${bookLead(t)}　${md(t.trip.date)} ${tripLabel(t.trip)}`);
+  const bookGone = (title) => [...head(title), el('p', { class: 'errors', role: 'alert', text: 'この予約が見つかりません。別の端末で取り消された可能性があります。' }), back()];
+  const bookDock = (errorsNode, main) => dock(errorsNode, main, el('button', { class: 'btn btn--ghost', type: 'button', text: 'やめる', onclick: () => go('list') }));
+  /* 押すと確かめの文に変わり、もう一度押すと実行する */
+  const armedBtn = (label, armedLabel, run, extra = {}) => el('button', { class: 'btn btn--warn', type: 'button', ...extra,
+    text: bk.armed ? armedLabel : label, onclick: () => { if (!bk.armed) { bk.armed = true; render(); return; } run(); } });
+
+  /* 直す: 代表者の連絡先・メモ・名前の無い人の名前・日付と時刻とツアー（変えると別の便に移る） */
+  const bkTour = () => (bk.tourId ? tour(bk.tourId) : null);
+  const bkMoved = (t) => bk.date !== t.trip.date || bk.start !== t.trip.start || (!!bkTour() && bkTour().name.ja !== t.trip.tour);
+  function bkWant(t) {
+    const x = bkTour();
+    return { date: bk.date, start: bk.start, tour: x ? x.name.ja : t.trip.tour, kind: x ? (x.diving ? 'dive' : 'snorkel') : t.trip.kind };
+  }
+  function fillBkPick(t) {
+    if (!bkPick) return;
+    if (!bkMoved(t)) { bk.tripId = t.b.tripId; R.fill(bkPick); return; }
+    if (!bk.date) { R.fill(bkPick, el('p', { class: 'note', text: '日付を入れると、入れる便を選べます' })); return; }
+    R.fill(bkPick, tripPicker(bkWant(t), bk, () => fillBkPick(t)));
+  }
+
+  function saveBookEdit(t, errorsNode) {
+    const fail = (text) => { errorsNode.textContent = text; };
+    const moved = bkMoved(t);
+    const input = { date: bk.date, people: t.b.people, leadName: bk.name.trim(), leadPhone: bk.phone.trim(), note: bk.note.trim() };
+    const problems = C().bookingProblems(input).filter(p => p !== 'date' || moved);
+    if (problems.length) { fail(`確かめてください: ${problems.map(p => PROBLEM_JA[p]).join('・')}`); return; }
+    const email = bk.email.trim();
+    if (email && !R.roster.emailOk(email)) { fail('確かめてください: メールアドレス'); return; }
+    const r = save('core.editBooking', { bookingId: t.b.id, patch: { leadName: input.leadName, leadPhone: input.leadPhone, leadEmail: email, note: input.note } });
+    if (r.error) { fail('直せませんでした。入力を確かめて、もう一度試してください。'); return; }
+    let saved = r.saved;
+    const named = Object.entries(bk.names).map(([id, name]) => [id, name.trim()]).filter(([, name]) => name);
+    for (const [id, name] of named) {
+      const p = save('core.editPerson', { id, patch: { name }, who: 'staff' });
+      if (p.error) { fail('お名前を入れられませんでした（60 字まで）。ほかの直しは保存しました。'); return; }
+      saved = saved && p.saved;
+    }
+    if (moved && bk.tripId !== t.b.tripId) {
+      const m = save('auto.moveBooking', { bookingId: t.b.id, tripId: bk.tripId, want: bkWant(t), nowJst: R.nowJst() });
+      if (m.error) { fail('便を移せませんでした。日付と便を確かめてください。ほかの直しは保存しました。'); return; }
+      saved = saved && m.saved;
+      R.autoFlow.tick(save);
+    }
+    const stuck = email && email !== (t.b.leadEmail || '') && (t.s.outbox || []).some(o => o.bookingId === t.b.id && o.kind !== 'staff' && ['unsent', 'failed'].includes(o.status));
+    done(bk.date || t.trip.date, `予約を直しました${moved ? '。便を移したので、自動の予定は新しい日付で作り直しました' : ''}${stuck ? '。送れていなかった連絡は、「書類の自動化」から送り直せます' : ''}`, saved);
+  }
+
+  function renderBookEdit() {
+    const t = bookTarget();
+    if (!t) return bookGone('予約を直す');
+    const errorsNode = el('p', { class: 'errors', role: 'alert' });
+    const set = (key) => (e) => { bk[key] = e.target.value; };
+    const setWhen = (key) => (e) => { bk[key] = e.target.value; bk.tripId = ''; fillBkPick(t); };
+    const unnamed = t.people.map((p, i) => ({ p, i })).filter(x => !x.p.name.trim());
+    bkPick = el('div', { class: 'phone__pick' });
+    fillBkPick(t);
+    return [
+      ...bookHead('予約を直す', t),
+      el('form', { class: 'card form', novalidate: true, onsubmit: (e) => { e.preventDefault(); saveBookEdit(t, errorsNode); } },
+        el('div', { class: 'row' },
+          field('代表者の名前', el('input', { class: 'input', type: 'text', maxlength: 60, autocomplete: 'off', value: bk.name, oninput: set('name') })),
+          field('電話', el('input', { class: 'input', type: 'tel', maxlength: 30, autocomplete: 'off', value: bk.phone, oninput: set('phone') }))),
+        field('メールアドレス', el('input', { class: 'input', type: 'email', maxlength: 254, autocomplete: 'off', value: bk.email, oninput: set('email') }),
+          '自動のお願いは、ここに送ります。直すと、次の連絡から新しい宛先に送ります'),
+        unnamed.map(x => field(`お名前（${x.i + 1} 人目）`, el('input', { class: 'input', type: 'text', maxlength: 60, autocomplete: 'off',
+          value: bk.names[x.p.id] || '', oninput: (e) => { bk.names[x.p.id] = e.target.value; } }), x.i === unnamed[0].i ? '分かる人だけ入れてください' : null)),
+        el('div', { class: 'row' },
+          field('日付', el('input', { class: 'input', type: 'date', required: true, value: bk.date, oninput: setWhen('date') })),
+          field('集合の時刻', el('input', { class: 'input', type: 'time', value: bk.start, oninput: setWhen('start') }))),
+        field('ツアー', el('select', { class: 'input', onchange: setWhen('tourId') },
+          el('option', { value: '', selected: !bk.tourId, text: `今のまま（${t.trip.tour || KIND_JA[t.trip.kind]}）` }),
+          R.TOURS.map(x => el('option', { value: x.id, selected: x.id === bk.tourId, text: x.name.ja }))),
+          '日付・時刻・ツアーを変えると、別の便に移ります'),
+        bkPick,
+        field('メモ', el('textarea', { class: 'input', rows: 3, maxlength: 400, text: bk.note, oninput: set('note') }),
+          '健康のことは書かないでください。')),
+      back(),
+      dock(errorsNode, el('button', { class: 'btn', type: 'button', text: '直した内容で保存', onclick: () => saveBookEdit(t, errorsNode) }))
+    ];
+  }
+
+  /* 別の便へ: 今ある便から選ぶ。自動の予定は、新しい便の日で作り直す（送り済みのお願いはそのまま） */
+  function commitBookMove(t, to) {
+    const r = save('auto.moveBooking', { bookingId: t.b.id, tripId: to.id, nowJst: R.nowJst() });
+    if (r.error) { bk.error = '移せませんでした。便を選び直してください。'; bk.armed = false; render(); return; }
+    R.autoFlow.tick(save);
+    done(to.date, `${bookLead(t)} の予約を ${md(to.date)} ${tripLabel(to)} へ移しました。自動の予定は新しい日付で作り直しました。日付が変わったことは、お客さんに電話などで伝えてください`, r.saved);
+  }
+  function renderBookMove() {
+    const t = bookTarget();
+    if (!t) return bookGone('別の便へ');
+    const options = C().tripList(t.s).filter(x => x.id !== t.b.tripId && !x.cancel);
+    const to = options.find(x => x.id === bk.moveTo) || null;
+    const errorsNode = el('p', { class: 'errors', role: 'alert', text: bk.error });
+    return [
+      ...bookHead('別の便へ', t),
+      options.length ? el('div', { class: 'card form' },
+        field('移す先の便', el('select', { class: 'input', onchange: (e) => { bk.moveTo = e.target.value; bk.armed = false; bk.error = ''; render(); } },
+          el('option', { value: '', selected: !to, text: '移す先の便を選ぶ' }),
+          options.map(x => el('option', { value: x.id, selected: !!to && x.id === to.id, text: `${md(x.date)} ${tripLabel(x)}` }))),
+        '日付や時刻が今の便と違うときは、「直す」で日付と時刻を変えます'))
+        : el('p', { class: 'empty', text: '移せる便がありません。日付や時刻を変えるときは、「直す」から入れてください。' }),
+      el('div', { class: 'band' }, el('p', { class: 'band__title', text: '移すと' }),
+        el('p', { class: 'band__text', text: '待っている自動の予定（2 日前のもう一度・前日の夜・当日の朝）は、新しい便の日で作り直します。送り済みのお願いは、そのままです。' })),
+      back(),
+      bookDock(errorsNode, armedBtn('この便へ移す', to ? `もう一度押すと、${md(to.date)} の便へ移します` : '', () => commitBookMove(t, to), { disabled: !to }))
+    ];
+  }
+
+  /* 取り消す: 予約と人を名簿から外し、自動の予定と送る準備ができていた連絡も止める。いつ・だれが・なぜは記録に残る */
+  function commitBookCancel(t) {
+    const r = save('core.cancelBooking', { bookingId: t.b.id, reason: bk.reason });
+    if (r.error) { bk.error = '取り消せませんでした。もう一度試してください。'; bk.armed = false; render(); return; }
+    done(t.trip.date, `予約を取り消しました: ${bookLead(t)}（${CANCEL_JA[bk.reason]}）。この予約への自動の連絡は止めました`, r.saved);
+  }
+  function renderBookCancel() {
+    const t = bookTarget();
+    if (!t) return bookGone('予約を取り消す');
+    const errorsNode = el('p', { class: 'errors', role: 'alert', text: bk.error });
+    return [
+      ...bookHead('予約を取り消す', t),
+      el('div', { class: 'band band--warn' }, el('p', { class: 'band__title', text: '取り消すと' }),
+        el('p', { class: 'band__text', text: `この予約の ${Math.max(t.b.people, t.people.length)} 人が、名簿と合同名簿から外れます。` }),
+        el('p', { class: 'band__text', text: '自動のお願い・もう一度・当日の質問は、この予約には出なくなります。送る準備ができていた連絡も送りません。' }),
+        el('p', { class: 'band__text', text: 'いつ・だれが・なぜ取り消したかは記録に残ります。元には戻せません。' })),
+      el('div', { class: 'card form' },
+        field('取り消す理由', el('select', { class: 'input', onchange: (e) => { bk.reason = e.target.value; bk.armed = false; render(); } },
+          C().BOOKING_CANCEL_REASONS.map(k => el('option', { value: k, selected: k === bk.reason, text: CANCEL_JA[k] }))))),
+      back(),
+      bookDock(errorsNode, armedBtn('この予約を取り消す', 'もう一度押すと、取り消します', () => commitBookCancel(t)))
+    ];
+  }
+  const BOOK_SCREENS = { bedit: renderBookEdit, bmove: renderBookMove, bcancel: renderBookCancel };
+
+  /* ---------- 端末に残した名簿（送れなかった・ぶつかった・断られたときの、直す前の名簿） ---------- */
+  let armedKept = '';
+  const keptWhen = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  function keptLine(k) {
+    const armed = armedKept === k.key;
+    const restore = () => {
+      if (!armed) { armedKept = k.key; render(); return; }
+      armedKept = '';
+      const ok = R.rosterStore.restoreKept(k.key);
+      go(ok ? 'list' : 'kept', ok ? { notice: '残した名簿に戻しました（戻す前の名簿も残してあります）' } : { warn: '戻せませんでした' });
+    };
+    return el('li', { class: 'bk' },
+      el('span', { class: 'bk__name', text: keptWhen(k.at) }),
+      el('span', { class: 'bk__meta', text: k.ok ? `便 ${k.trips}・予約 ${k.bookings}・人 ${k.people}` : '読めない名簿（そのまま残しています）' }),
+      k.ok ? el('button', { class: armed ? 'btn btn--small' : 'linkbtn', type: 'button', text: armed ? 'もう一度押すと、この名簿に置き換わります' : '戻す', onclick: restore }) : null);
+  }
+  function renderKept() {
+    const list = R.rosterStore.kept(true);
+    return [
+      ...head('端末に残した名簿', `送れなかった直しや、別の端末とぶつかったときの名簿を、新しい ${list.length} 個残しています（最大 5 個）。戻すと今の名簿に置き換わります。今の名簿も残します。`),
+      list.length ? el('ul', { class: 'bks' }, list.map(keptLine)) : el('p', { class: 'empty', text: '残した名簿はありません。' }),
+      back()
     ];
   }
 
@@ -571,7 +787,8 @@
     mailOut = null;
     mailInputs = [];
     phonePick = null;
-    const body = mode === 'mail' ? renderMail() : mode === 'phone' ? renderPhone()
+    bkPick = null;
+    const body = BOOK_SCREENS[mode] ? BOOK_SCREENS[mode]() : mode === 'mail' ? renderMail() : mode === 'phone' ? renderPhone() : mode === 'kept' ? renderKept()
       : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
@@ -599,7 +816,7 @@
 
   R.renderBooking = render;
   /* 書類の自動化: 時刻が来た予定を 1 分ごとに動かす。予約と名簿の画面を見ているときは描き直す */
-  const autoTick = () => { if (R.autoFlow.tick(save) && !root.closest('[hidden]') && !['mail', 'phone'].includes(mode)) render(); };
+  const autoTick = () => { if (R.autoFlow.tick(save) && !root.closest('[hidden]') && !['mail', 'phone', ...BOOK_MODES].includes(mode)) render(); };
   setTimeout(autoTick, 1500);
   setInterval(autoTick, 60000);
   const LIVE_MODES = ['list', 'board', 'ask', 'day', 'log', 'joint', 'boat', 'callout'];

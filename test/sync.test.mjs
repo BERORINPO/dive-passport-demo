@@ -322,6 +322,30 @@ test('名簿の形の版（ジンのレビュー HIGH 7）: 移し替えの表�
   } finally { delete S.MIGRATIONS[0]; }
 });
 
+test('点検 2026-10-28 H8: 記録は足すだけ。画面が記録を消したり書き換えたりして送っても、置いてある記録は戻り、書き換えは新しい行として残る', async () => {
+  const s = setup();
+  const pid = base.people[0].id;
+  const edited = R.rosterCore.editPerson(base, { id: pid, who: 'staff', src: 'staff', at: AT, patch: { phone: '090-1111-2222' } });
+  assert.equal((await put(s, 0, edited)).status, 200);
+  const first = JSON.parse(s.db.rows.get('default').state).log;
+  assert.ok(first.length >= 1);
+  /* 1. 記録を空にして送る */
+  assert.equal((await put(s, 1, { ...JSON.parse(s.db.rows.get('default').state), log: [] })).status, 200);
+  let log = JSON.parse(s.db.rows.get('default').state).log;
+  assert.deepEqual(log, first, '消した記録は戻る');
+  /* 2. 記録の時刻を書き換えて送る */
+  const cur = JSON.parse(s.db.rows.get('default').state);
+  const forged = { ...cur, log: cur.log.map((e, i) => (i === 0 ? { ...e, at: '2020-01-01T00:00:00.000Z' } : e)) };
+  assert.equal((await put(s, 2, forged)).status, 200);
+  log = JSON.parse(s.db.rows.get('default').state).log;
+  assert.deepEqual(log.slice(0, first.length), first, '元の行はそのまま');
+  assert.ok(log.some(e => e.at === '2020-01-01T00:00:00.000Z'), '書き換えた行は新しい行として残る（書き換えが分かる）');
+  /* 3. ふつうに足すだけなら、そのまま */
+  const more = R.rosterCore.editPerson(JSON.parse(s.db.rows.get('default').state), { id: pid, who: 'staff', src: 'staff', at: AT, patch: { phone: '090-3333-4444' } });
+  assert.equal((await put(s, 3, more)).status, 200);
+  assert.equal(JSON.parse(s.db.rows.get('default').state).log.length, log.length + 1);
+});
+
 test('core: checkPut と readStored は時計を読まず、渡した今日で期限を決める', () => {
   const ok = checkPut({ base: 0, state: base }, { today: TODAY, at: AT });
   assert.ok(ok.ok);

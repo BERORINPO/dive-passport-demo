@@ -148,6 +148,31 @@
     return { ...state, jobs: [...(state.jobs || []), ...jobs] };
   }
 
+  /* 予約を別の便へ移し、待っている予定を新しい便の日で作り直す（H4）。tripId の便が無ければ（画面は 'new'）、want（日付・時刻・ツアー・種類）から
+     便を作ってから移す（addBookingToTrip と同じ）。送り済み・飛ばした種類の予定は作り直さない
+     （予約と種類ごとに予定は 1 つ。サーバーも済んだ予定を足し直させない）。予定がまだ無い予約には作らない。{ state, tripId: 移した先 } */
+  function moveBooking(state, { bookingId, tripId, want, at, nowJst, newId }) {
+    if (!S().isJst(nowJst)) throw new Error(`moveBooking: nowJst は YYYY-MM-DDTHH:MM (${nowJst})`);
+    if (!bookingOf(state, bookingId)) throw new Error(`moveBooking: 予約が見つからない (${bookingId})`);
+    let st = state;
+    let toId = tripId;
+    if (!state.trips.some(t => t.id === tripId)) {
+      if (!want) throw new Error(`moveBooking: 移す先の便が見つからない (${tripId})`);
+      const kind = want.kind || C().kindOf(want.tour);
+      const made = C().addTrip(st, { trip: { date: want.date, start: want.start || '', kind, tour: String(want.tour || '').slice(0, 40) }, at, newId });
+      st = made.state;
+      toId = made.trip.id;
+    }
+    const moved = C().moveBooking(st, { bookingId, tripId: toId, at });
+    const mine = (moved.jobs || []).filter(j => j.bookingId === bookingId);
+    if (moved === st || !mine.length) return { state: moved, tripId: toId };
+    const settled = new Set(mine.filter(j => j.status !== 'waiting').map(j => j.kind));
+    const rest = { ...moved, jobs: moved.jobs.filter(j => !(j.bookingId === bookingId && j.status === 'waiting')) };
+    const planned = planJobs(rest, { bookingId, nowJst, newId });
+    const fresh = planned.jobs.slice(rest.jobs.length).filter(j => !settled.has(j.kind));
+    return { state: { ...rest, jobs: [...rest.jobs, ...fresh] }, tripId: toId };
+  }
+
   /* 届いた予約メールを AI が読んだ代表者のメールは、本文にそのまま書いてあり、AI が自信ありと言ったときだけ使う。
      そうでなければ空にする（お願いは「送っていない（メールが無い）」になり、お店が画面で入れる）。備考に書いた指示で、
      AI に別の宛先を読ませて、リンク付きのメールを送らせない（点検 2026-10-28 設計 2・SEC-23） */
@@ -357,7 +382,10 @@
       return ask ? { ...o, why: RESEND_ASKED } : o;
     });
     const jobsBefore = new Map((stored.jobs || []).map(j => [j.id, j]));
-    const planned = new Set((stored.jobs || []).map(j => `${j.bookingId}\n${j.kind}`));
+    /* 予約と種類ごとに予定は 1 つ。画面が消した「待っている」予定の種類は空けて、作り直した予定（予約を別の便へ移した、moveBooking）を受ける。
+       済んだ・飛ばした予定の種類は空けない（まだ動いていない予定を作り直させるだけで、送り済みの連絡を増やさない） */
+    const stays = new Set((incoming.jobs || []).map(j => j.id));
+    const planned = new Set((stored.jobs || []).filter(j => j.status !== 'waiting' || stays.has(j.id)).map(j => `${j.bookingId}\n${j.kind}`));
     const jobs = (incoming.jobs || []).flatMap(j => {
       const old = jobsBefore.get(j.id);
       if (old) return [old];
@@ -452,6 +480,6 @@
     return items.sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : 0));
   }
 
-  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS,
+  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, moveBooking, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS,
     RESENT, CONFIRMED, RESEND_ASKED, resendProblem, resend, requestResend, serverOwned, rebuildOut, confirmSent, board, trustMailEmail };
 })();

@@ -5,12 +5,14 @@
 // 2 店が同じ受け口・メール・サイトを持つ一覧も、形の壊れた行と同じく 503。1 日の件数（サイトの予約・メール）はお店ごとに D1 で正確に数える。
 // 実行: node test/shops.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
-import { handle, handlePublic } from '../worker/handler.mjs';
+import { handle } from '../worker/handler.mjs';
+import { handlePublic as servePublic } from '../worker/public-handler.mjs';
+import { ShopService } from '../worker/shop-service.mjs';
 import { scheduled } from '../worker/auto.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
 import { shopForEmail, shopForOrigin, shopForRecipient, shopsFromRows, shopsProblem, singleShop, knownShop } from '../worker/shop-core.mjs';
 import { listShops, shopsWhy } from '../worker/shop-db.mjs';
-import { fakeKv, fakeAccess, fakeD1, fakeTurnstile, fakeRateLimit, fakeMail, checkRedirect } from '../worker/fakes.mjs';
+import { fakeKv, fakeAccess, fakeD1, fakeTurnstile, fakeRateLimit, fakeMail, fakeShopBinding, checkRedirect } from '../worker/fakes.mjs';
 
 const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
 const PUBLIC = 'https://redux-ask.example.workers.dev';
@@ -56,6 +58,10 @@ function setup({ shops = true, single = '' } = {}) {
   };
   return { db, env, io, turnstile };
 }
+
+/* redux-ask（Access なし）は D1 を持たず、お店の Worker（env を持つ ShopService）を Service Binding で呼ぶ */
+const handlePublic = (request, env, io) => servePublic(request, { ASK_LIMIT: env.ASK_LIMIT, BOOKING_LIMIT: env.BOOKING_LIMIT, TURNSTILE_SECRET: env.TURNSTILE_SECRET,
+  BUDGET: env.BUDGET, SHOP: fakeShopBinding(new ShopService(env, io)) }, io);
 
 async function staff(s, email, path, method, body) {
   const headers = { 'sec-fetch-site': 'same-origin', 'cf-access-jwt-assertion': await jwtFor(email) };

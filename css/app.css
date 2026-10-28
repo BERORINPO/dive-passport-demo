@@ -325,6 +325,7 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .fig { font-family: var(--font-figure); font-variant-numeric: tabular-nums; }
 .bk__note { grid-column: 1 / -1; margin: 6px 0 0; font-size: 14px; }
 .bk > .linkbtn { grid-column: 1 / -1; justify-self: start; }
+.bk__acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0 20px; }   /* 予約の行の「直す・別の便へ・取り消す」 */
 .fls { grid-column: 1 / -1; list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; font-size: 14px; }
 .fl--warn { color: var(--warn); font-weight: 700; }
 .fl--warn::before { content: "! "; }

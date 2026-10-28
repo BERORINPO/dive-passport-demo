@@ -2,7 +2,8 @@
    - fakeKv: Workers KV の get / put（failing で壊せる）
    - fakeAccess: Access のチームの鍵を作り、JWT を署名し、/cdn-cgi/access/certs を返す
    - fakeAnthropic: Claude API の答え（answer に返したい文、status で失敗）
-   - fakeD1: Cloudflare D1 の prepare / bind / first / run / all / batch。roster-db.mjs などが使う文だけを読む（failing で壊せる） */
+   - fakeD1: Cloudflare D1 の prepare / bind / first / run / all / batch。roster-db.mjs などが使う文だけを読む（failing で壊せる）
+   - fakeShopBinding: redux-ask から見たお店の Worker（Service Binding の SHOP。口は 4 つ。引数と答えは structuredClone を通る） */
 
 /* Cloudflare の fetch と同じく、redirect は follow か manual だけを受け付ける（'error' は Workers で例外になる。ザクのレビュー） */
 export function checkRedirect(init) {
@@ -260,4 +261,16 @@ export function fakeRateLimit(max = 5) {
       return { success: n <= max };
     }
   };
+}
+
+/* shop-client.mjs の Service Binding（SHOP）の見本。service は ShopService（shop-service.mjs）。本物の RPC と同じく、引数と答えは structuredClone で
+   渡す（素のオブジェクトと配列と文字・数だけが通る）。口は 4 つだけで、service にほかのメソッドがあっても通さない（redux-ask に D1 や名簿を渡さない） */
+export function fakeShopBinding(service) {
+  const call = (name) => async (...args) => structuredClone(await service[name](...structuredClone(args)));
+  const binding = { calls: [] };
+  for (const name of ['askView', 'askApply', 'siteHosts', 'siteBooking']) {
+    const run = call(name);
+    binding[name] = async (...args) => { binding.calls.push(name); return run(...args); };
+  }
+  return binding;
 }

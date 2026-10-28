@@ -291,6 +291,112 @@ test('点検 2026-10-28 設計 2: AI が読んだ代表者のメールは、本�
   assert.deepEqual([o.status, o.why], ['unsent', 'no-email'], 'お願いは送らず、お店が画面でメールを入れる');
 });
 
+/* ---------- 予約を別の便へ移す・取り消す（H4）。待っている予定の作り直しと、取り消した予約に連絡が出ないこと ---------- */
+const NOV5 = { date: '2026-11-05', start: '08:30', kind: 'dive', tour: '体験ダイビング' };
+const withTrip = (st) => C.addTrip(st, { trip: NOV5, at: AT, newId: () => 'trip-nov5' }).state;
+const planOf = (st, bookingId) => st.jobs.filter(j => j.bookingId === bookingId).map(j => [j.kind, j.status, j.due]);
+const jsonOf = (x) => JSON.parse(JSON.stringify(x));
+
+test('別の便へ移す: 待っている予定を新しい便の日で作り直す。古い日の予定は残らない', () => {
+  const made = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const st = withTrip(made.state);
+  const moved = A.moveBooking(st, { bookingId: made.bookingId, tripId: 'trip-nov5', at: AT, nowJst: NOW, newId });
+  assert.equal(moved.tripId, 'trip-nov5');
+  assert.equal(moved.state.bookings[0].tripId, 'trip-nov5');
+  assert.deepEqual(planOf(moved.state, made.bookingId), [
+    ['request', 'waiting', NOW], ['remind', 'waiting', '2026-11-03T09:00'], ['eve', 'waiting', '2026-11-04T20:00'], ['morning', 'waiting', '2026-11-05T06:00']]);
+  assert.ok(moved.state.jobs.every(j => j.tripId === 'trip-nov5'), '予定も新しい便に付く');
+  assert.equal(new Set(moved.state.jobs.map(j => j.id)).size, moved.state.jobs.length, '予定の id は重ならない');
+  assert.ok(S.validateState(moved.state).ok);
+  const e = moved.state.log[moved.state.log.length - 1];
+  assert.deepEqual([e.who, e.act, e.kind, e.id, e.fields], ['staff', 'edit', 'booking', made.bookingId, ['tripId']]);
+  assert.equal(A.moveBooking(moved.state, { bookingId: made.bookingId, tripId: 'trip-nov5', at: AT, nowJst: NOW, newId }).state, moved.state, '同じ便へは何もしない');
+});
+
+test('別の便へ移す: 送り済みのお願いは作り直さない（予約と種類ごとに予定は 1 つ）。予定の無い予約には予定を作らない', () => {
+  const made = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const ran = A.runDue(made.state, { nowJst: NOW, at: AT, newId, askBase: ASK }).state;
+  assert.equal(jobsOf(ran, 'request')[0].status, 'done');
+  const moved = A.moveBooking(withTrip(ran), { bookingId: made.bookingId, tripId: 'trip-nov5', at: AT, nowJst: NOW, newId }).state;
+  assert.deepEqual(planOf(moved, made.bookingId).map(x => x.slice(0, 2)), [['request', 'done'], ['remind', 'waiting'], ['eve', 'waiting'], ['morning', 'waiting']]);
+  assert.equal(moved.outbox.length, ran.outbox.length, '送った記録はそのまま');
+  const none = A.moveBooking(withTrip({ ...made.state, jobs: [] }), { bookingId: made.bookingId, tripId: 'trip-nov5', at: AT, nowJst: NOW, newId }).state;
+  assert.equal(none.jobs.length, 0, '予定を作っていなかった予約に、移すだけで予定を作らない');
+});
+
+test('別の便へ移す: 便が無ければ want（日付・時刻・ツアー）から作る。直しの記録を JSON に写して当て直しても同じ', () => {
+  const made = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const args = { bookingId: made.bookingId, tripId: 'new', want: { date: '2026-11-07', start: '13:00', tour: 'ファンダイビング', kind: 'dive' }, nowJst: NOW };
+  const entry = { op: 'auto.moveBooking', id: 'mv1', at: '2026-10-27T02:00:00.000Z', args };
+  const first = C.ops.run(made.state, entry);
+  const trip = first.state.trips.find(t => t.id === first.tripId);
+  assert.deepEqual([trip.date, trip.start, trip.kind, trip.tour], ['2026-11-07', '13:00', 'dive', 'ファンダイビング']);
+  assert.equal(first.state.bookings[0].tripId, trip.id);
+  assert.equal(jobsOf(first.state, 'morning')[0].due, '2026-11-07T06:00');
+  assert.deepEqual(C.ops.run(made.state, jsonOf(entry)), first, '端末に置いて読み戻した直しも同じ結果');
+  assert.throws(() => A.moveBooking(made.state, { bookingId: made.bookingId, tripId: 'ない', at: AT, nowJst: NOW, newId }), /移す先の便が見つからない/);
+  assert.throws(() => A.moveBooking(made.state, { bookingId: 'ない', tripId: 'new', want: args.want, at: AT, nowJst: NOW, newId }), /予約が見つからない/);
+});
+
+test('別の便へ移すと、Cron は古い日でなく新しい日に動き、お願いの文面も新しい日になる', () => {
+  const made = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const ran = A.runDue(made.state, { nowJst: NOW, at: AT, newId, askBase: ASK }).state;
+  const moved = A.moveBooking(withTrip(ran), { bookingId: made.bookingId, tripId: 'trip-nov5', at: AT, nowJst: NOW, newId }).state;
+  const old = A.runDue(moved, { nowJst: '2026-10-30T21:00', at: AT, newId, askBase: ASK });
+  assert.equal(old.state.outbox.length, ran.outbox.length, '古い日の 2 日前・前日の夜には何も出ない');
+  assert.deepEqual(old.state.jobs.filter(j => j.status === 'waiting').map(j => j.kind).sort(), ['eve', 'morning', 'remind']);
+  const next = A.runDue(moved, { nowJst: '2026-11-03T09:00', at: AT, newId, askBase: ASK });
+  const remind = next.state.outbox.find(o => o.kind === 'remind');
+  assert.ok(remind && remind.subject.includes('11/5'), `新しい日のもう一度のお願い: ${remind && remind.subject}`);
+  assert.deepEqual(next.queued, [remind.id]);
+});
+
+test('取り消した予約には、Cron が何も送らない（予約が無い予定は飛ばす。送る準備ができていた連絡も作り直せない）', () => {
+  const made = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const other = A.addFromReading(made.state, { reading: reading({ start: '13:00' }), at: AT, nowJst: NOW, newId });
+  const ran = A.runDue(other.state, { nowJst: NOW, at: AT, newId, askBase: '' }).state;   // Worker のように、リンクは印のまま
+  const queuedFor = (st, id) => st.outbox.filter(o => o.bookingId === id && o.status === 'queued');
+  assert.equal(queuedFor(ran, made.bookingId).length, 1, '取り消す前は送る準備ができている');
+  const cancelled = C.cancelBooking(ran, { bookingId: made.bookingId, reason: 'guest', at: AT });
+  const cron = A.runDue(cancelled, { nowJst: '2026-10-31T07:00', at: AT, newId, askBase: '' });
+  assert.deepEqual(cron.state.outbox.filter(o => o.bookingId === made.bookingId), []);
+  assert.deepEqual(planOf(cron.state, made.bookingId), []);
+  assert.ok(cron.state.outbox.some(o => o.bookingId === other.bookingId && o.kind === 'today'), 'ほかの予約の連絡は動く');
+  /* サーバーに古い名簿（予約を消す前）が残っていても、予約が無ければ予定は飛ばし、連絡は作り直せない */
+  const stale = { ...cancelled, jobs: ran.jobs, outbox: ran.outbox };
+  const late = A.runDue(stale, { nowJst: '2026-10-31T07:00', at: AT, newId, askBase: '' });
+  assert.deepEqual(late.state.jobs.filter(j => j.bookingId === made.bookingId).map(j => j.status), ['done', 'skipped', 'skipped', 'skipped']);
+  assert.equal(late.state.outbox.filter(o => o.bookingId === made.bookingId).length, ran.outbox.filter(o => o.bookingId === made.bookingId).length, '新しい連絡は作らない');
+  const item = queuedFor(ran, made.bookingId)[0];
+  assert.equal(A.rebuildOut(cancelled, item), null, '送る直前に作り直せない = 送らない');
+  assert.equal(A.rebuildOut(ran, item) && A.rebuildOut(ran, item).to, 'hanako@mail.example');
+});
+
+test('サーバーが受ける名簿: 取り消した予約の予定と連絡は消え、別の便へ移した予約の予定は作り直しを受ける', () => {
+  const made = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const other = A.addFromReading(made.state, { reading: reading({ start: '13:00' }), at: AT, nowJst: NOW, newId });
+  const stored = A.runDue(other.state, { nowJst: NOW, at: AT, newId, askBase: '' }).state;
+  /* 取り消し */
+  const gone = A.serverOwned(stored, C.cancelBooking(stored, { bookingId: made.bookingId, reason: 'dup', at: AT }));
+  assert.deepEqual(gone.bookings.map(b => b.id), [other.bookingId]);
+  assert.ok(gone.jobs.every(j => j.bookingId === other.bookingId) && gone.outbox.every(o => o.bookingId === other.bookingId));
+  assert.ok(gone.jobs.length > 0 && gone.outbox.length > 0, 'ほかの予約の予定と連絡は残す');
+  /* 別の便へ（待っている予定だけ新しい日で受ける。送り済みのお願いは増えない） */
+  const moved = A.moveBooking(withTrip(stored), { bookingId: made.bookingId, tripId: 'trip-nov5', at: AT, nowJst: NOW, newId }).state;
+  const taken = A.serverOwned(withTrip(stored), moved);
+  assert.deepEqual(planOf(taken, made.bookingId).map(x => x.slice(0, 2)), [['request', 'done'], ['remind', 'waiting'], ['eve', 'waiting'], ['morning', 'waiting']]);
+  assert.deepEqual(taken.jobs.filter(j => j.bookingId === made.bookingId && j.status === 'waiting').map(j => j.due).sort(),
+    ['2026-11-03T09:00', '2026-11-04T20:00', '2026-11-05T06:00']);
+  assert.equal(jobsOf(taken, 'request').filter(j => j.bookingId === made.bookingId).length, 1);
+  assert.equal(taken.outbox.length, stored.outbox.length, '送る連絡は増やさない');
+  /* 守り: 済んだ予定を消して足し直しても受けない。今ある待ちの予定の時刻は、画面の値に書き換えさせない */
+  const forged = { ...stored, jobs: [...stored.jobs.filter(j => !(j.bookingId === made.bookingId && j.kind === 'request')),
+    { ...jobsOf(stored, 'request').find(j => j.bookingId === made.bookingId), id: 'forged', status: 'waiting', doneAt: '' }] };
+  assert.equal(A.serverOwned(stored, forged).jobs.some(j => j.id === 'forged'), false, '済んだお願いを待ちで足し直せない');
+  const retimed = { ...stored, jobs: stored.jobs.map(j => (j.status === 'waiting' ? { ...j, due: '2026-10-27T10:01' } : j)) };
+  assert.deepEqual(A.serverOwned(stored, retimed).jobs.map(j => j.due), stored.jobs.map(j => j.due));
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

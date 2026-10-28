@@ -4,6 +4,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dive-passport-demo",
+  // worker/index.mjs は default の fetch・scheduled・email のほかに、名前付きの WorkerEntrypoint ShopRpc を export する。
+  // redux-ask（wrangler.ask.jsonc）が Service Binding（entrypoint: "ShopRpc"）で呼ぶ。この側に足す設定は無い。**この Worker を先に置く**（docs/deploy.md の 7 節）
   "main": "worker/index.mjs",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
@@ -17,7 +19,7 @@
     "not_found_handling": "none"
   },
   "d1_databases": [
-    // お店の名簿の正本（plan/server.md）とお客さんのリンクの鍵。お客さんの Worker（wrangler.ask.jsonc）も同じ物を読む。
+    // お店の名簿の正本（plan/server.md）とお客さんのリンクの鍵。D1 を持つのはこの Worker だけ（お客さんの Worker は D1 を持たず、ここの ShopRpc を呼ぶ。2026-10-28）。
     // database_id は鍵ではない（wrangler d1 create が出した値）。表は worker/migrations/ を wrangler d1 migrations apply で作る
     { "binding": "DB", "database_name": "redux-rosters", "database_id": "f74f3e8d-7869-4899-9bdf-33c3737a5654", "migrations_dir": "worker/migrations" }
   ],
@@ -46,7 +48,9 @@
     "APP_URL": "https://dive-passport-demo.cibimaro-yousuke.workers.dev",
     // 1 店で動かすときの、そのお店の id（今の名簿の行 = default）。D1 の shops が空のとき、これを書いた場合だけ 1 店で動く。無くて空なら 503（開いた側に倒さない）。
     // shops に行を足したら行が先になるので、この行は消してよい（足す前に shops に default の行も入れる: tools/shop.mjs keep-sample）
-    "SINGLE_SHOP": "default"
+    "SINGLE_SHOP": "default",
+    // 届いたメールの確かめで読む Authentication-Results の名前（Cloudflare が付ける物。2026-10-28 に本番の 1 通で確かめた）
+    "MAIL_AUTHSERV_ID": "mx.cloudflare.net"
   },
   // Cloudflare の画面のログに要求を残さない（Worker のログは console.log の 1 行だけで、中身は出さない）
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } }
