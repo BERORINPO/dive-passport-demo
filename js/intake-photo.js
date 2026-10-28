@@ -266,36 +266,38 @@
     ];
   }
 
-  /* ---------- ② 読み取りを確かめる ---------- */
-  let review = { personId: '', edits: {}, error: '' };
+  /* ---------- ② 読み取りを確かめる（v12、2026-10-28）----------
+     自信なしの項目を先に開いて出し、ほかの AI が読む項目も「ほかの項目も直す」で全部その場で直せる。
+     健康の 2 項目は出さない（お客さん本人が答える）。直した項目は前と後を記録に残す（core の confirmReview） */
+  let review = { personId: '', edits: {}, open: false, error: '', done: '', doneAt: '' };
 
-  /* 自信なしの所を直す欄。直した値は、確かめたときに人の項目として入れる */
-  function editor(row, p) {
+  /* 項目ごとの入力欄。直そうとした値は、描き直しても消さない */
+  function editor(row, p, ui) {
     const set = (key, value) => { review.edits[key] = value; };
-    /* 直そうとした値は、描き直しても消さない */
     const shown = (key, value) => (Object.prototype.hasOwnProperty.call(review.edits, key) ? review.edits[key] : value);
-    const input = (key, value, props) => el('input', { class: 'input', value: shown(key, value), oninput: (e) => set(key, e.target.value), ...(props || {}) });
+    const input = (key, value, props) => el('input', { class: 'input', value: shown(key, value),
+      oninput: (e) => set(key, e.target.value), onchange: () => ui.rerender(), ...(props || {}) });
+    const group = (kids) => el('div', { class: 'row row--3' }, kids);
     switch (row.field) {
-      case 'emergency': return el('div', { class: 'row row--3' },
-        ui3('名前', input('emergency.name', p.emergency.name)), ui3('続柄', input('emergency.relation', p.emergency.relation)),
-        ui3('電話', input('emergency.phone', p.emergency.phone, { type: 'tel' })));
+      case 'emergency': return group([ui3('名前', input('emergency.name', p.emergency.name)), ui3('続柄', input('emergency.relation', p.emergency.relation)),
+        ui3('電話', input('emergency.phone', p.emergency.phone, { type: 'tel' }))]);
       case 'cert': return el('div', { class: 'row' },
-        ui3('コース', el('select', { class: 'input', onchange: (e) => set('cert.course', e.target.value) },
+        ui3('コース', el('select', { class: 'input', onchange: (e) => { set('cert.course', e.target.value); ui.rerender(); } },
           R.roster.COURSES.map(c => el('option', { value: c, selected: c === shown('cert.course', p.cert.course), text: c ? C().COURSE_JA[c] : '（分からない）' })))),
         ui3('取得日（2023-08-20 など）', input('cert.date', p.cert.date)));
-      case 'dives': return ui3('潜った本数', input('dives', String(p.dives), { type: 'number', min: 0 }));
-      case 'sizes': return el('div', { class: 'row row--3' },
-        ui3('身長（cm）', input('sizes.height', String(p.sizes.height), { type: 'number', min: 1 })),
+      case 'sizes': return group([ui3('身長（cm）', input('sizes.height', String(p.sizes.height), { type: 'number', min: 1 })),
         ui3('体重（kg）', input('sizes.weight', String(p.sizes.weight), { type: 'number', min: 1 })),
-        ui3('足（cm）', input('sizes.foot', String(p.sizes.foot), { type: 'number', min: 1, step: 0.5 })));
-      case 'birthDate': return ui3('生年月日', input('birthDate', p.birthDate, { type: 'date' }));
-      case 'lastDive': return ui3('最後に潜った日（2025-08 など）', input('lastDive', p.lastDive));
-      default: return ui3(`正しい${row.label}`, input(row.field, p[row.field]));
+        ui3('足（cm）', input('sizes.foot', String(p.sizes.foot), { type: 'number', min: 1, step: 0.5 }))]);
+      case 'dives': return input('dives', String(p.dives), { type: 'number', min: 0, 'aria-label': row.label });
+      case 'birthDate': return input('birthDate', p.birthDate, { type: 'date', 'aria-label': row.label });
+      case 'lastDive': return input('lastDive', p.lastDive, { placeholder: '2025-08 など', 'aria-label': row.label });
+      case 'phone': return input('phone', p.phone, { type: 'tel', 'aria-label': row.label });
+      default: return input(row.field, p[row.field], { 'aria-label': row.label });
     }
   }
   const ui3 = (label, control) => el('label', { class: 'field' }, el('span', { class: 'label label--small', text: label }), control);
 
-  /* 直した欄から、人の項目の形を組む */
+  /* 直した欄から、人の項目の形を組む。元と同じ値に戻した項目は、直したことにしない */
   function patchFrom(p) {
     const patch = {};
     Object.entries(review.edits).forEach(([key, value]) => {
@@ -305,52 +307,101 @@
       if (sub) patch[field] = { ...(patch[field] || p[field]), [sub]: out };
       else patch[field] = out;
     });
-    return patch;
+    return Object.fromEntries(Object.entries(patch).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(p[k])));
+  }
+
+  /* 記録や「前の値」に出す書き方（入れ子は 1 行に） */
+  function valueText(field, v) {
+    const empty = '（空）';
+    if (v === '' || v === undefined || v === null) return empty;
+    if (field === 'emergency') return [v.name, v.relation ? `（${v.relation}）` : '', v.phone ? ` ${v.phone}` : ''].join('').trim() || empty;
+    if (field === 'cert') return `${C().COURSE_JA[v.course] || ''} ${v.date}`.trim() || empty;
+    if (field === 'sizes') {
+      return [v.height !== '' ? `${v.height} cm` : '', v.weight !== '' ? `${v.weight} kg` : '', v.foot !== '' ? `足 ${v.foot} cm` : ''].filter(Boolean).join(' ') || empty;
+    }
+    return String(v);
   }
 
   function confirmPerson(personId, ui) {
     const p = R.rosterStore.get().people.find(x => x.id === personId);
     const patch = patchFrom(p);
-    const r = ui.save(s => {
-      const edited = Object.keys(patch).length ? C().editPerson(s, { id: personId, patch, who: 'staff', at: now() }) : s;
-      return C().checkPerson(edited, { id: personId, at: now() });
-    });
+    const at = now();
+    const r = ui.save(s => C().confirmReview(s, { id: personId, patch, at }));
     if (r.error) { review.error = '直した値の形が合いません。日付は 2023-08-20、本数は数で入れてください。'; ui.rerender(); return; }
-    review = { personId: '', edits: {}, error: '' };
-    ui.go('intake', { notice: r.saved ? `${p.name || '名前の分からない人'}さんの読み取りを確かめました` : null, saved: r.saved });
+    review = { personId, edits: {}, open: false, error: '', done: personId, doneAt: at };
+    ui.rerender();
   }
 
+  /* 1 項目分: 名前と印、入力欄、印の理由か前の値 */
+  function fieldBlock(row, p, patch, ui) {
+    const changed = Object.prototype.hasOwnProperty.call(patch, row.field);
+    const byGuest = ['guest', 'passport'].includes(row.src);
+    const mark = changed ? ['cf__mark--fixed', '直した'] : row.unsure ? ['cf__mark--check', '! 確かめる'] : null;
+    const undo = () => { Object.keys(review.edits).filter(k => k.split('.')[0] === row.field).forEach(k => delete review.edits[k]); ui.rerender(); };
+    return el('div', { class: 'cf' },
+      el('p', { class: 'cf__head' }, el('span', { text: row.label }), mark ? el('span', { class: `cf__mark ${mark[0]}`, text: mark[1] }) : null),
+      editor(row, p, ui),
+      changed ? el('p', { class: 'cf__was' }, `前の値: ${valueText(row.field, p[row.field])}　`,
+        el('button', { class: 'linkbtn', type: 'button', text: '元に戻す', onclick: undo }))
+        : row.unsure ? el('p', { class: 'cf__why', text: byGuest ? `${SRC_JA[row.src]}が片方だけ入れました。同じカードの物か確かめてください` : 'AI の自信が低い所です。書類と見比べてください' }) : null);
+  }
+
+  /* 名簿に入れたあと: この人の記録（新しい順） */
+  function renderDone(p, ui) {
+    const s = R.rosterStore.get();
+    const trip = C().tripOf(s, p);
+    const all = trip ? Object.values(C().reviewFields(p, trip)).flat() : [];
+    const label = (f) => (all.find(r => r.field === f) || { label: f }).label;
+    const blank = (f, v) => valueText(f, v) === '（空）';
+    const one = (e, f) => (blank(f, e.before[f]) ? `${label(f)}を入れた: ${valueText(f, e.after[f])}`
+      : `${label(f)}を直した: ${valueText(f, e.before[f])} → ${valueText(f, e.after[f])}`);
+    const text = (e) => (e.act === 'edit' ? e.fields.map(f => one(e, f)).join('、')
+      : e.fields.length ? `${e.fields.map(label).join('・')}をそのまま認めた` : '読み取りを確かめた');
+    /* いま「名簿に入れる」を押したときの記録だけ（直した・認めた）。前からの記録は名簿の記録の画面で見る */
+    const rows = s.log.filter(e => e.kind === 'person' && e.id === p.id && e.at === review.doneAt && ['edit', 'check'].includes(e.act)).reverse();
+    const leave = () => { review = { personId: '', edits: {}, open: false, error: '', done: '' }; ui.go('intake', {}); };
+    return [
+      ...ui.head(`${p.name || '名前の分からない人'}さん`),
+      el('p', { class: 'flag flag--ok', text: '✓ 名簿に入れました（確かめる所 0 件）' }),
+      el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, '記録', el('small', { text: '新しい順' })),
+        rows.map(e => el('div', { class: 'rd' }, el('span', { class: 'rd__k', text: hm(e.at) }),
+          el('span', { class: 'rd__v' }, text(e), el('span', { class: 'rd__sub', text: 'お店' }))))),
+      ui.dock(el('button', { class: 'btn btn--ghost', type: 'button', text: '名簿の取り込みに戻る', onclick: leave }))
+    ];
+  }
+  /* 記録の時刻（日本の時刻の 時:分） */
+  const hm = (iso) => new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString().slice(11, 16);
+
   function renderReview({ personId, ui }) {
-    if (review.personId !== personId) review = { personId, edits: {}, error: '' };
+    if (review.personId !== personId) review = { personId, edits: {}, open: false, error: '', done: '' };
     const s = R.rosterStore.get();
     const p = s.people.find(x => x.id === personId);
     const trip = p && C().tripOf(s, p);
     if (!p || !trip) return [...ui.head('読み取りを確かめる'), el('p', { class: 'errors', text: 'この人が見つかりません。' }), ui.back()];
-    const rows = C().reviewRows(p, trip);
-    const from = [...new Set(rows.map(r => r.src).filter(src => ['mail', 'paper', 'ccard'].includes(src)))].map(src => SRC_JA[src]);
-    const unsure = rows.filter(r => r.unsure);
-    const lacking = rows.filter(r => !r.filled);   // 名簿の項目として足りない（空、または途中まで）。上の数と行の印は同じ条件で決める
-    const subOf = (r) => [r.unsure ? '! 自信なし' : '', !r.filled && r.text ? '・足りない' : '', r.src ? SRC_JA[r.src] : ''].filter(Boolean).join('　');
-    /* 上で数を先に言う（下まで見なくても、確かめる所が残っているか分かる）。確かめる所 = 確かめる（橙）、足りない所だけ = 待つ（青）、どちらも無い = そろった */
-    const tally = unsure.length ? ['flag--warn', '!'] : lacking.length ? ['flag--info', '・'] : ['flag--ok', '✓'];
+    if (review.done === personId) return renderDone(p, ui);
+    const from = [...new Set(Object.values(p.src).filter(src => ['mail', 'paper', 'ccard'].includes(src)))].map(src => SRC_JA[src]);
+    const { unsure, others } = C().reviewFields(p, trip);
+    const patch = patchFrom(p);
+    const fixed = Object.keys(patch).length;
+    const accepted = unsure.filter(r => !Object.prototype.hasOwnProperty.call(patch, r.field)).length;
+    const toggle = (open) => () => { review.open = open; ui.rerender(); };
     return [
       ...ui.head(`${p.name || '名前の分からない人'}さん`, `${from.length ? `${from.join('と')}から読み取りました。` : ''}${ui.md(trip.date)} ${ui.tripLabel(trip)}`),
-      el('p', { class: `flag ${tally[0]}`, text: `${tally[1]} 確かめる所 ${unsure.length} 件・足りない所 ${lacking.length} 件` }),
-      el('div', { class: 'sheet' }, rows.map(r => el('div', { class: `rd${r.unsure ? ' rd--unsure' : ''}` },
-        el('span', { class: 'rd__k', text: r.label }),
-        el('span', { class: 'rd__v' }, r.text || '（書いていない）', subOf(r) ? el('span', { class: 'rd__sub', text: subOf(r) }) : null)))),
-      unsure.map(r => {
-        /* 自信なしの印の理由は 2 つ。AI が自信なしと言った、または、お客さんやパスポートが組の片方だけを入れた */
-        const byGuest = ['guest', 'passport'].includes(r.src);
-        return el('div', { class: 'band band--warn' },
-          el('p', { class: 'band__title', text: byGuest ? `${r.label}は、${SRC_JA[r.src]}が片方だけ入れました` : `${r.label}は、AI が自信なしと言いました` }),
-          el('p', { class: 'band__text', text: byGuest ? '講習と取得年月が同じカードの物か、お客さんに確かめてください。' : '写真と見比べて、違っていたら直してください。' }),
-          editor(r, p));
-      }),
-      el('p', { class: 'note', text: '既往症と健康の質問は、お客さん本人が答えます。AI は読んでいません。' }),
+      el('p', { class: `flag ${unsure.length ? 'flag--warn' : 'flag--ok'}`, text: `${unsure.length ? '!' : '✓'} 確かめる所 ${unsure.length} 件` }),
+      unsure.length ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, '確かめる所', el('small', { text: `${unsure.length} 項目` })),
+        unsure.map(r => fieldBlock(r, p, patch, ui))) : null,
+      review.open
+        ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, 'AI が読んだ項目',
+            el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: 'たたむ', onclick: toggle(false) })),
+          others.map(r => fieldBlock(r, p, patch, ui)))
+        : el('button', { class: 'cf__more', type: 'button', onclick: toggle(true) },
+          el('span', { text: `ほかの項目も直す（${others.length} 項目）` }), el('span', { text: '開く' })),
+      el('div', { class: 'cf' }, el('p', { class: 'cf__head', text: '既往症・当日の体調' }),
+        el('p', { class: 'cf__locked', text: 'お客さん本人が答えます（お店は直せません）' })),
       ui.dock(
         el('p', { class: 'errors', role: 'alert', text: review.error }),
-        el('button', { class: 'btn', type: 'button', text: '確かめ済みにする', onclick: () => confirmPerson(personId, ui) }),
+        el('p', { class: 'note cf__count', text: fixed || accepted ? `直した ${fixed} 項目・そのまま認める ${accepted} 項目` : '直した項目はありません' }),
+        el('button', { class: 'btn', type: 'button', text: 'この内容で名簿に入れる', onclick: () => confirmPerson(personId, ui) }),
         el('button', { class: 'btn btn--ghost', type: 'button', text: 'あとで確かめる', onclick: () => ui.go('intake', {}) }))
     ];
   }

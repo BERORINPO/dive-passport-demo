@@ -21,6 +21,7 @@
 ## 2. 外部境界表
 | adapter | 相手 | Fake | fixture | credential | 書き込み |
 |---|---|---|---|---|---|
+| 2026-10-28 confirm-edit-all | 確かめる画面で、AI が読む項目を全部その場で直せる（v12）。自信なしの項目を先頭に開いて出し、ほかは「ほかの項目も直す」で開く。健康の 2 項目は出さない。「この内容で名簿に入れる」は core の confirmReview（直した項目は前と後を記録、自信なしの印を外す） | Yosuke「バクラクみたいに全部編集できるほうがよくね」。AI の自信はあてにならないので、自信ありの読み違いも直せる必要がある。却下: 最初から全部開く（片手のスマホで長すぎる）・写真の読んだ所を横に出す（AI に座標を返させる作り直しが要るので発表の後） | test/roster.test.mjs（confirmReview は AI が読む項目のほかを受け取らない） |
 | js/ai-reader.js | 同じ場所の Worker `/api/read` → Claude API（Haiku） | `readSample`（同じファイル）+ js/data-samples.js | AI の読み取り試験 2026-10-21 の Haiku の答え（tools/make-samples.mjs が作る） | Cloudflare Access の cookie（合言葉は 2026-10-22 に外した）。API キーは Worker の secret だけ（この Worker 専用の 1 本） | なし |
 | js/core.js | localStorage | 無し（ブラウザの中だけ） | — | なし | このブラウザだけ |
 | js/roster-sync.js | 同じ場所の Worker `/api/roster`（お店の名簿の正本、D1）と `/api/roster/past`（済んだ便、読むだけ） | 無し（test/sync-client.test.mjs は本物の worker/handler.mjs と fakeD1 につなぐ） | — | Access のログイン（Cookie） | お店の名簿。版の番号つきで、ぶつかったら最新を返す |
