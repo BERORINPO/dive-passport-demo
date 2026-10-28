@@ -567,3 +567,6 @@ html { scroll-padding-top: calc(96px + var(--band-h, 0px)); }
   .demo-band { position: static; background: none; color: var(--paper-ink); border: 3px double var(--paper-ink); padding: 6px 10px; margin: 0 0 8px; }
   body.print-roster > .demo-band, body.print-poster > .demo-band { display: block !important; }
 }
+
+/* 幅 380px より狭いと、上の帯の店名（#brandSub）が「画面の切り替え」と重なる。店名は画面の見出しにも出ているので、狭い時は上の帯から省く */
+@media (max-width: 380px) { #brandSub { display: none; } }
