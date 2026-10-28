@@ -54,6 +54,8 @@ export function headers() {
 
 /* 他のお店のスマホで開くパスポートは、GitHub Pages の公開版（Worker は Access の中なので、他のお店は開けない。spec/architecture.md の pass-place） */
 export const PASS_BASE = 'https://berorinpo.github.io/dive-passport-demo/';
+/* 予約の受け口 API の説明書（docs/api.md）。鍵の画面（js/api-keys-staff.js）のリンクの先。js には外の URL を書けないので、meta で渡す */
+export const API_DOCS_URL = 'https://github.com/BERORINPO/dive-passport-demo/blob/main/docs/api.md';
 const REFERRER_META = '<meta name="referrer" content="no-referrer">';
 
 function build() {
@@ -67,7 +69,7 @@ function build() {
   if (!index.includes(REFERRER_META)) throw new Error('index.html に referrer の meta が無い（パスポートの置き場所の meta を足す場所）');
   /* redux-worker: 画面はこの印があるときだけ /api/healthz を確かめる（js/app.js） */
   writeFileSync(join(out, 'index.html'), index.replace(REFERRER_META,
-    `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-worker" content="1">`));
+    `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-api-docs" content="${API_DOCS_URL}">\n<meta name="redux-worker" content="1">`));
   writeFileSync(join(out, '_headers'), headers());
   writeFileSync(join(out, 'sw.js'), swFor(files.map(f => [f, readFileSync(join(out, f))])));
   console.log(`dist/: ${files.length} files + _headers`);

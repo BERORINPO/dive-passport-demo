@@ -177,7 +177,7 @@ test('点検 2026-10-28 設計 16: D1 の表が足りなければ Cron は動か
   const created = readdirSync(new URL('../worker/migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).flatMap(f =>
     [...readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), 'utf8').matchAll(/CREATE TABLE(?: IF NOT EXISTS)? (\w+)/gi)].map(m => [m[1], f.slice(0, 4)]));
   assert.deepEqual(Object.fromEntries(created), REQUIRED_TABLES, 'migration を足したら REQUIRED_TABLES にも足す');
-  assert.deepEqual(missingMigrations(['rosters', 'ask_links', 'shops']), ['0004', '0005', '0006', '0007']);
+  assert.deepEqual(missingMigrations(['rosters', 'ask_links', 'shops']), ['0004', '0005', '0006', '0007', '0008']);
   const s = setup();
   store(s, big('2026-11-05'));
   s.db.missingTables = ['mail_unread'];

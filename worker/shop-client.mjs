@@ -1,8 +1,8 @@
-/* redux-ask からお店の Worker を呼ぶ口（adapter）。相手は Service Binding の SHOP（お店の Worker の ShopRpc。口は shop-service.mjs の 6 つだけ）。
+/* redux-ask からお店の Worker を呼ぶ口（adapter）。相手は Service Binding の SHOP（お店の Worker の ShopRpc。口は shop-service.mjs の 7 つだけ）。
    向こうから返った値も信用しない: 形が合わない答えは例外にする（呼んだ側は 500 にして、ログに crash と残す）。見本は worker/fakes.mjs の fakeShopBinding。
    D1・名簿・お店の一覧には触れない（それはお店の Worker の中だけ。SEC-13） */
 
-export const SHOP_METHODS = ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit'];
+export const SHOP_METHODS = ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit', 'intakeBooking'];
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isStatus = (v) => Number.isInteger(v) && v >= 100 && v <= 599;
@@ -41,6 +41,7 @@ export function shopClient(binding) {
     siteHosts: async (origin) => hosts(await binding.siteHosts(origin)),
     siteBooking: async (origin, given) => plain(await binding.siteBooking(origin, given)),
     walkinView: async (hash) => plain(await binding.walkinView(hash)),
-    walkinSubmit: async (hash, req) => plain(await binding.walkinSubmit(hash, req))
+    walkinSubmit: async (hash, req) => plain(await binding.walkinSubmit(hash, req)),
+    intakeBooking: async (hash, given, idem) => plain(await binding.intakeBooking(hash, given, idem))
   };
 }

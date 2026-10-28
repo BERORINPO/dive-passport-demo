@@ -3,7 +3,7 @@
    - fakeAccess: Access のチームの鍵を作り、JWT を署名し、/cdn-cgi/access/certs を返す
    - fakeAnthropic: Claude API の答え（answer に返したい文、status で失敗）
    - fakeD1: Cloudflare D1 の prepare / bind / first / run / all / batch。roster-db.mjs などが使う文だけを読む（failing で壊せる）
-   - fakeShopBinding: redux-ask から見たお店の Worker（Service Binding の SHOP。口は 6 つ。引数と答えは structuredClone を通る） */
+   - fakeShopBinding: redux-ask から見たお店の Worker（Service Binding の SHOP。口は 7 つ。引数と答えは structuredClone を通る） */
 
 /* Cloudflare の fetch と同じく、redirect は follow か manual だけを受け付ける（'error' は Workers で例外になる。ザクのレビュー） */
 export function checkRedirect(init) {
@@ -65,13 +65,15 @@ export function fakeAnthropic() {
 }
 
 /* roster-db.mjs の 6 つの文（名簿の SELECT・INSERT … ON CONFLICT DO NOTHING・版つきの UPDATE・済んだ便を足す・消す・読む）と ask-db.mjs の 6 つの文と
-   shop-db.mjs の 2 つの文と limit-db.mjs の 2 つの文と walkin-db.mjs の 7 つの文だけを、本物の D1 と同じ答えの形で返す。batch は本物と同じく 1 つの transaction（途中で失敗したら全部を戻す）。
+   shop-db.mjs の 2 つの文と limit-db.mjs の 2 つの文と walkin-db.mjs の 7 つの文と intake-db.mjs の 11 の文だけを、本物の D1 と同じ答えの形で返す。batch は本物と同じく 1 つの transaction（途中で失敗したら全部を戻す）。
    知らない文は例外にする（roster-db.mjs に文を足したら、ここにも足してテストを通す。済んだ便の SQL は test/past.test.mjs が node:sqlite でも確かめる） */
 const ADD_PAST_SQL = "INSERT INTO roster_past (shop, part, day, keep_until, body, moved_at) SELECT ?1, json_extract(value, '$.part'), json_extract(value, '$.day'), " +
   "json_extract(value, '$.keepUntil'), json_extract(value, '$.body'), ?3 FROM json_each(?2) WHERE COALESCE((SELECT version FROM rosters WHERE shop = ?1), 0) = ?4 " +
   'ON CONFLICT(shop, part) DO NOTHING';
 
 const PUT_WALKIN_KEY_SQL = 'INSERT INTO walkin_keys (shop, hash, created_at) VALUES (?1, ?2, ?3) ON CONFLICT(shop) DO UPDATE SET hash = ?2, created_at = ?3';
+const CLAIM_IDEM_SQL = "INSERT INTO api_idempotency (key_id, idem, booking_id, created_at) VALUES (?1, ?2, '', ?3) ON CONFLICT(key_id, idem) DO UPDATE SET booking_id = '', " +
+  "created_at = ?3 WHERE (booking_id = '' AND created_at < ?4) OR created_at < ?5";
 const TAKE_DAILY_SQL ='INSERT INTO daily_counts (scope, shop, day, n) VALUES (?1, ?2, ?3, 1) ON CONFLICT(scope, shop, day) DO UPDATE SET n = n + 1 WHERE n < ?4';
 
 export function fakeD1() {
@@ -83,9 +85,13 @@ export function fakeD1() {
   const daily = new Map();   // daily_counts（1 日の回数）。キーは「scope + 改行 + お店 + 改行 + 日」、値は n
   const walkinKeys = new Map();   // walkin_keys（店頭の QR の鍵の SHA-256。キーはお店）
   const walkins = new Map();      // walkin_pending（店頭で入れた人）。キーは「お店 + 改行 + id」
+  const apiKeys = new Map();      // api_keys（予約の受け口 API の鍵の SHA-256。キーは鍵の id）
+  const idem = new Map();         // api_idempotency（同じ予約を 2 回入れない記録）。キーは「鍵の id + 改行 + SHA-256」
   const db = {
     walkinKeys,
     walkins,
+    apiKeys,
+    idem,
     daily,
     /* テストの手伝い: 1 日の回数をいきなり n にする（上限の手前まで進めるため） */
     setCount(scope, shop, day, n) { daily.set([scope, shop, day].join('\n'), n); },
@@ -113,6 +119,17 @@ export function fakeD1() {
           if (/^SELECT shop FROM walkin_keys WHERE hash = \?1$/.test(text)) {
             const hit = [...walkinKeys].find(([, k]) => k.hash === args[0]);
             return hit ? { shop: hit[0] } : null;
+          }
+          if (/^SELECT id, shop, label FROM api_keys WHERE hash = \?1 AND revoked_at = ''$/.test(text)) {
+            const hit = [...apiKeys.values()].find(k => k.hash === args[0] && k.revoked_at === '');
+            return hit ? { id: hit.id, shop: hit.shop, label: hit.label } : null;
+          }
+          if (/^SELECT COUNT\(\*\) AS n FROM api_keys WHERE shop = \?1 AND revoked_at = ''$/.test(text)) {
+            return { n: [...apiKeys.values()].filter(k => k.shop === args[0] && k.revoked_at === '').length };
+          }
+          if (/^SELECT booking_id FROM api_idempotency WHERE key_id = \?1 AND idem = \?2$/.test(text)) {
+            const row = idem.get(`${args[0]}\n${args[1]}`);
+            return row ? { booking_id: row.booking_id } : null;
           }
           if (/^SELECT created_at FROM walkin_keys WHERE shop = \?1$/.test(text)) {
             const k = walkinKeys.get(args[0]);
@@ -147,6 +164,34 @@ export function fakeD1() {
             if ([...walkinKeys].some(([shop, k]) => shop !== args[0] && k.hash === args[1])) throw new Error('UNIQUE constraint failed: walkin_keys.hash');
             walkinKeys.set(args[0], { hash: args[1], created_at: args[2] });
             changes = 1;
+          } else if (/^INSERT INTO api_keys \(id, shop, hash, label, created_at\) VALUES \(\?1, \?2, \?3, \?4, \?5\)$/.test(text)) {
+            if (apiKeys.has(args[0]) || [...apiKeys.values()].some(k => k.hash === args[2])) throw new Error('UNIQUE constraint failed: api_keys');
+            apiKeys.set(args[0], { id: args[0], shop: args[1], hash: args[2], label: args[3], created_at: args[4], revoked_at: '' });
+            changes = 1;
+          } else if (/^UPDATE api_keys SET hash = \?3, created_at = \?4 WHERE shop = \?1 AND id = \?2 AND revoked_at = ''$/.test(text)) {
+            const k = apiKeys.get(args[1]);
+            if (k && k.shop === args[0] && k.revoked_at === '') {
+              if ([...apiKeys.values()].some(o => o.id !== k.id && o.hash === args[2])) throw new Error('UNIQUE constraint failed: api_keys.hash');
+              k.hash = args[2];
+              k.created_at = args[3];
+              changes = 1;
+            }
+          } else if (/^UPDATE api_keys SET revoked_at = \?3 WHERE shop = \?1 AND id = \?2 AND revoked_at = ''$/.test(text)) {
+            const k = apiKeys.get(args[1]);
+            if (k && k.shop === args[0] && k.revoked_at === '') { k.revoked_at = args[2]; changes = 1; }
+          } else if (text === CLAIM_IDEM_SQL) {
+            const key = `${args[0]}\n${args[1]}`;
+            const row = idem.get(key);
+            const takeable = !row || (row.booking_id === '' && row.created_at < args[3]) || row.created_at < args[4];
+            if (takeable) { idem.set(key, { booking_id: '', created_at: args[2] }); changes = 1; }
+          } else if (/^UPDATE api_idempotency SET booking_id = \?3 WHERE key_id = \?1 AND idem = \?2 AND booking_id = ''$/.test(text)) {
+            const row = idem.get(`${args[0]}\n${args[1]}`);
+            if (row && row.booking_id === '') { row.booking_id = args[2]; changes = 1; }
+          } else if (/^DELETE FROM api_idempotency WHERE key_id = \?1 AND idem = \?2 AND booking_id = ''$/.test(text)) {
+            const row = idem.get(`${args[0]}\n${args[1]}`);
+            if (row && row.booking_id === '') { idem.delete(`${args[0]}\n${args[1]}`); changes = 1; }
+          } else if (/^DELETE FROM api_idempotency WHERE created_at < \?1$/.test(text)) {
+            for (const [k, v] of idem) if (v.created_at < args[0]) { idem.delete(k); changes += 1; }
           } else if (/^INSERT INTO walkin_pending \(shop, id, trip_id, body, created_at, expires_on\) VALUES \(\?1, \?2, \?3, \?4, \?5, \?6\)$/.test(text)) {
             const key = `${args[0]}\n${args[1]}`;
             if (walkins.has(key)) throw new Error('UNIQUE constraint failed: walkin_pending.shop, walkin_pending.id');
@@ -196,8 +241,13 @@ export function fakeD1() {
             return { results: [...shops.values()] };
           }
           if (/^SELECT name FROM sqlite_master WHERE type = 'table'$/.test(text)) {
-            const tables = ['rosters', 'ask_links', 'shops', 'roster_past', 'mail_unread', 'daily_counts', 'walkin_keys', 'walkin_pending'];
+            const tables = ['rosters', 'ask_links', 'shops', 'roster_past', 'mail_unread', 'daily_counts', 'walkin_keys', 'walkin_pending', 'api_keys', 'api_idempotency'];
             return { results: tables.filter(t => !(db.missingTables || []).includes(t)).map(name => ({ name })) };
+          }
+          if (/^SELECT id, label, created_at, revoked_at FROM api_keys WHERE shop = \?1 ORDER BY created_at DESC, id LIMIT \?2$/.test(text)) {
+            const newest = (a, b) => (a.created_at === b.created_at ? (a.id < b.id ? -1 : 1) : a.created_at < b.created_at ? 1 : -1);
+            const hit = [...apiKeys.values()].filter(k => k.shop === args[0]).sort(newest).slice(0, args[1]);
+            return { results: hit.map(k => ({ id: k.id, label: k.label, created_at: k.created_at, revoked_at: k.revoked_at })) };
           }
           if (/^SELECT shop FROM rosters$/.test(text)) return { results: [...rows.keys()].map(shop => ({ shop })) };
           const MOVED_SQL = 'SELECT part, day, keep_until, body, moved_at FROM roster_past WHERE shop = ?1 AND (moved_at > ?2 OR (moved_at = ?2 AND part > ?4)) ' +
@@ -294,11 +344,11 @@ export function fakeRateLimit(max = 5) {
 }
 
 /* shop-client.mjs の Service Binding（SHOP）の見本。service は ShopService（shop-service.mjs）。本物の RPC と同じく、引数と答えは structuredClone で
-   渡す（素のオブジェクトと配列と文字・数だけが通る）。口は 6 つだけで、service にほかのメソッドがあっても通さない（redux-ask に D1 や名簿を渡さない） */
+   渡す（素のオブジェクトと配列と文字・数だけが通る）。口は 7 つだけで、service にほかのメソッドがあっても通さない（redux-ask に D1 や名簿を渡さない） */
 export function fakeShopBinding(service) {
   const call = (name) => async (...args) => structuredClone(await service[name](...structuredClone(args)));
   const binding = { calls: [] };
-  for (const name of ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit']) {
+  for (const name of ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit', 'intakeBooking']) {
     const run = call(name);
     binding[name] = async (...args) => { binding.calls.push(name); return run(...args); };
   }

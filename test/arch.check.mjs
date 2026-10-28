@@ -204,14 +204,14 @@ workerFiles.forEach(p => {
   violations(read(p), rules).forEach(v => fail(`${p}:${v.line} ${v.what}`));
   workerUrlProblems(read(p), rules.urls).forEach(u => fail(`${p}: 決めていない外の先 ${u}`));
 });
-const CORE_IMPORT_BAN = /(?:from\s+|import\s*\(?\s*)['"][^'"]*\/(?:access|budget|anthropic|roster-db|handler|index|fakes|mail|site-guard|ask|auto|ask-db|ask-route|shop-db|ask-index|walkin-db|walkin-route)\.mjs['"]/;
+const CORE_IMPORT_BAN = /(?:from\s+|import\s*\(?\s*)['"][^'"]*\/(?:access|budget|anthropic|roster-db|handler|index|fakes|mail|site-guard|ask|auto|ask-db|ask-route|shop-db|ask-index|walkin-db|walkin-route|intake-db|intake-route)\.mjs['"]/;
 (roles.core || []).filter(p => p.startsWith('worker/')).forEach(p => {
   if (CORE_IMPORT_BAN.test(stripComments(read(p), false).join('\n'))) fail(`${p}: core が adapter・entry・見本を読んでいる`);
 });
 const FAKES = existsSync(new URL('worker/fakes.mjs', root)) ? read('worker/fakes.mjs') : '';
 const WORKER_ADAPTERS = (roles.adapter || []).filter(p => p.startsWith('worker/'));
 [['worker/access.mjs', 'fakeAccess'], ['worker/budget.mjs', 'fakeKv'], ['worker/anthropic.mjs', 'fakeAnthropic'], ['worker/roster-db.mjs', 'fakeD1'],
-  ['worker/mail.mjs', 'fakeMail'], ['worker/ask-db.mjs', 'fakeD1'], ['worker/shop-db.mjs', 'fakeD1'], ['worker/walkin-db.mjs', 'fakeD1'], ['worker/site-guard.mjs', 'fakeTurnstile'], ['worker/site-guard.mjs', 'fakeRateLimit']].forEach(([a, f]) => {
+  ['worker/mail.mjs', 'fakeMail'], ['worker/ask-db.mjs', 'fakeD1'], ['worker/shop-db.mjs', 'fakeD1'], ['worker/walkin-db.mjs', 'fakeD1'], ['worker/intake-db.mjs', 'fakeD1'], ['worker/site-guard.mjs', 'fakeTurnstile'], ['worker/site-guard.mjs', 'fakeRateLimit']].forEach(([a, f]) => {
   if (!WORKER_ADAPTERS.includes(a)) fail(`表 1 の adapter に ${a} が無い`);
   if (!new RegExp(`export\\s+(?:async\\s+)?function\\s+${f}\\b`).test(FAKES)) fail(`${a} の見本 ${f} が worker/fakes.mjs に無い`);
 });

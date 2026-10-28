@@ -20,7 +20,7 @@ export const cursorKey = (shop) => `pastcursor:${shop}`;
 /* D1 にあるはずの表と、それを作る migration（worker/migrations）。足りなければ Cron は止め、番号を出す（点検 2026-10-28 設計 16・運用 H1）。
    migration を足したらここにも足す（test/backup.test.mjs が migrations の CREATE TABLE と突き合わせる） */
 export const REQUIRED_TABLES = { rosters: '0001', ask_links: '0002', shops: '0003', roster_past: '0004', mail_unread: '0005', daily_counts: '0006',
-  walkin_keys: '0007', walkin_pending: '0007' };
+  walkin_keys: '0007', walkin_pending: '0007', api_keys: '0008', api_idempotency: '0008' };
 export function missingMigrations(names) {
   const have = new Set(names);
   return [...new Set(Object.entries(REQUIRED_TABLES).filter(([t]) => !have.has(t)).map(([, m]) => m))].sort();

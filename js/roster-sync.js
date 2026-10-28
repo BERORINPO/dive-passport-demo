@@ -77,6 +77,23 @@
       ['name', 'relation', 'phone'].every(k => typeof e[k] === 'string');
   }
 
+  /* 予約の受け口 API の鍵（スタッフの画面。js/api-keys-staff.js）。サーバーが返した形を確かめてから画面に渡す。
+     鍵は「rdx_」と 43 字、受け口の住所は /api/v1/bookings だけ（置いた形では redux-ask の https、手元では localhost） */
+  const API_KEY_FORM = /^rdx_[A-Za-z0-9_-]{43}$/;
+  const API_KEY_ID = /^[a-z0-9]{1,40}$/;
+  function endpointOk(u) {
+    try {
+      const x = new URL(u);
+      return (x.protocol === 'https:' || (x.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(x.hostname))) && x.pathname === '/api/v1/bookings' && !x.search && !x.hash;
+    } catch (e) {
+      return false;
+    }
+  }
+  const apiKeyItemOk = (x) => !!x && API_KEY_ID.test(String(x.id)) && ['label', 'at', 'revokedAt'].every(k => typeof x[k] === 'string');
+  /* 作った・作り直した返事（鍵つき）。通信の途中で壊れた物は画面に出さない */
+  const apiKeyMade = (d) => !!d && API_KEY_ID.test(String(d.id)) && typeof d.key === 'string' && API_KEY_FORM.test(d.key)
+    && typeof d.endpoint === 'string' && endpointOk(d.endpoint);
+
   /* 「入れた」「入れない」を押した行は、まずこの端末で隠し、サーバーで消せたら忘れる（電波が無いときは貯めて、あとで消す）。
      入れた物は、名簿の直しがサーバーに届いてから消す（mustSync。届く前に消すと、端末が壊れたときに個人情報が両方から無くなる） */
   const DROPPED_KEY = 'redux-walkin-dropped';
@@ -169,6 +186,30 @@
         return { ok: true, items: d.items.filter(x => !Object.prototype.hasOwnProperty.call(hidden, x.id)), keyAt: String(d.keyAt || '') };
       }
       return { ok: false, why: r.status || 'network' };
+    },
+    /* 予約の受け口 API の鍵の一覧（同じ場所の /api/api-keys。Access の内）。止めた鍵も含む。鍵そのものは来ない。{ ok: true, items, endpoint, max } か { ok: false, why } */
+    async apiKeys() {
+      const r = await call('GET', undefined, '/api/api-keys');
+      const d = r.data;
+      if (r.status === 200 && d && Array.isArray(d.items) && d.items.every(apiKeyItemOk) && typeof d.endpoint === 'string' && endpointOk(d.endpoint) && Number.isInteger(d.max)) {
+        return { ok: true, items: d.items, endpoint: d.endpoint, max: d.max };
+      }
+      return { ok: false, why: r.status || 'network' };
+    },
+    /* 鍵を作る。{ ok: true, id, key, at, endpoint } か { ok: false, why }（why 409 = 鍵の数の上限）。鍵が出るのはこの 1 回だけ */
+    async apiKeyCreate(label) {
+      const r = await call('POST', { action: 'create', label }, '/api/api-keys');
+      return apiKeyMade(r.data) ? { ok: true, id: r.data.id, key: r.data.key, at: String(r.data.at || ''), endpoint: r.data.endpoint } : { ok: false, why: r.status || 'network' };
+    },
+    /* 鍵を作り直す（同じ id・名前。前の鍵はすぐ開けなくなる）。返事は apiKeyCreate と同じ */
+    async apiKeyRotate(id) {
+      const r = await call('POST', { action: 'rotate', id }, '/api/api-keys');
+      return apiKeyMade(r.data) ? { ok: true, id: r.data.id, key: r.data.key, at: String(r.data.at || ''), endpoint: r.data.endpoint } : { ok: false, why: r.status || 'network' };
+    },
+    /* 鍵を止める。止められた（か、もう止めてある・無い）ら { ok: true } */
+    async apiKeyRevoke(id) {
+      const r = await call('POST', { action: 'revoke', id }, '/api/api-keys');
+      return r.status === 200 || r.status === 404 ? { ok: true } : { ok: false, why: r.status || 'network' };
     },
     /* 押した行をこの端末で隠す。mustSync が true（入れた）なら、名簿の直しがサーバーに届いてからサーバーの行を消す */
     hideWalkin(id, mustSync) {
