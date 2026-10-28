@@ -9,7 +9,7 @@ import { ShopService } from '../worker/shop-service.mjs';
 
 export const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
 export const ASK_ORIGIN = 'https://redux-ask.example.workers.dev';
-export const SITE = 'https://aquagate.example.com';
+export const SITE = 'https://site.example.com';
 export const TEAM = 'mihon-team.cloudflareaccess.com';
 export const AUD = 'aud-0123456789abcdef';
 export const STAFF = 'mihon.member@example.com';

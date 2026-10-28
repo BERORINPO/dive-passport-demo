@@ -214,7 +214,7 @@ test('H7 画面の書き込み: D1 が落ちていれば 503（db）で版は進
 test('H7 Turnstile の不調: 5xx・3xx・429・届かない・壊れた答え・失敗の答えはどれも 403 で、名簿に入れない。直れば 202', async () => {
   const s = setup();
   const answer = (status, body) => (init) => { s.turnstile.calls.push(JSON.parse(init.body)); return new Response(body, { status }); };
-  const ok = JSON.stringify({ success: true, hostname: 'aquagate.example.com', action: 'booking' });
+  const ok = JSON.stringify({ success: true, hostname: 'site.example.com', action: 'booking' });
   const cases = [
     ['5xx', answer(500, ok), 'turnstile-500'], ['503', answer(503, ok), 'turnstile-503'], ['429', answer(429, ok), 'turnstile-429'],
     ['3xx', answer(302, ok), 'turnstile-302'], ['network', () => { throw new TypeError('fetch failed'); }, 'turnstile-network'],

@@ -323,7 +323,7 @@ export function fakeTurnstile() {
     calls: [],
     success: true,
     status: 200,
-    hostname: 'aquagate.example.com',
+    hostname: 'site.example.com',
     action: 'booking',
     async respond(init) {
       checkRedirect(init);

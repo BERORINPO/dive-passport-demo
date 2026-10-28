@@ -8,6 +8,9 @@
   // redux-ask（wrangler.ask.jsonc）が Service Binding（entrypoint: "ShopRpc"）で呼ぶ。この側に足す設定は無い。**この Worker を先に置く**（docs/deploy.md の 7 節）
   "main": "worker/index.mjs",
   "compatibility_date": "2026-09-01",
+  // お店の画面の住所は https://app.reduxdive.com（Custom Domain。DNS の行は deploy が作る）。Access の application も app.reduxdive.com に要る（docs/deploy.md の 9）
+  "routes": [{ "pattern": "app.reduxdive.com", "custom_domain": true }],
+  // 移行のあいだは workers.dev の住所も残す。app.reduxdive.com で入れるのを確かめたら false にする
   "workers_dev": true,
   // 版ごとの別の URL を作らない（Access を付けた URL のほかに入口を増やさない）
   "preview_urls": false,
@@ -43,9 +46,9 @@
     // 1 日に AI を呼ぶ回数の上限（日本の日付）と、今月の費用の上限（ドル、目安）。本当の上限は Anthropic のワークスペースで付ける
     "DAILY_LIMIT": "200",
     "MONTHLY_USD": "5",
-    // 連絡の送り元と、お店の画面の住所（worker/mail.mjs の mailReady が両方を見る）。お店の画面は workers.dev のまま（app.reduxdive.com に移すには Access の application が要る。docs/deploy.md の 9）。お客さんのリンクの住所は secret の ASK_ORIGIN
+    // 連絡の送り元と、お店の画面の住所（worker/mail.mjs の mailReady が両方を見る）。お店の画面は app.reduxdive.com（Access の application が要る。docs/deploy.md の 9）。お客さんのリンクの住所は secret の ASK_ORIGIN
     "MAIL_FROM": "yoyaku@reduxdive.com",
-    "APP_URL": "https://dive-passport-demo.cibimaro-yousuke.workers.dev",
+    "APP_URL": "https://app.reduxdive.com",
     // 1 店で動かすときの、そのお店の id（今の名簿の行 = default）。D1 の shops が空のとき、これを書いた場合だけ 1 店で動く。無くて空なら 503（開いた側に倒さない）。
     // shops に行を足したら行が先になるので、この行は消してよい（足す前に shops に default の行も入れる: tools/shop.mjs keep-sample）
     "SINGLE_SHOP": "default",

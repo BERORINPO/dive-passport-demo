@@ -11,7 +11,7 @@ import { MAX_ROSTER_BYTES } from '../worker/sync-core.mjs';
 import { fakeKv, fakeAnthropic, fakeD1, fakeMail, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
 
 const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
-const SITE = 'https://aquagate.example.com';
+const SITE = 'https://site.example.com';
 const NOW = Date.parse('2026-10-27T01:00:00Z');   // 日本では 10/27 の 10:00
 const CF_ID = 'mx.cloudflare.net';   // Cloudflare が付ける Authentication-Results の名前（本番に届いた 1 通で見て MAIL_AUTHSERV_ID に入れる）
 const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
@@ -112,7 +112,7 @@ test('外からの予約の守り: 名簿が上限の 7 割を超えたら外か
   const s = setup();
   s.turnstile.hostname = 'evil.example.com';
   assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 403, '別のサイトで解いた答えは通さない');
-  s.turnstile.hostname = 'aquagate.example.com';
+  s.turnstile.hostname = 'site.example.com';
   s.turnstile.action = 'login';
   assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 403, 'action が booking でない答えは通さない');
   s.turnstile.action = 'booking';
@@ -124,7 +124,7 @@ test('外からの予約の守り: 名簿が上限の 7 割を超えたら外か
 
 test('1 日の件数は D1 で正確に数える: 同じ秒に続けて届いても全部受け、30 件目の次で止まる。D1 が答えないときは「上限」でなく 503', async () => {
   const s = setup();
-  s.turnstile.hostname = 'aquagate.example.com';
+  s.turnstile.hostname = 'site.example.com';
   for (let i = 0; i < 5; i += 1) {
     const r = await handle(booking({ ...GOOD, email: `guest${i}@mail.example`, name: `見本 ${i}` }, { ip: `203.0.113.${i + 40}` }), s.env, s.io);
     assert.equal(r.status, 202, `${i + 1} 件目`);
