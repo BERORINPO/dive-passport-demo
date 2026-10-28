@@ -1,0 +1,31 @@
+# harness.yaml の typecheck / offline_smoke / arch を、そのまま毎回回す。
+# コマンドは harness.yaml が正本。ここには写さず、読んで実行する（食い違い防止）。
+# Node は 24 に固定。テストが node:sqlite を使い、無い Node では黙って飛ばすため。
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: typecheck
+        shell: bash
+        run: bash -c "$(sed -n 's/^typecheck: //p' harness.yaml)"
+      - name: offline_smoke
+        shell: bash
+        run: bash -c "$(sed -n 's/^offline_smoke: //p' harness.yaml)"
+      - name: arch
+        shell: bash
+        run: bash -c "$(sed -n 's/^arch: //p' harness.yaml)"
