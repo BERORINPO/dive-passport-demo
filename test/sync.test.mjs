@@ -120,6 +120,68 @@ test('2 台で同時に直す: 後の 1 台は最新に同じ直しを当て直�
   assert.deepEqual(last.trips.find(t => t.id === 't1').partners, [PARTNER], 'B の変更も残る');
 });
 
+test('ジンのレビュー 2026-10-28 H1・H2: 送る連絡と予定の動きはサーバーの物。画面が足した連絡・書き換えた宛先は置かず、「届いていた」と「送り直しを頼む」だけ受ける', async () => {
+  const s = setup();
+  const bookingId = base.bookings[0].id;
+  const people = [base.people[0].id];
+  const out = (id, over) => ({ v: S.VERSION, id, kind: 'request', bookingId, tripId: 't1', to: 'guest@mail.example', lang: 'ja', subject: '名簿の項目のお願い',
+    body: 'お願いします [[ask-link]]', people, status: 'queued', why: '', at: AT, sentAt: '', ...over });
+  const job = { v: S.VERSION, id: 'j1', kind: 'request', bookingId, tripId: 't1', due: '2026-10-27T09:00', status: 'done', doneAt: AT };
+  /* 1. 画面が連絡を足し、予定を済んだにして送る（古い画面・乗っ取られた端末） */
+  const first = await put(s, 0, { ...base, jobs: [job], outbox: [out('evil', { to: 'victim@attacker.example', body: '本文を差し替えた' })] });
+  assert.equal(first.status, 200);
+  let st = JSON.parse(s.db.rows.get('default').state);
+  /* 名簿が無い所への最初の書き込み（base 0）は、端末の送った記録を残す（ジンの点検 2026-10-28 H2）。ただし宛先と本文はサーバーが作り直し、
+     送る途中の物は「送れたか分からない」にして送らない。済んだと来た予定は済んだのまま（送らない向きは信じる） */
+  assert.ok(st.outbox.every(o => o.status !== 'queued'), '画面が足した連絡を送る形では置かない（作り直せなければ捨てる。見本の予約はメールが無いので捨てる）');
+  assert.ok(st.outbox.every(o => o.to !== 'victim@attacker.example' && !o.body.includes('差し替え')), '宛先と本文は画面の物を使わない');
+  assert.deepEqual(st.jobs.map(j => j.status), ['done'], '済んだと来た予定を待ちに戻して送り直さない');
+  /* 2. サーバー（Cron）が送った結果を置いた形: o1 は送れたか分からない、o2 は送れなかった */
+  const serverState = { ...st, outbox: [out('o1', { status: 'failed', why: 'maybe-sent' }), out('o2', { status: 'failed', why: 'send' })] };
+  assert.ok((await putRoster(s.db, 'default', 1, JSON.stringify(serverState), AT, { parts: [], today: TODAY })).ok);
+  /* 3. 画面: o1 を届いていたにし（ついでに宛先を書き換え）、o2 に送り直しを頼み、o3 を足す */
+  const edited = { ...serverState, outbox: [
+    out('o1', { status: 'sent', why: 'confirmed', sentAt: AT, to: 'victim@attacker.example' }),
+    out('o2', { status: 'failed', why: 'resend' }),
+    out('o3', { to: 'victim@attacker.example' })
+  ] };
+  assert.equal((await put(s, 2, edited)).status, 200);
+  st = JSON.parse(s.db.rows.get('default').state);
+  assert.deepEqual(st.outbox.map(o => [o.id, o.status, o.why, o.to]), [
+    ['o1', 'sent', 'confirmed', 'guest@mail.example'],
+    ['o2', 'failed', 'resend', 'guest@mail.example']
+  ], '受けるのは「届いていた」と「送り直しを頼む」だけ。宛先の書き換えと、足した連絡は捨てる');
+});
+
+test('ザクのレビュー 2026-10-28 MEDIUM-2: 今ある予定はサーバーの物。済んだ予定を消して新しい id で足し直しても受けない', async () => {
+  const s = setup();
+  const bookingId = base.bookings[0].id;
+  const job = (id, over) => ({ v: S.VERSION, id, kind: 'request', bookingId, tripId: 't1', due: '2026-10-27T09:00', status: 'waiting', doneAt: '', ...over });
+  assert.equal((await put(s, 0, { ...base, jobs: [job('j1')] })).status, 200);
+  /* サーバー（Cron）が送って、済んだにした形 */
+  const st1 = JSON.parse(s.db.rows.get('default').state);
+  const serverState = { ...st1, jobs: [job('j1', { status: 'done', doneAt: AT })] };
+  assert.ok((await putRoster(s.db, 'default', 1, JSON.stringify(serverState), AT, { parts: [], today: TODAY })).ok);
+  /* 画面: j1 を消して同じお願いを新しい id で足し、remind の時刻を書き換えずに足す（remind はまだ無いので受ける） */
+  assert.equal((await put(s, 2, { ...serverState, jobs: [job('j2'), job('r1', { kind: 'remind' })] })).status, 200);
+  let st = JSON.parse(s.db.rows.get('default').state);
+  assert.deepEqual(st.jobs.map(j => [j.id, j.kind, j.status]), [['r1', 'remind', 'waiting']], '済んだお願いの足し直しは受けない。まだ無い種類の予定だけ受ける');
+  /* 画面: r1 の時刻と状態を書き換え、同じ remind を別の id でもう 1 つ足す */
+  assert.equal((await put(s, 3, { ...st, jobs: [job('r1', { kind: 'remind', due: '2026-10-20T00:00', status: 'done' }), job('r2', { kind: 'remind' })] })).status, 200);
+  st = JSON.parse(s.db.rows.get('default').state);
+  assert.deepEqual(st.jobs.map(j => [j.id, j.due, j.status]), [['r1', '2026-10-27T09:00', 'waiting']], '今ある予定の時刻と状態はサーバーの物。同じ種類の 2 つ目は受けない');
+});
+
+test('ザクのレビュー 2026-10-28 LOW: 版は合うのに保存済みの名簿が読めないときは、空の名簿を元にせず 500 で断る', async () => {
+  const s = setup();
+  assert.equal((await put(s, 0, base)).status, 200);
+  s.db.rows.get('default').state = '{"読めない名簿"';
+  const writes = s.db.writes;
+  const r = await put(s, 1, { ...base, outbox: [] });
+  assert.equal(r.status, 500);
+  assert.equal(s.db.writes, writes, '何も書いていない');
+});
+
 test('形の合わない名簿は置かない（400）。本文が大きすぎれば読まずに断る（413）', async () => {
   const s = setup();
   for (const body of [{ base: 0, state: { trips: 'x' } }, { base: -1, state: base }, { base: 0 }, { base: '0', state: base }, [base]]) {

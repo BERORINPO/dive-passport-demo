@@ -92,7 +92,8 @@
         el('input', { class: 'input', type: 'text', maxlength: 60, 'aria-label': '足すお店の名前', placeholder: 'お店の名前', value: d.shop,
           oninput: (e) => { d.shop = e.target.value; } }),
         el('button', { class: 'btn btn--ghost btn--small', type: 'button', text: 'お店を足す', onclick: () => add(d.shop, () => { d.shop = ''; }) })),
-      trip.partners.includes(SAMPLE_SHOP) ? null
+      /* 見本のお店は、サーバーにつながっていない試作だけ（本物の名簿に架空のお店を混ぜない。ジンのレビュー 2026-10-28 H9） */
+      R.rosterStore.synced() || trip.partners.includes(SAMPLE_SHOP) ? null
         : el('p', { class: 'sheet__note' }, button(`見本のお店（${SAMPLE_SHOP}）を足す`, () => add(SAMPLE_SHOP)))
     ];
   }

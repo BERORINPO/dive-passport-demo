@@ -12,7 +12,10 @@
 
   const askBase = () => `${location.origin}${location.pathname}#ask=`;
 
+  /* 時刻が来た予定を動かす。サーバーにつながっている版では動かさない（予定を動かし連絡を作るのは Worker の Cron だけ。
+     画面が作るとリンクが Access の中を指し、お客さんが開けない。ジンのレビュー 2026-10-28 H1）。試作（つながっていない）では画面が動かす */
   function tick(save) {
+    if (R.rosterStore.synced()) return false;
     const s = R.rosterStore.get();
     const nowJst = R.nowJst();
     if (!(s.jobs || []).some(j => j.status === 'waiting' && j.due <= nowJst)) return false;
@@ -114,7 +117,8 @@
   const FAIL_JA = { 'no-email': 'メールアドレスが無い', 'no-mail-config': 'メールの設定がまだ無い' };
   const RESEND_JA = {
     resent: 'もう送り直してあります', 'not-failed': 'もう送ったか、送る準備ができています', 'no-email': 'メールアドレスが無いので送れません',
-    past: '済んだ便なので送りません', cancel: '中止の便なので送りません', done: '名簿がもうそろっているので送りません', 'not-found': 'この連絡が見つかりません'
+    past: '済んだ便なので送りません', cancel: '中止の便なので送りません', done: '名簿がもうそろっているので送りません', 'not-found': 'この連絡が見つかりません',
+    asked: 'もう送り直しを頼んであります'
   };
   const LATER_SHOW = 10;
   let laterAll = false;
@@ -139,8 +143,10 @@
     const r = ui.save(st => { const out = fn(st); problem = out.problem; return out.state; });
     ui.go('board', { saved: r.saved, warn: r.error ? '直せませんでした' : problem ? RESEND_JA[problem] || '直せませんでした' : null, notice: r.error || problem ? null : okText });
   }
-  const resendIt = (ui, id) => act(ui, st => A().resend(st, { id, nowJst: R.nowJst(), at: R.nowIso(), newId: R.newId, askBase: askBase() }),
-    R.rosterStore.synced() ? '送り直します。次の送信（15 分以内）で 1 通だけ送ります' : '送る準備をしました（この端末の試作では送りません）');
+  /* サーバーにつながっている版は、送り直しを頼む印だけを付ける（連絡は次の Cron が今の予約から作る）。試作は画面で作る */
+  const resendIt = (ui, id) => (R.rosterStore.synced()
+    ? act(ui, st => A().requestResend(st, { id, nowJst: R.nowJst() }), '送り直しを頼みました。次の送信（15 分以内）で 1 通だけ送ります')
+    : act(ui, st => A().resend(st, { id, nowJst: R.nowJst(), at: R.nowIso(), newId: R.newId, askBase: askBase() }), '送る準備をしました（この端末の試作では送りません）'));
   const confirmIt = (ui, id) => act(ui, st => A().confirmSent(st, { id, at: R.nowIso() }), '届いていた連絡として残しました');
 
   function boardLine({ at, name, st, meta, next, extra }) {
@@ -206,7 +212,7 @@
         extra: el('button', { class: 'linkbtn', type: 'button', text: '入れた・済んだ', onclick: () => unread.done(x.id) })
       }))),
       section('送る準備ができた', b.ready.length, b.ready.map(r => boardLine({
-        at: jstOf(r.out.at), name: `${leadOf(s, r.booking)} さんへ「${OUT_NAME[r.out.kind]}」`, st: ['wait', r.sending ? '・送っている' : '・次で送る'],
+        at: jstOf(r.out.at), name: `${leadOf(s, r.booking)} さんへ「${OUT_NAME[r.out.kind]}」`, st: ['wait', r.sending ? '・送っている' : r.asked ? '・送り直しを頼んだ' : '・次で送る'],
         meta: tripText(ui, r.trip), extra: toFlow(ui, r.booking.id)
       }))),
       section(`今日 ${ui.md(today)}`, b.today.length, b.today.map(r => jobLine(s, ui, r, { withDay: r.job.due.slice(0, 10) !== today }))),
