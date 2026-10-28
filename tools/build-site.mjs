@@ -21,11 +21,13 @@ export function siteFiles() {
     .filter(f => KEEP.some(r => r.test(f)) && !/\.local\./.test(f));
 }
 
-/* importmap は HTML の中のスクリプトなので、CSP では中身の hash で許す（<script type="importmap"> と </script> の間の文字そのまま） */
+/* importmap は HTML の中のスクリプトなので、CSP では中身の hash で許す（<script type="importmap"> と </script> の間の文字）。
+   ブラウザは HTML を読む前に改行を LF にそろえる（CRLF と CR は LF になる）ので、hash も LF にそろえてから取る。
+   Windows で取り出した repo（core.autocrlf）は CRLF なので、そろえないと CSP が importmap を止め、three.js（3D の亀）が動かない（2026-10-28） */
 export function importmapHash(html) {
   const m = html.match(/<script type="importmap">([\s\S]*?)<\/script>/);
   if (!m) throw new Error('index.html に importmap が無い');
-  return `sha256-${createHash('sha256').update(m[1], 'utf8').digest('base64')}`;
+  return `sha256-${createHash('sha256').update(m[1].replace(/\r\n?/g, '\n'), 'utf8').digest('base64')}`;
 }
 
 /* CDN を残す間は、サイト名だけで許さずパスまで書く（中身は integrity で確かめる）。自前で配ったら 'self' だけにする */
