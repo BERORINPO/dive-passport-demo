@@ -41,7 +41,7 @@ function setup({ shops = true, single = '' } = {}) {
   const env = {
     ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: [A_STAFF, B_STAFF, NOBODY].join(','),
     DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, ASK_LIMIT: fakeRateLimit(100), BOOKING_LIMIT: fakeRateLimit(100),
-    TURNSTILE_SECRET: 'turnstile-test-secret', SITE_ORIGINS: SITE_A, ASK_ORIGIN: PUBLIC, EMAIL: fakeMail(), MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN,
+    TURNSTILE_SECRET: 'turnstile-test-secret', SITE_ORIGINS: SITE_A, ASK_ORIGIN: PUBLIC, EMAIL: fakeMail(), MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN, MAIL_AUTHSERV_ID: 'mx.cloudflare.net',
     ...(single ? { SINGLE_SHOP: single } : {})
   };
   const io = {
@@ -265,11 +265,11 @@ test('一覧の重なり: 2 店が同じ受け口・メール・サイトを持�
   await assert.rejects(listShops(down.db, down.env), (e) => shopsWhy(e, 'db') === 'db', 'D1 の不調は一覧の問題と見分ける');
 });
 
-/* 届いたメールの見本（Email Routing が渡す形）。SPF も DKIM も送り主のドメインで通った印つき */
+/* 届いたメールの見本（Email Routing が渡す形）。Cloudflare の名前の Authentication-Results が一番上にあり、SPF が封筒の From で pass、見出しの From も同じドメイン */
 function mail(from, to) {
-  const bytes = new TextEncoder().encode('Content-Type: text/plain; charset=utf-8\r\n\r\n11/5 体験ダイビング 1 名 見本 次郎 様');
-  const domain = from.split('@')[1];
-  return { from, to, rawSize: bytes.byteLength, rejected: '', headers: new Headers({ 'authentication-results': `mx; dkim=pass header.d=${domain}; spf=pass smtp.mailfrom=${from}` }),
+  const ar = `mx.cloudflare.net; spf=pass smtp.mailfrom=${from}`;
+  const bytes = new TextEncoder().encode(`Authentication-Results: ${ar}\r\nFrom: ${from}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n11/5 体験ダイビング 1 名 見本 次郎 様`);
+  return { from, to, rawSize: bytes.byteLength, rejected: '', headers: new Headers({ 'authentication-results': ar }),
     raw: new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }), setReject(why) { this.rejected = why; } };
 }
 

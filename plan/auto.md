@@ -69,7 +69,8 @@ AquaGate（仲村さんのサイト）の予約フォームから届く予約を
 | `EMAIL` | send_email binding | Email Service。お店のドメインを `wrangler email sending enable` で載せる（有料・ドメインが要る） | 送らず unsent（no-mail-config） |
 | `MAIL_FROM` | var | 送り元（お店のドメインのアドレス） | 同上 |
 | `APP_URL` | var | お店の画面の住所（workers.dev）。お客さんのリンクの頭は secret の `ASK_ORIGIN`（https://ask.reduxdive.com。Access の無い別の Worker redux-ask） | 同上 |
-| `MAIL_SENDERS` | var | 届いたメールを読む送り主（封筒の From、「,」区切り）。お店が予約サイトのメールを転送する元。加えて Authentication-Results の SPF か DKIM がそのドメインで pass のときだけ受ける | 全部断る |
+| `MAIL_SENDERS` | var | 届いたメールを読む送り主（封筒の From、「,」区切り）。お店が予約サイトのメールを転送する元。加えて、生の見出しの一番上にある Cloudflare の Authentication-Results（名前は `MAIL_AUTHSERV_ID`）で、SPF が封筒の From と完全に同じで pass のときだけ受ける。転送を受けるなら「@予約サイトのドメイン」も書き、そのドメインの DKIM が pass であることも求める（auto-core.mjs の senderVerdict） | 全部断る |
+| `MAIL_AUTHSERV_ID` | secret | Cloudflare が付ける Authentication-Results の名前。本番に届いた 1 通で見て入れる | 全部断る（config） |
 | Email Routing の rule | ダッシュボード | 受けるアドレス → この Worker | メールは届かない |
 | `SITE_ORIGINS` | var | 予約フォームを置くサイトの origin（「,」区切り） | /api/bookings は 503 |
 | `TURNSTILE_SECRET` | secret | Turnstile の秘密の鍵（サイト側にサイトキー）。サイト側の widget は `data-action="booking"`。答えの hostname が SITE_ORIGINS のどれかでないと通さない | 同上 |

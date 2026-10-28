@@ -6,13 +6,14 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { handle } from '../worker/handler.mjs';
 import { scheduled, receiveMail, changeRoster } from '../worker/auto.mjs';
-import { checkBooking, mailText, senderAllowed, authPassed, roomForPublic, TOURS, SWIM, EXP, WORRIES, SWIM_JA, WORRY_JA } from '../worker/auto-core.mjs';
+import { checkBooking, mailText, senderAllowed, senderVerdict, trustedAuth, parseAuthResults, headerList, headerFromDomain, forwarderOf, roomForPublic, TOURS, SWIM, EXP, WORRIES, SWIM_JA, WORRY_JA } from '../worker/auto-core.mjs';
 import { MAX_ROSTER_BYTES } from '../worker/sync-core.mjs';
 import { fakeKv, fakeAnthropic, fakeD1, fakeMail, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
 
 const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
 const SITE = 'https://aquagate.example.com';
 const NOW = Date.parse('2026-10-27T01:00:00Z');   // 日本では 10/27 の 10:00
+const CF_ID = 'mx.cloudflare.net';   // Cloudflare が付ける Authentication-Results の名前（本番に届いた 1 通で見て MAIL_AUTHSERV_ID に入れる）
 const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 const REAL_LOG = console.log;
@@ -27,7 +28,7 @@ function setup(over = {}) {
   const env = {
     SITE_ORIGINS: `${SITE}, https://other.example.com`, TURNSTILE_SECRET: 'turnstile-test-secret', DB: db, BOOKING_LIMIT: fakeRateLimit(5),
     ANTHROPIC_API_KEY: 'sk-test-not-real', DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), SHOP_NAME: 'B マリン（見本）',
-    EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN, MAIL_SENDERS: 'forward@shop.example', SINGLE_SHOP: 'default', ...over
+    EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN, MAIL_SENDERS: 'forward@shop.example, @booking.example', MAIL_AUTHSERV_ID: CF_ID, SINGLE_SHOP: 'default', ...over
   };
   const io = {
     clock: NOW,
@@ -386,11 +387,12 @@ test('ジンのレビュー: 1 回に印を付けて送るのは 10 件まで。
 });
 
 /* 届いたメールの見本（Email Routing が渡す形） */
-const PASS = 'mx.cloudflare.net; dkim=pass header.d=shop.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass';
-function message(raw, from = 'forward@shop.example', auth = PASS) {
-  const bytes = new TextEncoder().encode(raw);
+const PASS = `${CF_ID}; dkim=pass header.d=booking.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass`;
+/* auth は Cloudflare が一番上に付けた Authentication-Results の値。extra は message.headers にだけ入れる値（本物の Worker では同じ名前が「, 」でつながって見える） */
+function message(raw, from = 'forward@shop.example', auth = PASS, extra = '') {
+  const bytes = new TextEncoder().encode(`Authentication-Results: ${auth}\r\n${raw}`);
   return {
-    from, to: 'yoyaku@shop.example', rawSize: bytes.byteLength, rejected: '', headers: new Headers({ 'authentication-results': auth }),
+    from, to: 'yoyaku@shop.example', rawSize: bytes.byteLength, rejected: '', headers: new Headers({ 'authentication-results': extra ? `${auth}, ${extra}` : auth }),
     raw: new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }),
     setReject(why) { this.rejected = why; }
   };
@@ -417,13 +419,110 @@ test('届いたメールの本文を取り出す: 平文・multipart の base64�
   assert.ok(senderAllowed('Forward@Shop.example', 'a@x.example, forward@shop.example'));
   assert.ok(!senderAllowed('evil@x.example', 'forward@shop.example'));
   assert.ok(!senderAllowed('', ''));
-  assert.ok(authPassed(PASS, 'forward@shop.example'));
-  assert.ok(authPassed('mx; spf=fail smtp.mailfrom=x@evil.example; dkim=pass header.d=shop.example', 'forward@shop.example'), 'DKIM が送り主のドメインで通れば受ける');
-  assert.ok(authPassed('mx; spf=pass smtp.mailfrom=bounce@mail.shop.example', 'forward@shop.example') === false, '子のドメインからの SPF は送り主の親を名乗れない');
-  assert.ok(authPassed('mx; dkim=pass header.d=shop.example', 'a@mail.shop.example'), '送り主が子のドメインなら親の DKIM で受ける');
-  assert.ok(!authPassed('mx; spf=pass smtp.mailfrom=x@evil.example; dkim=pass header.d=evil.example', 'forward@shop.example'), '別のドメインで通っても受けない');
-  assert.ok(!authPassed('mx; spf=fail smtp.mailfrom=forward@shop.example; dkim=none', 'forward@shop.example'));
-  assert.ok(!authPassed('', 'forward@shop.example'));
+  assert.ok(!senderAllowed('@booking.example', 'a@x.example, @booking.example'), '「@ドメイン」の行は送り主ではない');
+});
+
+/* ---------- 送り主の確かめ（ザクのレビュー 2026-10-28 SEC-01・02・04） ---------- */
+const BOOKING = '@booking.example';
+const eml = ({ ar = [], from = 'Booking Site <noreply@booking.example>', more = '' } = {}) =>
+  `${ar.map(v => `Authentication-Results: ${v}\r\n`).join('')}${from === null ? '' : `From: ${from}\r\n`}${more}Subject: x\r\n\r\nbody`;
+const cf = (spf, dkim = '') => `${CF_ID}; ${dkim ? `dkim=pass header.d=${dkim}; ` : ''}spf=${spf}; dmarc=pass`;
+const verdict = (raw, envelope, senders, authservId = CF_ID) => senderVerdict({ raw, envelope, senders, authservId });
+const FWD = 'forward@shop.example';
+const SENDERS = `${FWD}, ${BOOKING}`;
+const GOOD_AR = cf(`pass smtp.mailfrom=${FWD}`, 'booking.example');
+
+test('SEC-01: 送り主が足した Authentication-Results では通らない。使うのは生の見出しの一番上の、Cloudflare の名前の 1 本だけ', () => {
+  assert.deepEqual(verdict(eml({ ar: [GOOD_AR] }), FWD, SENDERS), { ok: true, via: 'relay' }, '本物だけなら通る（対照）');
+  const real = cf(`fail smtp.mailfrom=${FWD}`, 'booking.example');
+  const fake = `${CF_ID}; spf=pass smtp.mailfrom=${FWD}; dkim=pass header.d=booking.example`;
+  assert.equal(verdict(eml({ ar: [real, fake] }), FWD, SENDERS).why, 'dup', '本物（fail）の下に同じ名前の偽の行');
+  assert.equal(verdict(eml({ ar: [fake, real] }), FWD, SENDERS).why, 'dup', '偽の行が上でも同じ');
+  assert.equal(verdict(eml({ ar: [fake.replace(CF_ID, 'evil.example'), real] }), FWD, SENDERS).why, 'top', '別の名前の偽の行が一番上');
+  assert.equal(verdict(eml({ ar: [real, fake.replace(CF_ID, 'evil.example')] }), FWD, SENDERS).why, 'spf', '別の名前の偽の行が下なら読まない。本物は fail');
+  assert.equal(verdict(eml({ ar: [fake.replace(CF_ID, 'evil.example')] }), FWD, SENDERS).why, 'top', '偽の行だけ');
+  assert.equal(verdict(eml({ ar: [] }), FWD, SENDERS).why, 'no-header');
+  assert.equal(verdict(eml({ more: `ARC-Authentication-Results: i=1; ${GOOD_AR}\r\n` }), FWD, SENDERS).why, 'no-header', 'ARC の行は信じない');
+  assert.equal(verdict(`From: noreply@booking.example\r\n\r\nAuthentication-Results: ${GOOD_AR}\r\n`, FWD, SENDERS).why, 'no-header', '本文の中の行は見出しではない');
+  assert.equal(verdict(eml({ ar: [GOOD_AR] }), FWD, SENDERS, '').why, 'config', '名前の設定が無ければ何も通さない');
+  assert.equal(verdict(eml({ ar: [GOOD_AR] }), FWD, SENDERS, 'MX.Cloudflare.NET').ok, true, '名前の大文字小文字は見ない');
+});
+
+test('SEC-01: 見出しの折り返し・名前の書き方・続きの行で、Cloudflare の行に継ぎ足させない', () => {
+  const real = cf(`fail smtp.mailfrom=${FWD}`, 'booking.example');
+  const inject = `; spf=pass smtp.mailfrom=${FWD}`;
+  assert.deepEqual(headerList('Subject: hi\r\n Authentication-Results: x; spf=pass\r\n\tmore\r\nFrom : a@b.example\r\nAUTHENTICATION-RESULTS: y\nno colon\r\n  tail\r\n\r\nFrom: body@x.example').map(h => h.name),
+    ['subject', 'from', 'authentication-results'], '折り返しは前の見出しの続き。名前の大文字小文字と「:」の前の空白は許す。本文は見ない');
+  assert.equal(headerList('Subject: hi\r\n Authentication-Results: x').length, 1);
+  assert.equal(verdict(`Authentication-Results: ${real}\r\n ${inject}\r\nFrom: noreply@booking.example\r\n\r\nb`, FWD, SENDERS).why, 'spf', 'Cloudflare の行の直後の、空白で始まる行（元のメールの 1 行目）は続きになる。spf が 2 つになるので断る');
+  assert.equal(verdict(`Authentication-Results: ${real}\r\nnot a header\r\n ${inject}\r\nFrom: noreply@booking.example\r\n\r\nb`, FWD, SENDERS).why, 'spf', '見出しの形でない行をはさんでも、続きの行は Cloudflare の行につながない（本物は fail のまま）');
+  assert.equal(headerList(`Authentication-Results: ${real}\r\nnot a header\r\n ${inject}\r\n\r\nb`).length, 1);
+  assert.equal(verdict(eml({ ar: [real], more: `Subject: a\r\n Authentication-Results: ${CF_ID}; spf=pass smtp.mailfrom=${FWD}\r\n` }), FWD, SENDERS).why, 'spf', '件名の続きに書いた行は見出しではない（dup にもならない）');
+  assert.equal(verdict(eml({ ar: [`${CF_ID};\r\n spf=pass smtp.mailfrom=${FWD};\r\n dkim=pass header.d=booking.example`] }).replace(/\r\n/g, '\n'), FWD, SENDERS).ok, true, '折り返しと LF だけの改行');
+  assert.equal(verdict(eml({ ar: [GOOD_AR.replace('pass', 'pass\u0000')] }), FWD, SENDERS).why, 'top', '制御文字入りの行は読まない');
+  assert.equal(verdict(eml({ ar: [`${GOOD_AR}; x=" open`] }), FWD, SENDERS).why, 'top', '引用符が閉じない行は読まない');
+  assert.equal(verdict(eml({ ar: [`${CF_ID}; spf=pass smtp.mailfrom=${FWD}; spf=pass smtp.mailfrom=${FWD}`] }), FWD, SENDERS).why, 'spf', 'SPF の結果が 2 つなら断る');
+  assert.equal(verdict(eml({ ar: [`${CF_ID}; spf=pass smtp.mailfrom=${FWD}; bad token; dkim=pass header.d=booking.example`] }), FWD, SENDERS).why, 'top', '形の合わない結果が混じる行は丸ごと読まない');
+  const quoted = parseAuthResults(`${CF_ID} (note; spf=pass); spf=pass smtp.mailfrom="x; spf=pass"@evil.example`);
+  assert.equal(quoted.results.length, 1, 'コメントと引用符の中の「;」では区切らない');
+  assert.equal(quoted.results[0].props['smtp.mailfrom'], '"x; spf=pass"@evil.example');
+  assert.equal(parseAuthResults(`${CF_ID} 1; none`).results.length, 0);
+  assert.equal(parseAuthResults('; spf=pass'), null);
+});
+
+test('SEC-01: 見出しの From は 1 本・アドレス 1 つだけ。表示名とコメントの中のアドレスは見ない', () => {
+  const dom = (raw) => headerFromDomain(headerList(raw));
+  assert.equal(dom('From: Booking Site <Noreply@Booking.Example>'), 'booking.example');
+  assert.equal(dom('From: noreply@booking.example'), 'booking.example');
+  assert.equal(dom('From: "noreply@booking.example" <attacker@evil.example>'), 'evil.example', '表示名の中のアドレスは見ない');
+  assert.equal(dom('From: attacker@evil.example (noreply@booking.example)'), 'evil.example', 'コメントの中も見ない');
+  assert.equal(dom('From: noreply@booking.example\r\nFrom: attacker@evil.example'), '', 'From が 2 本');
+  assert.equal(dom('From: noreply@booking.example, attacker@evil.example'), '', 'アドレスが 2 つ');
+  assert.equal(dom('From: team: noreply@booking.example, attacker@evil.example;'), '', 'グループ');
+  assert.equal(dom('From: <noreply@booking.example> <attacker@evil.example>'), '', '山かっこが 2 組');
+  assert.equal(dom('From: "unclosed <noreply@booking.example>'), '', '引用符が閉じない');
+  assert.equal(dom('From: noreply@localhost'), '', '点の無いドメイン');
+  assert.equal(dom('Subject: no from'), '');
+});
+
+test('SEC-02: 正しく署名された別のメールを流し直しても通らない（SPF が送り主の封筒と完全に同じで pass のときだけ）', () => {
+  const GM = 'owner@gmail.com';
+  const replay = (spf) => verdict(eml({ ar: [cf(spf, 'gmail.com')], from: 'Attacker <attacker@gmail.com>' }), GM, GM);
+  assert.equal(replay('fail smtp.mailfrom=owner@gmail.com').why, 'spf', 'DKIM は gmail.com で pass でも、SPF が fail');
+  assert.equal(replay('softfail smtp.mailfrom=owner@gmail.com').why, 'spf');
+  assert.equal(replay('none').why, 'spf');
+  assert.equal(replay('pass smtp.mailfrom=attacker@evil.example').why, 'spf', '自分のサーバーの SPF が pass でも、封筒と同じでない');
+  assert.equal(replay('pass smtp.mailfrom=gmail.com').why, 'spf', 'ドメインだけの報告は完全一致でない');
+  assert.equal(replay('pass smtp.mailfrom=OWNER@gmail.com').ok, true, '大文字小文字は見ない（対照: 送り主が自分で書いたメール）');
+  assert.deepEqual(verdict(eml({ ar: [cf('pass smtp.mailfrom=owner@gmail.com')], from: 'Owner <owner@gmail.com>' }), GM, GM), { ok: true, via: 'own' }, '許した送り主が自分で送ったメールは通る');
+  assert.equal(verdict(eml({ ar: [cf(`pass smtp.mailfrom=${FWD}`)], from: 'noreply@booking.example' }), FWD, FWD).why, 'origin', 'SPF は pass でも、見出しの From が別のドメインで、DKIM も表の指定も無い');
+  assert.equal(verdict(eml({ ar: [cf(`pass smtp.mailfrom=${FWD}`, 'booking.example')], from: 'noreply@booking.example' }), FWD, FWD).why, 'origin', 'DKIM が通っても、表に「@ドメイン」が無ければ受けない');
+  assert.equal(verdict(eml({ ar: [cf(`pass smtp.mailfrom=${FWD}`, 'mail.booking.example')], from: 'noreply@booking.example' }), FWD, SENDERS).why, 'origin', 'DKIM のドメインは完全に同じ（親子では合わせない）');
+  assert.equal(verdict(eml({ ar: [cf('pass smtp.mailfrom=other@shop.example')] }), FWD, SENDERS).why, 'spf');
+  assert.equal(verdict(eml({ ar: [GOOD_AR] }), 'not an address', SENDERS).why, 'sender');
+});
+
+test('SEC-04: Gmail・Microsoft 365 の転送は、転送した人の SPF（書き換わった封筒と完全一致）と、元の予約サイトの DKIM の両方がそろったときだけ通る', () => {
+  const GM = 'owner+caf_=inbox=reduxdive.com@gmail.com';
+  const S = `owner@gmail.com, ${BOOKING}`;
+  const raw = (ar, from = 'Booking Site <noreply@booking.example>') => eml({ ar: [ar], from });
+  assert.deepEqual(forwarderOf(GM), { forwarder: 'owner@gmail.com', rewritten: true });
+  assert.deepEqual(forwarderOf('Owner@Gmail.com'), { forwarder: 'owner@gmail.com', rewritten: false });
+  assert.deepEqual(forwarderOf('owner+caf_=x@evil.example'), { forwarder: 'owner+caf_=x@evil.example', rewritten: false }, 'gmail.com 以外の +caf_ は書き換えとして戻さない');
+  assert.deepEqual(forwarderOf('attacker+owner+caf_=x=y@gmail.com'), { forwarder: 'attacker+owner@gmail.com', rewritten: true }, '最初の +caf_ より前を見る');
+  assert.deepEqual(verdict(raw(cf(`pass smtp.mailfrom=${GM}`, 'booking.example')), GM, S), { ok: true, via: 'relay' }, '両方そろえば通る');
+  assert.equal(verdict(raw(cf(`pass smtp.mailfrom=${GM}`, 'gmail.com')), GM, S).why, 'origin', 'DKIM が予約サイトでなく gmail.com');
+  assert.equal(verdict(raw(cf(`pass smtp.mailfrom=${GM}`)), GM, S).why, 'origin', 'DKIM が無い');
+  assert.equal(verdict(raw(cf(`fail smtp.mailfrom=${GM}`, 'booking.example')), GM, S).why, 'spf', '転送した人の SPF が fail');
+  assert.equal(verdict(raw(cf('pass smtp.mailfrom=owner@gmail.com', 'booking.example')), GM, S).why, 'spf', 'SPF の対象が書き換わった封筒と違う');
+  assert.equal(verdict(raw(cf(`pass smtp.mailfrom=${GM}`, 'evil.example'), 'x@evil.example'), GM, S).why, 'origin', '予約サイト以外の DKIM は、転送されてきても受けない');
+  assert.equal(verdict(raw(cf(`pass smtp.mailfrom=${GM}`, 'gmail.com'), 'friend@gmail.com'), GM, S).why, 'origin', '転送された Gmail の誰かのメール。書き換えた封筒は「自分で書いた」にならない');
+  assert.equal(verdict(raw(cf(`pass smtp.mailfrom=${GM}`, 'booking.example')), GM, 'owner@gmail.com').why, 'origin', '表に予約サイトの指定が無ければ、転送は受けない');
+  assert.equal(verdict(raw(cf('pass smtp.mailfrom=other+caf_=inbox=reduxdive.com@gmail.com', 'booking.example')), 'other+caf_=inbox=reduxdive.com@gmail.com', S).why, 'sender', '転送した人が表に無い');
+  const MS = 'john.work+SRS=44ldt=IX=fabrikam.com=bob@contoso.com';
+  assert.deepEqual(forwarderOf(MS), { forwarder: 'john.work@contoso.com', rewritten: true });
+  assert.deepEqual(verdict(raw(cf(`pass smtp.mailfrom=${MS}`, 'fabrikam.com'), 'bob@fabrikam.com'), MS, 'john.work@contoso.com, @fabrikam.com'), { ok: true, via: 'relay' });
+  assert.equal(verdict(raw(cf('pass smtp.mailfrom=bounces+SRS=abc=IX@contoso.com', 'fabrikam.com'), 'bob@fabrikam.com'), 'bounces+SRS=abc=IX@contoso.com', 'john.work@contoso.com, @fabrikam.com').why, 'sender', '転送した人が分からない長い形は受けない');
 });
 
 test('届いた予約メール: 許した送り主だけを読み、日付が読めたら便に入れてお願いを送る。それ以外の送り主は断り、AI を呼ばない', async () => {
@@ -433,7 +532,7 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   assert.ok(evil.rejected);
   assert.equal(s.api.calls.length, 0);
   s.api.answer = JSON.stringify({ participants: [{ name: '見本 次郎' }], booking: { site: '予約サイト', date: '2026-11-05', start: '08:30', tour: '体験ダイビング', people: 1, lead_name: '見本 次郎', lead_email: 'jiro@mail.example' }, health_info_visible: false });
-  const spoofed = message(MAIL_RAW('予約です'), 'forward@shop.example', 'mx; spf=fail smtp.mailfrom=forward@shop.example; dkim=none');
+  const spoofed = message(MAIL_RAW('予約です'), 'forward@shop.example', `${CF_ID}; spf=fail smtp.mailfrom=forward@shop.example; dkim=none`);
   await receiveMail(spoofed, s.env, s.io);
   assert.ok(spoofed.rejected, '封筒の From だけで SPF も DKIM も通らないメールは断る（ザクのレビュー M-5）');
   assert.equal(s.api.calls.length, 0);
@@ -458,6 +557,48 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   const calls = s.api.calls.length;
   await receiveMail(message(MAIL_RAW('31 通目')), s.env, s.io);
   assert.equal(s.api.calls.length, calls, 'メールからの予約は 1 日 30 件まで。超えたら AI を呼ばない');
+});
+
+test('ザクのレビュー 2026-10-28 SEC-01・02・04（通しで）: 足された行・流し直し・転送を、receiveMail が見出しの生の中身で判定し、断ったら AI を呼ばない', async () => {
+  const s = setup({ MAIL_SENDERS: 'owner@gmail.com, @booking.example' });
+  s.api.answer = JSON.stringify({ participants: [{ name: '見本 次郎' }], booking: { site: '予約サイト', date: '2026-11-05', people: 1, lead_name: '見本 次郎' }, health_info_visible: false });
+  const GM = 'owner+caf_=inbox=reduxdive.com@gmail.com';
+  const body = MAIL_RAW('11/5 体験ダイビング 1 名 見本 次郎 様');
+  const FAKE = `${CF_ID}; spf=pass smtp.mailfrom=${GM}; dkim=pass header.d=booking.example`;
+  const real = `${CF_ID}; spf=fail smtp.mailfrom=${GM}; dkim=pass header.d=booking.example`;
+  const spoof = message(body, GM, real, FAKE);   // message.headers.get() では「本物, 偽」とつながって見える
+  assert.ok(spoof.headers.get('authentication-results').includes('spf=fail') && spoof.headers.get('authentication-results').includes('spf=pass'));
+  const raw2 = new TextEncoder().encode(`Authentication-Results: ${real}\r\nAuthentication-Results: ${FAKE}\r\n${body}`);
+  spoof.raw = new ReadableStream({ start(c) { c.enqueue(raw2); c.close(); } });
+  spoof.rawSize = raw2.byteLength;
+  await receiveMail(spoof, s.env, s.io);
+  assert.equal(spoof.rejected, 'Sender not authenticated', '送り主が足した 2 本目の行では通らない');
+  const replay = message(body, 'owner@gmail.com', `${CF_ID}; spf=fail smtp.mailfrom=owner@gmail.com; dkim=pass header.d=booking.example`);
+  await receiveMail(replay, s.env, s.io);
+  assert.equal(replay.rejected, 'Sender not authenticated', '正しく署名されたメールを別のサーバーから流し直しても通らない');
+  const headersOnly = message(body, GM, real);
+  headersOnly.headers = new Headers({ 'authentication-results': FAKE });   // message.headers だけが pass と言っても、生の見出しの本物（fail）を見る
+  await receiveMail(headersOnly, s.env, s.io);
+  assert.equal(headersOnly.rejected, 'Sender not authenticated');
+  assert.equal(s.api.calls.length, 0);
+  const noId = setup({ MAIL_SENDERS: 'owner@gmail.com, @booking.example', MAIL_AUTHSERV_ID: '' });
+  const unset = message(body, GM, FAKE);
+  await receiveMail(unset, noId.env, noId.io);
+  assert.equal(unset.rejected, 'Temporarily unavailable, please try again later', 'Cloudflare の名前が設定されていなければ、確かめられないので受けない');
+  assert.equal(noId.api.calls.length, 0);
+  logs.length = 0;
+  const forwarded = message(body, GM, `${CF_ID}; spf=pass smtp.mailfrom=${GM}; dkim=pass header.d=booking.example`);
+  await receiveMail(forwarded, s.env, s.io);
+  assert.equal(forwarded.rejected, '', 'Gmail の転送（転送した人の SPF と予約サイトの DKIM がそろう）は通る');
+  assert.equal(s.api.calls.length, 1);
+  const note = JSON.parse(logs[logs.length - 1]);
+  assert.equal(note.via, 'relay');
+  assert.ok(!logs.join('').includes('gmail.com'), 'ログに送り主は出さない');
+  const noDkim = message(body, GM, `${CF_ID}; spf=pass smtp.mailfrom=${GM}; dkim=none`);
+  await receiveMail(noDkim, s.env, s.io);
+  assert.equal(noDkim.rejected, 'Sender not authenticated', '予約サイトの DKIM が無い転送は断る');
+  assert.equal(JSON.parse(logs[logs.length - 1]).authWhy, 'origin', 'ログには理由の分類だけ残る');
+  assert.equal(s.api.calls.length, 1);
 });
 
 test('点検 2026-10-28 運用 C4: 設定が欠けていて読めない予約メールは、黙って捨てずに断る（送り元に返る）', async () => {

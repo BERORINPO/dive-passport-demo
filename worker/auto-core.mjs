@@ -162,23 +162,163 @@ export function mailText(raw) {
   return { ok: true, text: text.slice(0, R.roster.MAX_TEXT) };
 }
 
-/* 届いたメールが送り主のドメインから本当に来たか。Cloudflare が付ける Authentication-Results（無ければ ARC の物）で、
-   spf=pass（smtp.mailfrom）か dkim=pass（header.d）のドメインが送り主のドメインと同じか、その親のときだけ true（ザクのレビュー 2026-10-27 M-5） */
-export function authPassed(results, from) {
-  const domain = String(from || '').trim().toLowerCase().split('@')[1] || '';
-  if (!domain || typeof results !== 'string') return false;
-  const aligned = (d) => !!d && (domain === d || domain.endsWith(`.${d}`));
-  return results.toLowerCase().split(';').some(part => {
-    const spf = /\bspf=pass\b[^]*?\bsmtp\.mailfrom=(?:[^@\s;]*@)?([a-z0-9.-]+)/.exec(part);
-    const dkim = /\bdkim=pass\b[^]*?\bheader\.d=([a-z0-9.-]+)/.exec(part);
-    return (spf && aligned(spf[1])) || (dkim && aligned(dkim[1]));
-  });
+/* ---------- 届いたメールの送り主の確かめ（ザクのレビュー 2026-10-28 SEC-01・02・04） ----------
+   見出しの Authentication-Results は message.headers からは読まない（同じ名前が何本あっても「, 」でつながり、送り主が足した行と見分けがつかない）。
+   生のメールの見出しを自分で切り出し、一番上の Authentication-Results のうち authserv-id が MAIL_AUTHSERV_ID（Cloudflare の名前）の 1 本だけを使う。
+   そのうえで、次を全部満たしたときだけ受ける。
+   1. 転送の書き換え（Gmail の +caf_=、Microsoft 365 の +SRS=）を戻した封筒の From が、許した送り主の表にある
+   2. SPF が pass で、smtp.mailfrom が封筒の From と完全に同じ（その送り主のサーバーから来た証拠。DKIM だけでは流し直せるので受けない）
+   3. 見出しの From（1 本だけ・アドレス 1 つ）が、次のどちらか
+      a. 書き換えのない封筒で、見出しの From のドメインが封筒のドメインと同じ（送り主が自分で書いたメール）
+      b. そのドメインで DKIM が pass（header.d が完全に同じ）で、表に「@ドメイン」と書いてある（転送された予約サイトの通知）
+   Cloudflare の文書は、受信時に送り主の Authentication-Results を消すかも、付ける名前も書いていない。分からない所は通さない側に倒した */
+
+const lower = (v) => String(v == null ? '' : v).trim().toLowerCase();
+const HEADER_NAME = /^[\x21-\x39\x3b-\x7e]+$/;   // 印字できる ASCII（「:」以外）
+const ADDRESS = /^[^@\s]+@[a-z0-9][a-z0-9.-]*$/;
+const DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*$/;
+
+/* 見出しを上から並べる { name（小文字）, value }。見出しと本文の境は最初の空行。空白で始まる行は前の見出しの続き（つなぐ）。
+   見出しの形でない行は捨て、その続きの行も前の見出しにはつなげない（Cloudflare が付けた行の直後に、送り主の行を継ぎ足させない） */
+export function headerList(raw) {
+  const text = String(raw || '');
+  const cut = text.match(/\r?\n\r?\n/);
+  const out = [];
+  let last = null;
+  for (const line of (cut ? text.slice(0, cut.index) : text).split(/\r?\n/)) {
+    if (/^[ \t]/.test(line)) { if (last) last.value += ` ${line.trim()}`; continue; }
+    const i = line.indexOf(':');
+    const name = i > 0 ? line.slice(0, i).replace(/[ \t]+$/, '') : '';
+    last = HEADER_NAME.test(name) ? { name: name.toLowerCase(), value: line.slice(i + 1).trim() } : null;
+    if (last) out.push(last);
+  }
+  return out;
 }
 
-/* 届いたメールの送り主（封筒の From）を、許した送り主の表と比べる。表は「,」区切り。大文字小文字は見ない */
+/* 「;」で区切る。引用符の中とコメント（括弧、入れ子あり）の中では区切らず、コメントは空白にする。引用符・括弧が閉じていなければ null */
+function authSegments(text) {
+  const segs = [];
+  let cur = '';
+  let quote = false;
+  let depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (quote) {
+      cur += c;
+      if (c === '\\') { i += 1; if (i >= text.length) return null; cur += text[i]; } else if (c === '"') quote = false;
+    } else if (depth) {
+      if (c === '\\') i += 1; else if (c === '(') depth += 1; else if (c === ')') depth -= 1;
+    } else if (c === '"') { quote = true; cur += c; } else if (c === '(') { depth = 1; cur += ' '; } else if (c === ';') { segs.push(cur); cur = ''; } else cur += c;
+  }
+  if (quote || depth) return null;
+  segs.push(cur);
+  return segs;
+}
+
+/* 空白で区切る（引用符の中は区切らない） */
+function tokensOf(seg) {
+  const out = [];
+  let cur = '';
+  let quote = false;
+  for (let i = 0; i < seg.length; i += 1) {
+    const c = seg[i];
+    if (quote) {
+      cur += c;
+      if (c === '\\') { i += 1; cur += seg[i] || ''; } else if (c === '"') quote = false;
+    } else if (c === '"') { quote = true; cur += c; } else if (/\s/.test(c)) { if (cur) out.push(cur); cur = ''; } else cur += c;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+const unquote = (v) => (/^".*"$/s.test(v) ? v.slice(1, -1).replace(/\\(.)/g, '$1') : v);
+
+/* Authentication-Results の値（RFC 8601）を { id, results: [{ method, result, props }] } にする。形が合わない物は丸ごと null（半端に読まない） */
+export function parseAuthResults(value) {
+  const text = String(value || '');
+  if (/[\x00-\x08\x0a-\x1f\x7f]/.test(text)) return null;
+  const segs = authSegments(text);
+  if (!segs) return null;
+  const head = tokensOf(segs[0]);
+  const id = lower(head[0]);
+  if (!/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/.test(id) || head.length > 2 || (head.length === 2 && !/^\d+$/.test(head[1]))) return null;
+  const results = [];
+  for (const seg of segs.slice(1)) {
+    const t = tokensOf(seg);
+    if (!t.length || (t.length === 1 && lower(t[0]) === 'none')) continue;
+    const m = /^([a-z0-9][a-z0-9-]*)(?:\/\d+)?=([a-z]+)$/i.exec(t[0]);
+    if (!m) return null;
+    const props = Object.create(null);
+    for (const p of t.slice(1)) {
+      const kv = /^([a-z0-9][a-z0-9._-]*)=([^]*)$/i.exec(p);
+      if (!kv) return null;
+      if (!(lower(kv[1]) in props)) props[lower(kv[1])] = unquote(kv[2]);
+    }
+    results.push({ method: lower(m[1]), result: lower(m[2]), props });
+  }
+  return { id, results };
+}
+
+/* 使ってよい Authentication-Results の結果。一番上の 1 本が Cloudflare の名前で、同じ名前の物がほかに無いときだけ。
+   { ok: true, results } か { ok: false, why }（why: config = 名前の設定が無い／no-header = 無い／top = 一番上が Cloudflare の物でない／dup = 同じ名前が 2 本以上） */
+export function trustedAuth(raw, authservId) {
+  const id = lower(authservId);
+  if (!id) return { ok: false, why: 'config' };
+  const found = headerList(raw).filter(h => h.name === 'authentication-results');
+  if (!found.length) return { ok: false, why: 'no-header' };
+  const top = parseAuthResults(found[0].value);
+  if (!top || top.id !== id) return { ok: false, why: 'top' };
+  if (found.slice(1).some(h => lower(h.value.split(';')[0]).split(/\s+/)[0] === id)) return { ok: false, why: 'dup' };
+  return { ok: true, results: top.results };
+}
+
+/* 転送で書き換わった封筒の From を、転送した人のアドレスに戻す。決まった形だけ（Gmail: <人>+caf_=<宛先>@gmail.com、
+   Microsoft 365: <人>+SRS=<hash>=<時刻>=<元のドメイン>=<元の名前>@<ドメイン>）。戻しても、SPF の確かめは書き換わった全体で行う */
+export function forwarderOf(from) {
+  const e = lower(from);
+  const gmail = /^([^@\s+][^@\s]*?)\+caf_=[^@\s]+@gmail\.com$/.exec(e);
+  if (gmail) return { forwarder: `${gmail[1]}@gmail.com`, rewritten: true };
+  const srs = /^([^@\s+][^@\s]*?)\+srs=[^=@\s]+=[^=@\s]+=[^=@\s]+=[^@\s]+@([^@\s]+)$/.exec(e);
+  if (srs) return { forwarder: `${srs[1]}@${srs[2]}`, rewritten: true };
+  return { forwarder: e, rewritten: false };
+}
+
+/* 見出しの From のドメイン。From が 1 本で、アドレスが 1 つだけのときだけ（複数・グループ・解釈が分かれる形は ''）。表示名とコメントは見ない */
+export function headerFromDomain(headers) {
+  const froms = headers.filter(h => h.name === 'from');
+  if (froms.length !== 1) return '';
+  let t = froms[0].value.replace(/"(?:[^"\\]|\\.)*"/g, ' ');
+  for (let prev = ''; prev !== t;) { prev = t; t = t.replace(/\([^()]*\)/g, ' '); }
+  const m = /^[^<>@,;:"()\\]*<([^<>\s,;:"()\\]+)>\s*$/.exec(t) || /^\s*([^<>\s,;:"()\\]+)\s*$/.exec(t);
+  const at = m ? m[1].lastIndexOf('@') : -1;
+  const domain = at > 0 ? lower(m[1].slice(at + 1)) : '';
+  return DOMAIN.test(domain) ? domain : '';
+}
+
+const senderList = (list) => String(list || '').split(',').map(lower).filter(Boolean);
+
+/* 届いたメールが、許した送り主から本当に来たか。{ ok: true, via: 'own' | 'relay' } か { ok: false, why }。
+   raw は見出しつきの生のメール、envelope は封筒の From、senders は表（「,」区切り。「a@b」は送り主、「@d」は転送を受ける予約サイトのドメイン） */
+export function senderVerdict({ raw, envelope, senders, authservId }) {
+  const auth = trustedAuth(raw, authservId);
+  if (!auth.ok) return auth;
+  const env = lower(envelope);
+  const { forwarder, rewritten } = forwarderOf(env);
+  const list = senderList(senders);
+  if (!ADDRESS.test(env) || !list.includes(forwarder)) return { ok: false, why: 'sender' };
+  const fromDomain = headerFromDomain(headerList(raw));
+  if (!fromDomain) return { ok: false, why: 'from' };
+  const spf = auth.results.filter(r => r.method === 'spf');
+  if (spf.length !== 1 || spf[0].result !== 'pass' || lower(spf[0].props['smtp.mailfrom']) !== env) return { ok: false, why: 'spf' };
+  if (!rewritten && fromDomain === env.split('@')[1]) return { ok: true, via: 'own' };
+  const signed = auth.results.some(r => r.method === 'dkim' && r.result === 'pass' && lower(r.props['header.d']) === fromDomain);
+  if (signed && list.includes(`@${fromDomain}`)) return { ok: true, via: 'relay' };
+  return { ok: false, why: 'origin' };
+}
+
+/* 届いたメールの送り主（封筒の From）を、許した送り主の表と比べる。表は「,」区切り。大文字小文字は見ない（「@ドメイン」の行は送り主ではない） */
 export function senderAllowed(from, list) {
-  const allowed = String(list || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  return allowed.includes(String(from || '').trim().toLowerCase());
+  return senderList(list).filter(s => !s.startsWith('@')).includes(lower(from));
 }
 
 /* ---------- 時刻が来た予定と、送る連絡 ---------- */

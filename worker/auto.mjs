@@ -4,8 +4,8 @@
 import { getRoster, putRoster, listTables } from './roster-db.mjs';
 import { checkPut, readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { checkRequest, periods } from './read-core.mjs';
-import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, markResults, runDue, roomForPublic, claimQueued, claimedBy, releaseStale, SENDING_STALE_MS,
-  MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX, SITE_DAILY_MAX_ALL, MAIL_DAILY_MAX_ALL, unreadWhy, UNREAD_KEEP_DAYS, UNREAD_DAILY_MAX } from './auto-core.mjs';
+import { checkBooking, addSiteBooking, mailText, senderAllowed, forwarderOf, senderVerdict, markResults, runDue, roomForPublic, claimQueued, claimedBy, releaseStale,
+  SENDING_STALE_MS, MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX, SITE_DAILY_MAX_ALL, MAIL_DAILY_MAX_ALL, unreadWhy, UNREAD_KEEP_DAYS, UNREAD_DAILY_MAX } from './auto-core.mjs';
 import { takeDaily, takeDailyAll, dropOldCounts } from './limit-db.mjs';
 import { addUnread } from './unread-db.mjs';
 import { dailyBackup } from './backup.mjs';
@@ -207,25 +207,30 @@ async function rememberUnread(env, io, note) {
 }
 
 async function takeMail(message, env, io, note) {
-  if (!dbReady(env) || !env.ANTHROPIC_API_KEY || !env.BUDGET) { note.why = 'config'; return; }
+  /* MAIL_AUTHSERV_ID（Cloudflare が付ける Authentication-Results の名前。置いたあと、本番に届いた 1 通で見て入れる）が無いと、送り主を確かめられないので読まない */
+  if (!dbReady(env) || !env.ANTHROPIC_API_KEY || !env.BUDGET || !String(env.MAIL_AUTHSERV_ID || '').trim()) { note.why = 'config'; return; }
   /* どのお店の予約かは、届いた宛先（封筒の To）をお店の一覧で引いて決める。送り主はそのお店の送り主の表で確かめる
      （SINGLE_SHOP の 1 店なら MAIL_SENDERS。あるお店の転送元が、別のお店の受け口に予約を入れられないように。ザクのレビュー 2026-10-27） */
   const shops = await listShops(env.DB, env);
   const shop = shopForRecipient(shops, message.to);
   if (!shop) { note.why = 'inbox'; message.setReject('Unknown recipient'); return; }
   note.shop = shop;
-  if (!senderAllowed(message.from, sendersOf(shops, shop))) { note.why = 'sender'; message.setReject('Sender not accepted'); return; }
-  const results = message.headers.get('authentication-results') || message.headers.get('arc-authentication-results') || '';
-  if (!authPassed(results, message.from)) { note.why = 'auth'; message.setReject('Sender not authenticated'); return; }
+  const senders = sendersOf(shops, shop);
+  if (!senderAllowed(forwarderOf(message.from).forwarder, senders)) { note.why = 'sender'; message.setReject('Sender not accepted'); return; }
+  /* 送り主の確かめは生のメールの見出しで行う（message.headers は同じ名前をつなぐので使わない。決まりは auto-core.mjs の senderVerdict）。
+     大きすぎて読めないメールは確かめられないので、ここで止める（お店の画面に「大きすぎる」と出る） */
   if (Number(message.rawSize) > MAX_MAIL_BYTES) { note.why = 'size'; return; }
+  const raw = await readRaw(message.raw, MAX_MAIL_BYTES);
+  if (raw === null) { note.why = 'size'; return; }
+  const verdict = senderVerdict({ raw, envelope: message.from, senders, authservId: env.MAIL_AUTHSERV_ID });
+  if (!verdict.ok) { note.why = 'auth'; note.authWhy = verdict.why; message.setReject('Sender not authenticated'); return; }
+  note.via = verdict.via;
   /* メールからの予約の 1 日の上限（全店あわせてと、お店ごと）。AI を呼ぶ前に数える（お店の読み取り /api/read の上限を食い尽くさせない） */
   const day = clockOf(io).today;
   if (!(await takeDailyAll(env.DB, { scope: 'mail', shop, day, max: MAIL_DAILY_MAX, maxAll: MAIL_DAILY_MAX_ALL }))) {
     note.why = 'mail-daily';
     return;
   }
-  const raw = await readRaw(message.raw, MAX_MAIL_BYTES);
-  if (raw === null) { note.why = 'size'; return; }
   const mail = mailText(raw);
   if (!mail.ok) { note.why = mail.error; return; }
   const { today } = clockOf(io);

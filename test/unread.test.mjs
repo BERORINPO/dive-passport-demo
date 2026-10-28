@@ -16,7 +16,7 @@ const EMAIL = 'mihon.member@example.com';
 const NOW = Date.parse('2026-10-27T05:05:00Z');   // 日本では 10/27 の 14:05
 const access = await fakeAccess(TEAM);
 const jwt = await access.sign({ iss: `https://${TEAM}`, aud: [AUD], email: EMAIL, exp: NOW / 1000 + 365 * 86400, iat: NOW / 1000 - 10, nbf: NOW / 1000 - 10, type: 'app' });
-const PASS = 'mx.cloudflare.net; dkim=pass header.d=shop.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass';
+const PASS = 'mx.cloudflare.net; dkim=pass header.d=booking.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass';
 
 const REAL_LOG = console.log;
 const logs = [];
@@ -27,7 +27,7 @@ function setup() {
   const db = fakeD1();
   const api = fakeAnthropic();
   const env = { ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, MAIL_SENDERS: 'forward@shop.example', SHOP_NAME: 'B マリン（見本）', SINGLE_SHOP: 'default' };
+    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, MAIL_SENDERS: 'forward@shop.example, @booking.example', MAIL_AUTHSERV_ID: 'mx.cloudflare.net', SHOP_NAME: 'B マリン（見本）', SINGLE_SHOP: 'default' };
   const io = {
     clock: NOW,
     fetch: async (url, init) => {
@@ -41,7 +41,7 @@ function setup() {
   return { db, api, env, io };
 }
 function message(body, from = 'forward@shop.example') {
-  const raw = `From: Booking Site <noreply@booking.example>\r\nTo: forward@shop.example\r\nSubject: 見本 花子様のご予約\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`;
+  const raw = `Authentication-Results: ${PASS}\r\nFrom: Booking Site <noreply@booking.example>\r\nTo: forward@shop.example\r\nSubject: 見本 花子様のご予約\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`;
   const bytes = new TextEncoder().encode(raw);
   return { from, to: 'yoyaku@shop.example', rawSize: bytes.byteLength, rejected: '', headers: new Headers({ 'authentication-results': PASS }),
     raw: new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } }), setReject(why) { this.rejected = why; } };
