@@ -31,8 +31,13 @@
   const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const addDays = (d, n) => { const x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; };
 
+  /* Worker 版（tools/build-site.mjs が index.html に redux-worker の印を足す）かどうか。GitHub Pages の見本の画面はこの印が無い。
+     見本の受付（seed）・見本の帯・見本のお店の名前は、この印が無い画面だけに出す（js/demo-band.js） */
+  const onWorkerBuild = () => typeof document !== 'undefined' && typeof document.querySelector === 'function' && !!document.querySelector('meta[name="redux-worker"]');
+  const SEED_ID = /^seed\d+$/;   // data.js の seedIntakes の id（seed1〜）
+
   function freshState() {
-    return { intakes: R.seedIntakes(), questions: [], flightHours: { dive: 18 }, medicalDays: R.MEDICAL_DAYS_DEFAULT };
+    return { intakes: onWorkerBuild() ? [] : R.seedIntakes(), questions: [], flightHours: { dive: 18 }, medicalDays: R.MEDICAL_DAYS_DEFAULT };
   }
 
   function load() {
@@ -41,6 +46,8 @@
       const raw = localStorage.getItem(KEY);
       const parsed = raw ? JSON.parse(raw) : null;
       state = parsed && Array.isArray(parsed.intakes) ? parsed : freshState();
+      /* Worker 版では見本の受付を出さない（前に見本の画面と同じ場所で開いて、端末に見本が残っていても外す） */
+      if (onWorkerBuild() && state.intakes.some(x => SEED_ID.test(String(x.id)))) state = { ...state, intakes: state.intakes.filter(x => !SEED_ID.test(String(x.id))) };
     } catch (e) {
       // 保存場所が使えない (プライベートウィンドウなど) ときは、見本の受付から始める
       state = freshState();
@@ -644,6 +651,9 @@
 
   const R = window.REDUX = {
     lang: 'ja',
+    isWorkerBuild: onWorkerBuild,
+    /* 見本の名簿のお店の名前。Worker 版の画面には出さない（js/demo-band.js の brand） */
+    SAMPLE_SHOP: ROSTER_SHOP,
     L: (o) => (o == null ? '' : typeof o === 'string' ? o : (o[R.lang] != null ? o[R.lang] : o.ja)),
     onLang: (fn) => { langListeners.push(fn); },
     setLang: (lang) => {
@@ -711,6 +721,8 @@
       refresh: refreshSync,
       whenSynced: flushSync,
       synced: () => !!sync,
+      /* サーバーが決めたお店の id（つなぐ前・サーバーを使わないときは null）。見本のお店の名前を出さないときの代わりの名前 */
+      shopId: () => (sync ? sync.shop : null),
       /* 済んで 7 日を過ぎた便（サーバーが便ごとに分けて置いた物。読むだけ）。サーバーを使わないときは { ok: false, why: 'local' } */
       past: (from, to) => (sync ? R.rosterSync.past(from, to) : Promise.resolve({ ok: false, why: 'local' })),
       subscribe: (fn) => { rosterListeners.push(fn); }

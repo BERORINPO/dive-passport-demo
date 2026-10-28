@@ -58,6 +58,16 @@ export const PASS_BASE = 'https://berorinpo.github.io/dive-passport-demo/';
 export const API_DOCS_URL = 'https://github.com/BERORINPO/dive-passport-demo/blob/main/docs/api.md';
 const REFERRER_META = '<meta name="referrer" content="no-referrer">';
 
+/* Worker 版の index.html。redux-worker の印（画面はこの印があるときだけ /api/healthz を確かめ、名簿をサーバーとそろえる。js/app.js）を足し、
+   見本の画面だけに要る物（見本の帯と、題の「（見本）」）を外す。本物の画面に「見本」と出ないようにする（js/demo-band.js も同じことを確かめ直す） */
+export function workerIndex(index) {
+  if (!index.includes(REFERRER_META)) throw new Error('index.html に referrer の meta が無い（パスポートの置き場所の meta を足す場所）');
+  const band = /<!-- 見本の帯[^\n]*-->\r?\n<p class="demo-band"[^\n]*<\/p>\r?\n/;
+  if (!band.test(index) || !index.includes('（見本）</title>')) throw new Error('index.html に見本の帯か題の印が無い（Worker 版から外す物の形が変わった）');
+  return index.replace(band, '').replace('（見本）</title>', '</title>').replace(REFERRER_META,
+    `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-api-docs" content="${API_DOCS_URL}">\n<meta name="redux-worker" content="1">`);
+}
+
 function build() {
   rmSync(out, { recursive: true, force: true });
   const files = siteFiles();
@@ -65,11 +75,7 @@ function build() {
     mkdirSync(dirname(join(out, f)), { recursive: true });
     cpSync(join(root, f), join(out, f));
   }
-  const index = readFileSync(join(root, 'index.html'), 'utf8');
-  if (!index.includes(REFERRER_META)) throw new Error('index.html に referrer の meta が無い（パスポートの置き場所の meta を足す場所）');
-  /* redux-worker: 画面はこの印があるときだけ /api/healthz を確かめる（js/app.js） */
-  writeFileSync(join(out, 'index.html'), index.replace(REFERRER_META,
-    `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-api-docs" content="${API_DOCS_URL}">\n<meta name="redux-worker" content="1">`));
+  writeFileSync(join(out, 'index.html'), workerIndex(readFileSync(join(root, 'index.html'), 'utf8')));
   writeFileSync(join(out, '_headers'), headers());
   writeFileSync(join(out, 'sw.js'), swFor(files.map(f => [f, readFileSync(join(out, f))])));
   console.log(`dist/: ${files.length} files + _headers`);
