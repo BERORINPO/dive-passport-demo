@@ -55,8 +55,23 @@ export function shrinkProblem(prev, next) {
   return gone > SHRINK_MIN && gone > prev.people.length * SHRINK_SHARE;
 }
 
-/* 画面から届いた名簿の、送る連絡と予定の動きを、サーバーが持つ名簿に合わせる（無ければ空の名簿）。決まりは js/roster-auto.js の serverOwned */
-export const serverOwned = (stored, incoming, opts) => R.rosterAuto.serverOwned(stored || R.roster.blankState(''), incoming, opts);
+/* 記録（log）は足すだけ。サーバーに置いてある記録が、届いた名簿から消えていたり書き換わっていたら、置いてある方を戻す
+   （古い画面・不具合のある画面・乗っ取られた端末が、条例の「いつ・誰が・どの項目を」の記録を消せないように。点検 2026-10-28 正しさ H8・設計 1）。
+   比べるのは健康の答えを外した形（scrubLog の後）。書き換えた行は、元の行を戻したうえで新しい行として残る（書き換えたことが分かる）。
+   期限で消える分は、このあと checkPut の tidy が消す */
+export function keepLog(stored, incoming) {
+  if (!stored || !Array.isArray(stored.log) || !incoming || !Array.isArray(incoming.log)) return incoming;
+  const key = (e) => JSON.stringify(e);
+  const given = R.rosterCore.scrubLog(incoming).log;
+  const had = new Set(stored.log.map(key));
+  const added = given.filter(e => !had.has(key(e)));
+  if (added.length === given.length - stored.log.length && given.every((e, i) => i >= stored.log.length || key(e) === key(stored.log[i]))) return incoming;
+  return { ...incoming, log: [...stored.log, ...added] };
+}
+
+/* 画面から届いた名簿の、送る連絡と予定の動きを、サーバーが持つ名簿に合わせる（無ければ空の名簿）。決まりは js/roster-auto.js の serverOwned。
+   記録は keepLog で足すだけにする */
+export const serverOwned = (stored, incoming, opts) => keepLog(stored, R.rosterAuto.serverOwned(stored || R.roster.blankState(''), incoming, opts));
 
 /* PUT の本文 { base, state, allowShrink? } を確かめる。返すのは { ok, base, state, text, parts, allowShrink } か { ok: false, error }。
    state と text は名簿の本体、parts は分けた済んだ便（past-core.mjs の splitPast。roster-db.mjs の putRoster が一緒に書く） */
