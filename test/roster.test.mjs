@@ -516,6 +516,33 @@ test('確かめる画面には、名簿の項目に無い自信なし（電話�
   assert.equal(C.reviewRows(p, trip).filter(r => r.field === 'cert').length, 2, 'ダイビングの便では cert は名簿の 2 行（取得日・講習）に出る');
 });
 
+test('確かめる画面 v12: 自信なしを先に出し、ほかの AI が読む項目も全部直せる。健康は出さない', () => {
+  const p = person({ address: '大阪府見本市', dives: 85, unsure: ['address'] });
+  const f = C.reviewFields(p, trip);
+  assert.deepEqual(f.unsure.map(r => [r.field, r.label]), [['address', '住所']]);
+  assert.deepEqual(f.others.map(r => r.field), ['name', 'birthDate', 'phone', 'emergency', 'cert', 'dives', 'lastDive', 'sizes']);
+  assert.ok(![...f.unsure, ...f.others].some(r => r.field === 'health'), '健康の答えはお店の確かめる画面に出さない');
+  const snorkel = { ...trip, kind: 'snorkel' };
+  assert.deepEqual(C.reviewFields(p, snorkel).others.map(r => r.field), ['name', 'birthDate', 'phone', 'emergency', 'dives', 'lastDive', 'sizes'],
+    'スノーケル便では名簿に無い C カードを出さない（経験と最後の日はスノーケルの名簿にもある）');
+  assert.ok(C.reviewFields({ ...p, unsure: ['cert'] }, snorkel).unsure.some(r => r.field === 'cert'), '自信なしなら名簿に無い項目も出す');
+});
+
+test('確かめる画面 v12: 名簿に入れると、直した項目は前と後を記録に残し、自信なしの印を外す。健康は受け取らない', () => {
+  const s0 = withMail('e1');
+  const id = s0.people[0].id;
+  const s = freeze({ ...s0, people: s0.people.map(x => (x.id === id ? { ...x, unsure: ['address'] } : x)) });
+  const before = s.people.find(x => x.id === id).dives;
+  const out = C.confirmReview(s, { id, patch: { dives: 58 }, at: AT });
+  const after = out.people.find(x => x.id === id);
+  assert.deepEqual([after.dives, after.unsure, after.src.dives], [58, [], 'staff']);
+  const [edit, check] = out.log.slice(-2);
+  assert.deepEqual([edit.act, edit.who, edit.fields, edit.before, edit.after], ['edit', 'staff', ['dives'], { dives: before }, { dives: 58 }]);
+  assert.deepEqual([check.act, check.fields], ['check', ['address']], '直さずに認めた自信なしの項目も、確かめたと残す');
+  assert.equal(C.confirmReview(s, { id, patch: {}, at: AT }).log.slice(-1)[0].act, 'check', '何も直さなければ確かめた記録だけ');
+  assert.throws(() => C.confirmReview(s, { id, patch: { health: { historyAt: AT, answers: NO5 } }, at: AT }), /直せない項目 \(health\)/);
+});
+
 test('予約の一覧の 1 便分: 予約ごとに人のそろい具合を付ける', () => {
   const s = withMail('e1');
   const rows = C.bookingRows(s, 't1');

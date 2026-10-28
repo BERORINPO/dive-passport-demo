@@ -185,7 +185,27 @@ export function senderAllowed(from, list) {
 
 /* 送る物（status が queued のもの）。1 回に送る数の上限つき */
 export const MAX_SEND_PER_RUN = 50;
-export const queuedOf = (state) => (state.outbox || []).filter(o => o.status === 'queued' && o.to).slice(0, MAX_SEND_PER_RUN);
+export const queuedOf = (state) => (state.outbox || []).filter(o => o.status === 'queued' && o.to && !o.why.startsWith(SENDING)).slice(0, MAX_SEND_PER_RUN);
+
+/* 送る前の印（ジンのレビュー 2026-10-27 MEDIUM 10）。送る前に why を「sending:<時刻>#<この回の印>」にして名簿に書き、送った後で結果を書く。
+   結果を書けなかった連絡は、印が残ったまま queuedOf に選ばれないので、もう一度は送らない。SENDING_STALE_MS を過ぎても印が残っている物は
+   「送れたか分からない」（failed / maybe-sent）にして、お店に確かめてもらう（2 回送るより、お店に見せる方を選ぶ） */
+export const SENDING = 'sending:';
+export const SENDING_STALE_MS = 30 * 60 * 1000;
+/* 1 回に印を付ける数。途中で Worker が止まると、印を付けた物は全部「送れたか分からない」になるので、小さく区切る（残りは次の回。ジンのレビュー） */
+export const CLAIM_MAX = 10;
+export function claimQueued(state, { token }) {
+  const ids = new Set(queuedOf(state).slice(0, CLAIM_MAX).map(o => o.id));
+  if (!ids.size) return state;
+  return { ...state, outbox: state.outbox.map(o => (ids.has(o.id) ? { ...o, why: `${SENDING}${token}` } : o)) };
+}
+export const claimedBy = (state, token) => (state.outbox || []).filter(o => o.status === 'queued' && o.why === `${SENDING}${token}`);
+/* before は「YYYY-MM-DDTHH:MM:SSZ」。印の時刻（同じ形）がそれより前の物を、送れたか分からないにする（core は時計を使わないので、文字のまま比べる） */
+export function releaseStale(state, { before, at }) {
+  const stale = (state.outbox || []).filter(o => o.status === 'queued' && o.why.startsWith(SENDING) &&
+    o.why.slice(SENDING.length, SENDING.length + 20) < before);
+  return stale.reduce((s, o) => R.rosterAuto.markSent(s, { id: o.id, result: 'failed', why: 'maybe-sent', at }), state);
+}
 
 /* 送った結果を名簿に付ける直し。results は [{ id, result, why }] */
 export function markResults(state, { results, at }) {
@@ -194,3 +214,26 @@ export function markResults(state, { results, at }) {
 
 /* 時刻が来た予定を動かす直し（js/roster-auto.js の runDue） */
 export const runDue = (state, opts) => R.rosterAuto.runDue(state, opts).state;
+
+/* ---------- 読めなかった予約メール（plan/auto.md。ジンのレビュー 2026-10-27 HIGH 6） ---------- */
+
+/* 残す日数・画面に出す数・1 お店で 1 日に残す数の上限（同じ送り主から大量に届いても、表が育たないように） */
+export const UNREAD_KEEP_DAYS = 30;
+export const UNREAD_SHOW_MAX = 50;
+export const UNREAD_DAILY_MAX = 60;
+/* 画面に出す理由の言葉 */
+export const UNREAD_WHY = ['limit', 'size', 'text', 'no-date', 'full', 'roster', 'error', 'ai', 'many'];   // many: その日は上限を超えて、ほかにもあった
+
+/* 届いたメールを名簿に入れられなかった理由（ログの note.why）を、画面に出す短い言葉にする。
+   宛先・送り主・送り主のドメインの確かめで断ったメールと、設定の誤りは残さない（null。お店のメールとは限らないため） */
+export function unreadWhy(why) {
+  if (!why || ['inbox', 'sender', 'auth', 'config'].includes(why)) return null;
+  if (why === 'mail-daily') return 'limit';
+  if (why === 'size') return 'size';
+  if (why === 'empty' || why === 'no-text' || why.startsWith('input-')) return 'text';
+  if (why === 'no-date') return 'no-date';
+  if (why === 'add-full') return 'full';
+  if (why.startsWith('add-')) return 'roster';
+  if (why === 'crash') return 'error';
+  return 'ai';   // AI の上限・答えの形・届かない
+}

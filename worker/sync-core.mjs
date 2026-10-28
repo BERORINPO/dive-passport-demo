@@ -6,10 +6,11 @@ import '../js/roster-core.js';
 import '../js/roster-share.js';
 import '../js/roster-guest.js';
 import '../js/roster-auto.js';
+import { splitPast } from './past-core.mjs';
 
 const R = globalThis.REDUX;
 
-/* 名簿 1 つの上限。D1 の 1 行は 2 MB まで。1 年分の予約が入る見込み（超えたら便ごとに分けて持つ形へ直す。plan/server.md） */
+/* 名簿の本体 1 つの上限。D1 の 1 行は 2 MB まで。済んで 7 日を過ぎた便は便ごとに分けて置くので（past-core.mjs）、本体には先の予約の分だけが入る */
 export const MAX_ROSTER_BYTES = 1000000;
 /* 依頼の本文の上限。名簿 + { base, state } の囲み */
 export const MAX_PUT_BODY = MAX_ROSTER_BYTES + 4096;
@@ -30,7 +31,7 @@ function tidy(state, { today, at }) {
    - 便・予約・人の id は重ならない（同じ id の人を 2 人入れて、他のお店のお客さんの健康の答えを外す決まりを抜けさせない。ザクのレビュー 2026-10-27）
    記録の before / after の中身は、まだ項目を絞っていない。お客さんのリンク（/ask）を Access の外に出す前に絞る（plan/server.md） */
 const STATE_KEYS = ['v', 'shop', 'trips', 'bookings', 'people', 'log', 'jobs', 'outbox'];
-const SHOP_KEYS = ['name'];
+const SHOP_KEYS = ['name', 'health'];
 const LOG_KEYS = ['at', 'who', 'act', 'kind', 'id', 'fields', 'before', 'after', 'sent', 'demo'];
 const onlyKeys = (o, keys) => Object.keys(o).every(k => keys.includes(k));
 const unique = (list) => new Set(list.map(x => x.id)).size === list.length;
@@ -42,27 +43,45 @@ function strictProblem(s) {
   return '';
 }
 
-/* PUT の本文 { base, state } を確かめる。返すのは { ok, base, state, text } か { ok: false, error } */
+/* 名簿の大きな減り。今の名簿（prev）から、人が SHRINK_MIN 人より多く、かつ SHRINK_SHARE の割合より多く消える書き込みは、
+   端末の名簿が読めずに空になったまま送られた、などの事故とみなす（ジンのレビュー 2026-10-27 CRITICAL）。
+   期限切れで消える分は、両方を同じ日に tidy してから比べるので数えない。わざと消す（デモの予約をすべて消す）ときは allowShrink */
+const SHRINK_MIN = 5;
+const SHRINK_SHARE = 0.3;
+export function shrinkProblem(prev, next) {
+  if (!prev) return false;
+  const kept = new Set(next.people.map(p => p.id));
+  const gone = prev.people.filter(p => !kept.has(p.id)).length;
+  return gone > SHRINK_MIN && gone > prev.people.length * SHRINK_SHARE;
+}
+
+/* PUT の本文 { base, state, allowShrink? } を確かめる。返すのは { ok, base, state, text, parts, allowShrink } か { ok: false, error }。
+   state と text は名簿の本体、parts は分けた済んだ便（past-core.mjs の splitPast。roster-db.mjs の putRoster が一緒に書く） */
 export function checkPut(given, { today, at }) {
   if (!given || typeof given !== 'object' || Array.isArray(given)) return { ok: false, error: 'shape' };
   const { base, state } = given;
+  if (!Object.keys(given).every(k => ['base', 'state', 'allowShrink'].includes(k))) return { ok: false, error: 'keys' };
+  if (given.allowShrink !== undefined && typeof given.allowShrink !== 'boolean') return { ok: false, error: 'allowShrink' };
   if (!Number.isInteger(base) || base < 0) return { ok: false, error: 'base' };
   if (!state || typeof state !== 'object' || Array.isArray(state)) return { ok: false, error: 'state' };
+  /* 古い版の画面からの名簿は上げずに断る（上げると、画面が知らない新しい欄を消して書くため。handler は 426 で読み込み直しを頼む） */
+  if (Number.isInteger(state.v) && state.v < R.roster.VERSION) return { ok: false, error: 'old-version' };
   const scrubbed = R.rosterCore.scrubLog(state);
   const v = R.roster.validateState(scrubbed);
   if (!v.ok) return { ok: false, error: `state:${v.errors.slice(0, 3).join(',')}` };
   const strict = strictProblem(scrubbed);
   if (strict) return { ok: false, error: `strict:${strict}` };
-  const next = tidy(scrubbed, { today, at });
-  const text = JSON.stringify(next);
+  const split = splitPast(tidy(scrubbed, { today, at }), { today, tag: `v${base + 1}` });
+  const text = JSON.stringify(split.state);
   if (bytes(text) > MAX_ROSTER_BYTES) return { ok: false, error: 'size' };
-  return { ok: true, base, state: next, text };
+  return { ok: true, base, state: split.state, text, parts: split.parts, allowShrink: given.allowShrink === true };
 }
 
-/* 置いてある名簿の文字を読み直す。形の検査に落ちたら null（壊れた物を画面に広げない）。期限切れの便は、読むときにも消す */
+/* 置いてある名簿の文字を読み直す。形の検査に落ちたら null（壊れた物を画面に広げない）。期限切れの便は、読むときにも消す。
+   済んだ便はここでは分けない（分けた物を書く前に画面へ渡すと、次の書き込みで消えてしまうため。分けるのは書くときだけ） */
 export function readStored(text, { today, at }) {
   let parsed = null;
-  try { parsed = JSON.parse(text); } catch (e) { return null; }
+  try { parsed = R.roster.upgradeState(JSON.parse(text)); } catch (e) { return null; }   // 前の版で置いた名簿は、今の版に上げて読む
   if (!parsed || typeof parsed !== 'object' || !R.roster.validateState(parsed).ok) return null;
   return tidy(parsed, { today, at });
 }

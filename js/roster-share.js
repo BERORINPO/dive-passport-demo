@@ -214,7 +214,7 @@
       const guides = shop.own ? unique([...trip.guides, ...people.map(p => p.guide)]) : unique(people.map(p => p.guide));
       const members = [
         ...guides.map(name => ({ kind: 'guide', name, label: 'ガイド' })),
-        ...people.map(p => ({ kind: 'person', name: p.name, person: p, label: kindLabel(p, trip), status: C().status(p, trip) }))
+        ...people.map(p => ({ kind: 'person', name: p.name, person: p, label: kindLabel(p, trip), status: C().status(p, trip, { paper: shop.own && C().paperOf(state) }) }))
       ];
       return { ...shop, owner: shop.name === owner, members, guides: guides.length, people: people.length };
     });

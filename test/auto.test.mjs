@@ -175,6 +175,73 @@ test('名簿の掃除: 終わって 1 週間を過ぎた便だけ、済んだ予
   assert.ok(JSON.stringify(later).length < JSON.stringify(sent).length);
 });
 
+/* お願いを送ったが、送れたか分からない（Worker の releaseStale と同じ形）にした名簿 */
+function maybeSent() {
+  const first = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const r = A.runDue(first.state, { nowJst: NOW, at: AT, newId, askBase: ASK });
+  const id = r.state.outbox[0].id;
+  return { state: A.markSent(r.state, { id, result: 'failed', why: 'maybe-sent', at: AT }), id, bookingId: first.bookingId };
+}
+
+test('送り直す: 送れたか分からない連絡から、今の予約で新しい連絡を 1 つ作る。2 回押しても・2 台で押しても 1 つだけ', () => {
+  const { state, id } = maybeSent();
+  const once = A.resend(state, { id, nowJst: NOW, at: AT, newId, askBase: ASK });
+  assert.equal(once.problem, '');
+  assert.deepEqual(once.state.outbox.map(o => [o.status, o.why]), [['failed', A.RESENT], ['queued', '']]);
+  assert.equal(once.state.outbox[1].id, once.id);
+  assert.equal(once.state.outbox[1].to, 'hanako@mail.example');
+  assert.ok(S.validateState(once.state).ok);
+  const twice = A.resend(once.state, { id, nowJst: NOW, at: AT, newId, askBase: ASK });
+  assert.equal(twice.problem, 'resent');
+  assert.equal(twice.state, once.state, '2 回目は何も変えない（別の端末の書き込みに当て直しても同じ）');
+  assert.equal(A.resend(once.state, { id: once.id, nowJst: NOW, at: AT, newId, askBase: ASK }).problem, 'not-failed', '送る準備の物は送り直せない');
+});
+
+test('送り直す: 宛先は今の予約から取り直す。メールアドレスが無い・済んだ便・中止の便・もうそろった予約は送り直さない', () => {
+  const { state, id, bookingId } = maybeSent();
+  const fixed = { ...state, bookings: state.bookings.map(b => (b.id === bookingId ? { ...b, leadEmail: 'hanako2@mail.example' } : b)) };
+  assert.equal(A.resend(fixed, { id, nowJst: NOW, at: AT, newId, askBase: ASK }).state.outbox[1].to, 'hanako2@mail.example');
+  const noMail = { ...state, bookings: state.bookings.map(b => (b.id === bookingId ? { ...b, leadEmail: '' } : b)) };
+  assert.equal(A.resend(noMail, { id, nowJst: NOW, at: AT, newId, askBase: ASK }).problem, 'no-email');
+  assert.equal(A.resend(state, { id, nowJst: '2026-11-01T09:00', at: AT, newId, askBase: ASK }).problem, 'past');
+  const off = { ...state, trips: state.trips.map(t => ({ ...t, cancel: { why: 'wind', at: AT, by: 'B' } })) };
+  assert.equal(A.resend(off, { id, nowJst: NOW, at: AT, newId, askBase: ASK }).problem, 'cancel');
+  assert.equal(A.resend(fillAll(state, bookingId), { id, nowJst: NOW, at: AT, newId, askBase: ASK }).problem, 'done');
+});
+
+test('届いていた: 送れたか分からない連絡を sent（お店が確かめた）にし、もう送り直せない', () => {
+  const { state, id } = maybeSent();
+  const r = A.confirmSent(state, { id, at: '2026-10-27T02:00:00.000Z' });
+  assert.equal(r.problem, '');
+  assert.deepEqual([r.state.outbox[0].status, r.state.outbox[0].why, r.state.outbox[0].sentAt], ['sent', A.CONFIRMED, '2026-10-27T02:00:00.000Z']);
+  assert.equal(A.confirmSent(r.state, { id, at: AT }).problem, 'not-maybe');
+  assert.equal(A.resend(r.state, { id, nowJst: NOW, at: AT, newId, askBase: ASK }).problem, 'not-failed');
+  assert.ok(S.validateState(r.state).ok);
+});
+
+test('お店全体の一覧: 送れたか分からない・送れなかった・送る準備・今日・これからに分け、時刻の順。済んだ便は出さない', () => {
+  const { state, id } = maybeSent();
+  const second = A.addFromReading(state, { reading: reading({ date: '2026-10-28', start: '13:00' }), at: AT, nowJst: NOW, newId });
+  const r = A.runDue(second.state, { nowJst: NOW, at: AT, newId, askBase: ASK });
+  const failedId = r.state.outbox[1].id;
+  const st = A.markSent(r.state, { id: failedId, result: 'failed', why: 'E_DELIVERY_FAILED', at: AT });
+  const b = A.board(st, { nowJst: NOW });
+  assert.deepEqual(b.maybe.map(x => x.out.id), [id]);
+  assert.deepEqual(b.failed.map(x => x.out.id), [failedId]);
+  assert.equal(b.failed[0].booking.id, second.bookingId);
+  assert.deepEqual(b.ready, []);
+  assert.deepEqual(b.today.map(x => [x.job.kind, x.job.status]), [['request', 'done'], ['request', 'done'], ['eve', 'waiting']], '今日の済んだ予定も出す');
+  const dues = b.later.map(x => x.job.due);
+  assert.deepEqual(dues, [...dues].sort(), '時刻の順');
+  assert.ok(b.later.every(x => x.job.status === 'waiting'));
+  const resent = A.resend(st, { id, nowJst: NOW, at: AT, newId, askBase: ASK }).state;
+  const after = A.board(resent, { nowJst: NOW });
+  assert.deepEqual([after.maybe.length, after.ready.length, after.ready[0].sending], [0, 1, false], '送り直すと、送る準備に移る');
+  assert.equal(A.board(resent, { nowJst: '2026-11-02T09:00' }).failed.length, 0, '済んだ便の物は出さない');
+  const late = A.board(second.state, { nowJst: '2026-10-28T07:00' });
+  assert.ok(late.today.some(x => x.job.kind === 'request' && x.job.due < '2026-10-28'), '時刻を過ぎてまだ動いていない予定は今日に出す');
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

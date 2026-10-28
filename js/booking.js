@@ -28,11 +28,35 @@
     conflict: '別のタブで名簿が変わりました。この画面には、保存できていない予約があります。',
     'sync-offline': 'サーバーに送れていない直しがあります。この端末に残してあり、つながったら送ります。',
     'sync-kept': '送れないうちに別の端末で名簿が直されました。この端末の名簿は消さずに別の場所に残し、サーバーの名簿にしました。',
-    'sync-dropped': '別の端末の直しとぶつかったため、この端末の直しを取り消した物があります。予約と名簿を確かめてください。',
+    'sync-dropped': '別の端末の直しとぶつかったため、この端末の直しを取り消した物があります。取り消す前の名簿は別の場所に残しました。予約と名簿を確かめてください。',
+    'sync-shop': 'この端末には、別のお店の名簿がありました。送らずに端末の別の場所に残し、ログインしたお店の名簿にしました。',
+    'sync-lost': '送れなかった直しを、端末の容量が足りず残せませんでした。予約と名簿を確かめ、足りない物を入れ直してください。',
+    'sync-shop-changed': 'ログインしたお店が変わりました。画面を読み込み直してください。この端末の直しは送らず、別の場所に残してあります。',
+    'sync-newer': 'REDUX が新しくなりました。画面を読み込み直してください。この端末の直しは別の場所に残してあります。',
+    'sync-login': 'ログインが切れました。画面を読み込み直してください。直しはこの端末に残してあり、ログインし直したら送ります。',
+    'sync-shrink': 'この端末から、名簿の人が大きく消える書き込みがあったので、サーバーが止めました。サーバーの名簿に戻し、この端末の名簿は別の場所に残しました。',
+    'sync-rejected': 'サーバーが受け付けなかった直しがあります。サーバーの名簿に戻し、この端末の名簿は別の場所に残しました。予約と名簿を確かめてください。',
     newer: '別のタブで、この画面より新しい版の名簿が保存されました。消さないよう、この画面からは保存しません。ページを読み込み直してください。'
   };
 
-  let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
+  /* 読めなかった予約メール（サーバーを使う版だけ）。予約の一覧と書類の自動化の画面を開いたときに、1 分に 1 回まで読む */
+  const UNREAD_WHY_JA = { limit: '1 日の上限を超えた', size: 'メールが大きすぎる', text: '本文が読めない', 'no-date': '日付が書かれていない',
+    full: '名簿がいっぱい', roster: '名簿に書けなかった', error: 'サーバーの誤り', ai: 'AI が読めなかった',
+    many: 'この日は、ほかにも読めなかったメールがある（多すぎて 1 通ずつは残していない）' };
+  const unread = { items: [], at: 0 };
+  function loadUnread() {
+    if (!R.rosterStore.synced() || Date.now() - unread.at < 60000) return;
+    unread.at = Date.now();
+    R.rosterSync.unread().then(r => { if (r.ok) { unread.items = r.items; if (['list', 'board'].includes(mode)) render(); } });
+  }
+  /* 読めなかった予約メールは、書類の自動化の画面（auto-flow.js の renderBoard）に出す */
+  const unreadView = () => ({
+    items: unread.items,
+    whyText: (x) => UNREAD_WHY_JA[x.why] || '読めなかった',
+    done: (id) => R.rosterSync.doneUnread(id).then(ok => { if (ok) { unread.items = unread.items.filter(x => x.id !== id); render(); } })
+  });
+
+  let mode = 'list';        // list / board（書類の自動化、auto-flow.js）/ mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
                             // day（今日の名簿）/ spo2（血中酸素）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
                             // share（乗り合い）/ partner（他のお店役）/ partnerpaper / joint（合同名簿）/ jointprint / boat（船の上）/ callout（名前で呼ぶ）は share-roster.js
                             // partnerphoto（他のお店が写真で名前を渡す）は partner-photo.js
@@ -185,7 +209,23 @@
       el('button', { class: 'linkbtn', type: 'button', text: real ? '見本に戻す' : '本物にする', onclick: () => A.setMode(real ? 'sample' : 'real') }));
   }
 
+  /* 健康の質問をどこで聞くか（お店ごと）。紙にすると、お客さんのリンクと自動の連絡は健康を聞かず、名簿の健康の欄は「紙の申込書」になる */
+  function healthModeRow(s) {
+    const paper = C().paperOf(s);
+    const pick = (on) => () => {
+      const r = save(st => C().setHealthPaper(st, { paper: on, at: now() }));
+      notice = r.error ? { kind: 'warn', text: '切り替えられませんでした' }
+        : { kind: 'ok', text: on ? '健康の質問は、紙の申込書で聞きます。お客さんのリンクと自動の連絡では聞きません。' : '健康の質問を、お客さんのリンクで聞きます。' };
+      render();
+    };
+    const opt = (on, text) => el('button', { class: 'ptab', type: 'button', 'aria-pressed': String(paper === on), text, onclick: pick(on) });
+    return el('section', { class: 'reset' },
+      el('span', { class: 'rd__k', text: '健康の質問（お店ごと）' }),
+      el('div', { class: 'ptabs', role: 'group', 'aria-label': '健康の質問' }, opt(false, 'アプリで聞く'), opt(true, '紙の申込書で聞く')));
+  }
+
   function renderList() {
+    loadUnread();
     const s = R.rosterStore.get();
     const trips = C().tripList(s);
     const dates = [...new Set(trips.map(t => t.date))];
@@ -194,6 +234,7 @@
       ...head('予約'),
       aiRow(),
       R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
+      R.autoFlow.boardRow(s, { unread: unread.items.length, ui }),
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
         class: 'day', type: 'button', 'aria-pressed': String(d === day), 'aria-label': md(d),
         onclick: () => { day = d; notice = null; armedReset = false; render(); }
@@ -212,6 +253,9 @@
       /* 書類の自動化のデモ: 見本のメールが届いた形と、次の予定の時刻まで進める */
       el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本のメールが届く（デモ）', onclick: () => R.autoFlow.demoMail(ui) })),
       (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
+      healthModeRow(s),
+      /* 済んで 7 日を過ぎた便は、サーバーが便ごとに分けて置く（読むだけ）。サーバーを使わない版には無い */
+      R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '済んだ便を見る（7 日より前）', onclick: () => go('past') })) : null,
       s.trips.length ? resetButton() : null,
       dock(
         el('button', { class: 'btn', type: 'button', text: 'メールを貼る', onclick: () => go('mail') }),
@@ -460,7 +504,7 @@
 
   function personLine(p, trip) {
     const items = R.roster.ITEMS[trip ? trip.kind : 'dive'];
-    const st = C().status(p, trip);
+    const st = C().status(p, trip, { paper: C().paperOf(R.rosterStore.get()) });
     const labels = st.missing.map(k => items.find(i => i.key === k).ja);
     const rest = labels.length > 4 ? ` ほか ${labels.length - 4}` : '';
     return el('div', { class: 'rd' },
@@ -517,7 +561,7 @@
   const ui = { head, field, md, tripLabel, save, go, rerender: () => render(), back, dock };
   const DAY_MODES = { day: 'renderDay', spo2: 'renderSpo2', cancel: 'renderCancel', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
   const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', partnerpaper: 'renderPartnerPaper', joint: 'renderJoint', jointprint: 'renderJointPrint', boat: 'renderBoat', callout: 'renderCallout' };
-  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint'];
+  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint', 'pastprint'];
 
   function render() {
     mailOut = null;
@@ -528,9 +572,12 @@
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
             : mode === 'flow' ? R.autoFlow.render({ bookingId: askBooking, ui })
+            : mode === 'board' ? (loadUnread(), R.autoFlow.renderBoard({ ui, unread: unreadView() }))
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })
               : SHARE_MODES[mode] ? R.shareRoster[SHARE_MODES[mode]]({ tripId: dayTrip, shop: shareShop, ui })
-                : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui }) : renderList();
+                : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui })
+                  : mode === 'past' ? R.pastTrips.renderList({ ui })
+                    : mode === 'pastprint' ? R.pastTrips.renderPrint({ tripId: dayTrip, ui }) : renderList();
     R.fill(root, body);
     /* 印刷では名簿の紙だけを出す（css/app.css）。紙が無い画面では白紙にしない */
     document.body.classList.toggle('print-roster', PRINT_MODES.includes(mode) && !!root.querySelector('.paper'));
@@ -551,7 +598,8 @@
   const autoTick = () => { if (R.autoFlow.tick(save) && !root.closest('[hidden]') && !['mail', 'phone'].includes(mode)) render(); };
   setTimeout(autoTick, 1500);
   setInterval(autoTick, 60000);
-  R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log', 'joint', 'boat', 'callout'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
+  const LIVE_MODES = ['list', 'board', 'ask', 'day', 'log', 'joint', 'boat', 'callout'];
+  R.rosterStore.subscribe(() => { if (LIVE_MODES.includes(mode) && !document.getElementById('view-booking').hidden) render(); });
   /* 見本 / 本物が変わった（切り替えた・上限で見本に戻った・healthz が通った）。入力の途中の画面は描き直さない */
   R.aiReader.onChange(() => { if (mode === 'list' && !document.getElementById('view-booking').hidden) render(); });
 })();

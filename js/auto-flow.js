@@ -47,6 +47,8 @@
     const last = outs[outs.length - 1];
     if (!last) return null;
     if (last.status === 'unsent' && last.why === 'no-email') return { warn: true, text: 'メールアドレスが無いので、お願いを送っていない' };
+    if (last.status === 'failed' && last.why === 'maybe-sent') return { warn: true, text: `${OUT_JA[last.kind]}: 送れたか分からない（書類の自動化で確かめる）` };
+    if (last.status === 'failed' && last.why !== A().RESENT) return { warn: true, text: `${OUT_JA[last.kind]}: 送れなかった（書類の自動化で送り直せる）` };
     return { warn: false, text: `${OUT_JA[last.kind]}: ${last.status === 'sent' ? '送った' : '送る準備ができた'}` };
   }
   const hasPlan = (state, bookingId) => (state.jobs || []).some(j => j.bookingId === bookingId);
@@ -64,7 +66,9 @@
   function outLine(o) {
     const what = o.kind === 'staff' ? 'お店に知らせた: 名簿の項目が届いていない人がいる'
       : `${o.status === 'sent' ? '送った' : o.status === 'queued' ? '送る準備ができた' : o.status === 'failed' ? '送れなかった' : '送っていない'}: ${OUT_JA[o.kind]}`;
-    const why = o.status === 'unsent' ? (o.why === 'no-email' ? '（メールアドレスが無い）' : '（メールの設定がまだ無い）')
+    const why = o.status === 'failed' && o.why === 'maybe-sent' ? '（送れたか分からない。お客さんに届いたか確かめてください）'
+      : o.why === A().RESENT ? '（送り直した）' : o.why === A().CONFIRMED ? '（届いたのをお店が確かめた）'
+      : o.status === 'unsent' ? (o.why === 'no-email' ? '（メールアドレスが無い）' : '（メールの設定がまだ無い）')
       : o.status === 'queued' ? '（メールの設定がそろうと送る）' : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, el('span', { class: 'fig', text: jstOf(o.at) }), `　${what}`),
@@ -104,6 +108,117 @@
     ];
   }
 
+  /* ---------- お店全体（画面 10。モック screen-10-auto-board） ---------- */
+  const OUT_NAME = { request: '名簿の項目のお願い', remind: 'もう一度お願い', today: '当日の体調の質問', staff: 'お店への知らせ' };
+  const DONE_JA = { request: 'お願いを送った', remind: 'もう一度お願いを送った', eve: 'お店に知らせた', morning: '名簿を作り、当日の体調の質問を送った' };
+  const FAIL_JA = { 'no-email': 'メールアドレスが無い', 'no-mail-config': 'メールの設定がまだ無い' };
+  const RESEND_JA = {
+    resent: 'もう送り直してあります', 'not-failed': 'もう送ったか、送る準備ができています', 'no-email': 'メールアドレスが無いので送れません',
+    past: '済んだ便なので送りません', cancel: '中止の便なので送りません', done: '名簿がもうそろっているので送りません', 'not-found': 'この連絡が見つかりません'
+  };
+  const LATER_SHOW = 10;
+  let laterAll = false;
+  const leadOf = (state, b) => b.leadName || ((state.people.find(p => p.bookingId === b.id) || {}).name) || '名前の分からない予約';
+  const tripText = (ui, trip) => `${ui.md(trip.date)} ${ui.tripLabel(trip)}`;
+
+  /* 予約の一覧の上の 1 行。自動の予定も連絡も読めなかったメールも無ければ出さない */
+  function boardRow(state, { unread, ui }) {
+    if (!(state.jobs || []).length && !(state.outbox || []).length && !unread) return null;
+    const b = A().board(state, { nowJst: R.nowJst() });
+    const check = b.maybe.length + b.failed.length + unread;
+    return el('div', { class: 'ai' },
+      el('span', { class: 'rd__k', text: '書類の自動化' }),
+      el('span', { class: 'ai__v' }, check ? el('b', { class: 'st--check', text: `! 確かめる ${check}` }) : el('b', { class: 'st--ok', text: '✓ 確かめる所なし' }),
+        el('small', { text: `今日の予定 ${b.today.filter(r => r.job.status === 'waiting').length} 件・送る準備 ${b.ready.length} 件` })),
+      el('button', { class: 'linkbtn', type: 'button', text: '開く', onclick: () => ui.go('board') }));
+  }
+
+  /* 送り直す・届いていた。名簿を直す関数を当てる（サーバーの版とぶつかったら、最新に当て直しても 2 つは作らない） */
+  function act(ui, fn, okText) {
+    let problem = '';
+    const r = ui.save(st => { const out = fn(st); problem = out.problem; return out.state; });
+    ui.go('board', { saved: r.saved, warn: r.error ? '直せませんでした' : problem ? RESEND_JA[problem] || '直せませんでした' : null, notice: r.error || problem ? null : okText });
+  }
+  const resendIt = (ui, id) => act(ui, st => A().resend(st, { id, nowJst: R.nowJst(), at: R.nowIso(), newId: R.newId, askBase: askBase() }),
+    R.rosterStore.synced() ? '送り直します。次の送信（15 分以内）で 1 通だけ送ります' : '送る準備をしました（この端末の試作では送りません）');
+  const confirmIt = (ui, id) => act(ui, st => A().confirmSent(st, { id, at: R.nowIso() }), '届いていた連絡として残しました');
+
+  function boardLine({ at, name, st, meta, next, extra }) {
+    return el('li', { class: next ? 'bk bk--next' : 'bk' },
+      el('span', { class: 'bk__name' }, el('span', { class: 'fig', text: at }), '　', name),
+      st ? el('span', { class: `st st--${st[0]}`, text: st[1] }) : el('span'),
+      el('span', { class: 'bk__meta', text: meta }),
+      extra || null);
+  }
+  const toFlow = (ui, bookingId) => el('button', { class: 'linkbtn', type: 'button', text: '流れを見る', onclick: () => ui.go('flow', { bookingId }) });
+  const outMeta = (state, ui, r) => [leadOf(state, r.booking), tripText(ui, r.trip)].join('・');
+
+  function maybeLine(state, ui, r) {
+    return boardLine({
+      at: jstOf(r.out.at), name: `${leadOf(state, r.booking)} さんへ「${OUT_NAME[r.out.kind]}」`, st: ['check', '! 確かめる'],
+      meta: `送る途中で止まった・${tripText(ui, r.trip)}・${r.out.to}`,
+      extra: el('div', { class: 'bk__ask' },
+        el('p', { text: 'もう一度送ると 2 通届くことがあります。お客さんに届いたか確かめてから選んでください。' }),
+        el('button', { class: 'btn btn--ghost', type: 'button', text: '届いていた（送り直さない）', onclick: () => confirmIt(ui, r.out.id) }),
+        el('button', { class: 'btn btn--ghost', type: 'button', text: '届いていない・送り直す', onclick: () => resendIt(ui, r.out.id) }))
+    });
+  }
+  function failedLine(state, ui, r) {
+    const can = !A().resendProblem(state, r.out, R.nowJst().slice(0, 10));
+    const why = r.out.status === 'unsent' ? FAIL_JA[r.out.why] || '送っていない' : '送る所で断られた';
+    return boardLine({
+      at: jstOf(r.out.at), name: `${leadOf(state, r.booking)} さんへ「${OUT_NAME[r.out.kind]}」`, st: null, meta: `${why}・${tripText(ui, r.trip)}`,
+      extra: can ? el('button', { class: 'linkbtn', type: 'button', text: '送り直す', onclick: () => resendIt(ui, r.out.id) }) : toFlow(ui, r.booking.id)
+    });
+  }
+  function jobLine(state, ui, r, { withDay }) {
+    const j = r.job;
+    const waiting = j.status === 'waiting';
+    const late = waiting && j.due <= R.nowJst();
+    return boardLine({
+      at: withDay ? dueText(j.due) : j.due.slice(11).replace(/^0/, ''), next: waiting && !late,
+      name: waiting ? `${PLAN_JA[j.kind]}（予定）` : j.status === 'skipped' ? 'そろっていたので送らなかった' : DONE_JA[j.kind],
+      st: late ? ['wait', '・待っている'] : waiting ? null : ['ok', j.status === 'skipped' ? '✓ そろった' : '✓ 済んだ'],
+      meta: outMeta(state, ui, r), extra: toFlow(ui, r.booking.id)
+    });
+  }
+  const section = (title, count, rows) => (rows.length
+    ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, title, el('small', { class: 'fig', text: String(count) })), el('ul', { class: 'bks bks--sheet' }, rows))
+    : null);
+
+  /* unread: { items: [{ id, at, why }], whyText(item), done(id) } は予約の画面（booking.js）が持つ（サーバーの版だけ） */
+  function renderBoard({ ui, unread }) {
+    const s = R.rosterStore.get();
+    const nowJst = R.nowJst();
+    const b = A().board(s, { nowJst });
+    const check = b.maybe.length + b.failed.length + unread.items.length;
+    const later = laterAll ? b.later : b.later.slice(0, LATER_SHOW);
+    const today = nowJst.slice(0, 10);
+    return [
+      ...ui.head('書類の自動化', `今 ${dueText(nowJst)}・${R.rosterStore.synced() ? 'メールは 15 分ごとに送る' : 'この端末の試作では送らない'}`),
+      el('p', { class: 'sumline sumline--board' },
+        el('b', { class: check ? 'st--check' : 'st--ok', text: check ? `! 確かめる ${check}` : '✓ 確かめる所なし' }),
+        el('span', { class: 'st--wait', text: `・送る準備 ${b.ready.length}` }), el('span', { text: `今日 ${b.today.length}` }), el('span', { text: `これから ${b.later.length}` })),
+      section('送れたか分からない', b.maybe.length, b.maybe.map(r => maybeLine(s, ui, r))),
+      section('送れなかった', b.failed.length, b.failed.map(r => failedLine(s, ui, r))),
+      section('読めなかった予約メール', unread.items.length, unread.items.map(x => boardLine({
+        at: jstOf(x.at), name: '届いたメール', st: null, meta: `${unread.whyText(x)}。受信箱でこの時刻のメールを探し「メールを貼る」で入れる`,
+        extra: el('button', { class: 'linkbtn', type: 'button', text: '入れた・済んだ', onclick: () => unread.done(x.id) })
+      }))),
+      section('送る準備ができた', b.ready.length, b.ready.map(r => boardLine({
+        at: jstOf(r.out.at), name: `${leadOf(s, r.booking)} さんへ「${OUT_NAME[r.out.kind]}」`, st: ['wait', r.sending ? '・送っている' : '・次で送る'],
+        meta: tripText(ui, r.trip), extra: toFlow(ui, r.booking.id)
+      }))),
+      section(`今日 ${ui.md(today)}`, b.today.length, b.today.map(r => jobLine(s, ui, r, { withDay: r.job.due.slice(0, 10) !== today }))),
+      section('これから', b.later.length, later.map(r => jobLine(s, ui, r, { withDay: true }))),
+      b.later.length > later.length ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn', type: 'button', text: `残り ${b.later.length - later.length} 件を見る`,
+        onclick: () => { laterAll = true; ui.rerender(); } })) : null,
+      b.maybe.length + b.failed.length + b.ready.length + b.today.length + b.later.length + unread.items.length ? null
+        : el('p', { class: 'empty', text: '自動の予定と連絡はまだありません。' }),
+      ui.back()
+    ];
+  }
+
   /* ---------- デモ ---------- */
   let demoNext = 0;
   /* 見本のメールが届いた形にする: 読んで、便に入れ、予定を作り、お願いまで動かす */
@@ -131,5 +246,5 @@
     ui.go('list', { day: next.slice(0, 10), notice: `時刻を ${dueText(next)} まで進めて、予定を動かしました（デモ）` });
   }
 
-  R.autoFlow = { tick, addReading, plan, rowNote, hasPlan, render, demoMail, demoAdvance };
+  R.autoFlow = { tick, addReading, plan, rowNote, hasPlan, render, boardRow, renderBoard, demoMail, demoAdvance };
 })();

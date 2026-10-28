@@ -11,6 +11,7 @@ import { checkPut, readStored, MAX_PUT_BODY, SHOP_DEFAULT } from '../worker/sync
 import { fakeKv, fakeAccess, fakeD1, checkRedirect } from '../worker/fakes.mjs';
 
 vm.runInThisContext(readFileSync(new URL('../js/data-samples.js', import.meta.url), 'utf8'));
+vm.runInThisContext(readFileSync(new URL('../js/data-big-sample.js', import.meta.url), 'utf8'));
 const R = globalThis.REDUX;
 const { roster: S, rosterCore: C, rosterShare: X, SAMPLE_READINGS } = R;
 
@@ -79,13 +80,13 @@ const test = (name, fn) => tests.push({ name, fn });
 
 test('はじめは名簿が無い（版 0）。base 0 で置くと版 1 になり、読み直すと同じ名簿', async () => {
   const s = setup();
-  assert.deepEqual((await get(s)).body, { version: 0, state: null });
+  assert.deepEqual((await get(s)).body, { version: 0, state: null, shop: 'default' });
   const r = await put(s, 0, base);
   assert.equal(r.status, 200);
   assert.equal(r.body.version, 1);
   assert.deepEqual(r.body.state, base);
   const g = await get(s);
-  assert.deepEqual(g.body, { version: 1, state: base });
+  assert.deepEqual(g.body, { version: 1, state: base, shop: 'default' });
   assert.equal(g.headers.get('cache-control'), 'no-store');
 });
 
@@ -212,6 +213,51 @@ test('D1 との境目: base 0 は同じお店が既にあれば書かない。�
   assert.deepEqual(await putRoster(db, 's1', 2, '{"x":1}', AT), { ok: false });
   assert.deepEqual(await putRoster(db, 's1', 1, '{"x":1}', AT), { ok: true, version: 2 });
   assert.deepEqual(await getRoster(db, 's1'), { version: 2, text: '{"x":1}' });
+});
+
+test('人が大きく消える書き込みは 409（shrink）で断り、今の名簿を返す。allowShrink なら通る。数人を消すのは通る', async () => {
+  const s = setup();
+  const big = X.addBigSample(S.blankState(OWN), { day: '2026-10-30', at: AT, newId }).state;
+  await call(s, req('PUT', { body: { base: 0, state: big } }));
+  const n0 = big.people.length;
+  const fewer = { ...big, people: big.people.slice(0, n0 - 3) };
+  const small = await call(s, req('PUT', { body: { base: 1, state: fewer } }));
+  assert.equal(small.status, 200, '数人なら消せる');
+  const empty = S.blankState(OWN);
+  const r = await call(s, req('PUT', { body: { base: 2, state: empty } }));
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'shrink');
+  assert.equal(r.body.state.people.length, n0 - 3);
+  const ok = await call(s, req('PUT', { body: { base: 2, state: empty, allowShrink: true } }));
+  assert.equal(ok.status, 200);
+  assert.equal((await call(s, req('PUT', { body: { base: 3, state: empty, other: 1 } }))).status, 400, '本文の余分な項目は断る');
+});
+
+test('名簿の形の版（ジンのレビュー HIGH 7）: 移し替えの表で順に上げる。道が無ければ元のまま。置いてある古い版は読むときに上げ、古い版の画面からの書き込みは 426', async () => {
+  const v1 = { ...S.blankState(OWN), v: 1, trips: [{ ...trip, v: 1 }] };
+  const steps = { 1: (s) => ({ ...S.bumpAll(s, 2), shop: { ...s.shop, note: '2 で足した欄' } }), 2: (s) => S.bumpAll(s, 3) };
+  const up = S.upgradeWith(v1, steps, 3);
+  assert.equal(up.v, 3);
+  assert.equal(up.trips[0].v, 3, '便などの v も上がる');
+  assert.equal(up.shop.note, '2 で足した欄');
+  assert.equal(S.upgradeWith(v1, { 2: steps[2] }, 3), v1, '途中の道が無ければ元のまま');
+  assert.equal(S.upgradeWith(v1, { 1: (s) => ({ ...s, v: 5 }) }, 3), v1, '1 つずつ上がらない道は使わない');
+  assert.equal(S.upgradeWith({ ...v1, v: 4 }, steps, 3).v, 4, '新しすぎる名簿はそのまま（検査に落ちる）');
+  assert.ok(S.isNewer({ v: S.VERSION + 1 }));
+  /* 本物の表に「0 → 1」を一時に足して、サーバーが置いてある v0 の名簿を上げて読むことを確かめる */
+  const s = setup();
+  S.MIGRATIONS[0] = (st) => S.bumpAll(st, 1);
+  try {
+    const old = S.bumpAll(base, 0);
+    s.db.rows.set('default', { version: 4, state: JSON.stringify(old), updated_at: AT });
+    const g = await get(s);
+    assert.equal(g.status, 200);
+    assert.equal(g.body.state.v, S.VERSION);
+    assert.equal(g.body.state.people.length, base.people.length);
+    const r = await put(s, 4, old);
+    assert.equal(r.status, 426, '古い版の画面からの名簿は上げずに断る');
+    assert.equal(r.body.error, 'version');
+  } finally { delete S.MIGRATIONS[0]; }
 });
 
 test('core: checkPut と readStored は時計を読まず、渡した今日で期限を決める', () => {

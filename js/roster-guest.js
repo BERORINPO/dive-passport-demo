@@ -70,8 +70,9 @@
     const trip = state.trips.find(t => t.id === booking.tripId) || null;
     const items = S().ITEMS[trip ? trip.kind : 'dive'];
     const people = state.people.filter(p => p.bookingId === bookingId).map(person => {
-      const missing = C().askGuest(person, trip);
-      const known = items.filter(i => !i.trip && !i.health && C().filled(person, trip, i.key)).map(i => i.key);
+      const opt = { paper: C().paperOf(state) };   // 健康を紙で聞くお店では、健康の質問も当日の体調も聞かない
+      const missing = C().askGuest(person, trip, opt);
+      const known = items.filter(i => !i.trip && !i.health && C().filled(person, trip, i.key, opt)).map(i => i.key);
       return { person, ask: missing.filter(k => k !== TODAY_KEY), needsToday: missing.includes(TODAY_KEY), known,
         parts: openParts(person), consented: consented(person) };
     });

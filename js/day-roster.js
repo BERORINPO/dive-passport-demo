@@ -336,15 +336,17 @@
         el('span', { text: `印刷 ${shortTime(nowIso())}　見る人はこのお店の人だけ（乗り合いの便でも、同じ船の他のお店には見せない）。健康の欄は人に見せない` })));
   }
 
-  function renderPrint({ tripId, ui }) {
-    const s = R.rosterStore.get();
+  /* state と back は済んだ便の画面（past-trips.js）から開くとき。読むだけの名簿と、戻る先 */
+  function renderPrint({ tripId, ui, state, back }) {
+    const s = state || R.rosterStore.get();
     const trip = s.trips.find(t => t.id === tripId);
     if (!trip) return [...ui.head('条例の名簿'), el('p', { class: 'errors', text: 'この便が見つかりません。' }), ui.back()];
     const table = C().rosterRows(s, tripId, healthShort(), { own: true });
     return [
       ...ui.head(LAW[trip.kind].title, `${ui.md(trip.date)} ${ui.tripLabel(trip)}。印刷の画面で「PDF に保存」も選べます`),
       paper(s, trip, table),
-      el('p', { class: 'reset' }, button('今日の名簿に戻る', () => ui.go('day', { tripId }), 'linkbtn linkbtn--muted')),
+      el('p', { class: 'reset' }, back ? button('済んだ便の一覧に戻る', back, 'linkbtn linkbtn--muted')
+        : button('今日の名簿に戻る', () => ui.go('day', { tripId }), 'linkbtn linkbtn--muted')),
       ui.dock(el('button', { class: 'btn', type: 'button', text: '印刷する', onclick: () => window.print() }))
     ];
   }

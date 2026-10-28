@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { handle } from '../worker/handler.mjs';
-import { scheduled, receiveMail } from '../worker/auto.mjs';
+import { scheduled, receiveMail, changeRoster } from '../worker/auto.mjs';
 import { checkBooking, mailText, senderAllowed, authPassed, roomForPublic, TOURS, SWIM, EXP, WORRIES, SWIM_JA, WORRY_JA } from '../worker/auto-core.mjs';
 import { MAX_ROSTER_BYTES } from '../worker/sync-core.mjs';
 import { fakeKv, fakeAnthropic, fakeD1, fakeMail, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
@@ -232,6 +232,74 @@ test('Cron: 時刻が来た予定（2 日前・前日の夜・当日の朝）が
   assert.ok(st.trips[0].rosterAt, '当日の朝に名簿を作った印');
   assert.ok(st.outbox.some(o => o.kind === 'staff' && o.status === 'notice'), '前日の夜までにそろわなければお店に知らせる');
   assert.ok(s.mail.sent.length >= 2);
+});
+
+test('ジンのレビュー MEDIUM 10: 送ったあとに結果を書けなくても、次の回にもう一度は送らない。30 分たっても印が残っていれば「送れたか分からない」にする', async () => {
+  const s = setup();
+  await handle(booking(GOOD), s.env, s.io);
+  /* 送った直後に D1 が止まり、結果を書けない */
+  const send = s.mail.send;
+  s.mail.send = async (msg) => { const r = await send(msg); s.db.failing = true; return r; };
+  await scheduled(s.env, s.io);
+  s.db.failing = false;
+  s.mail.send = send;
+  assert.equal(s.mail.sent.length, 1);
+  let out = stored(s.db).outbox.find(o => o.kind === 'request');
+  assert.equal(out.status, 'queued');
+  assert.ok(out.why.startsWith('sending:'), '送る前の印が残っている');
+  s.io.clock = NOW + 10 * 60000;
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 1, '印のある連絡は、もう一度は送らない');
+  s.io.clock = NOW + 31 * 60000;
+  await scheduled(s.env, s.io);
+  out = stored(s.db).outbox.find(o => o.kind === 'request');
+  assert.equal(out.status, 'failed');
+  assert.equal(out.why, 'maybe-sent');
+  assert.equal(s.mail.sent.length, 1);
+});
+
+test('送り直し: 送れたか分からない連絡をお店が送り直すと、次の Cron で 1 通だけ送る。2 回押しても、Cron が重なっても 2 通にならない', async () => {
+  const s = setup();
+  await handle(booking(GOOD), s.env, s.io);
+  const send = s.mail.send;
+  s.mail.send = async (msg) => { const r = await send(msg); s.db.failing = true; return r; };
+  await scheduled(s.env, s.io);
+  s.db.failing = false;
+  s.mail.send = send;
+  s.io.clock = NOW + 31 * 60000;
+  await scheduled(s.env, s.io);
+  const id = stored(s.db).outbox[0].id;
+  assert.equal(stored(s.db).outbox[0].why, 'maybe-sent');
+  /* 画面の「届いていない・送り直す」（画面の書き込みと同じく、名簿 → 名簿の直しを当てて書く）。2 台から押した形で 2 回 */
+  const A = globalThis.REDUX.rosterAuto;
+  const press = () => changeRoster(s.env, s.io, st => A.resend(st, { id, nowJst: '2026-10-27T10:31', at: new Date(s.io.clock).toISOString(), newId: () => `re${s.io.clock}`, askBase: '' }));
+  assert.ok((await press()).ok);
+  assert.ok((await press()).ok);
+  let outbox = stored(s.db).outbox;
+  assert.deepEqual(outbox.map(o => [o.status, o.why]), [['failed', 'resent'], ['queued', '']], '新しい連絡は 1 つ');
+  assert.ok(outbox[1].body.includes(A.LINK_MARK), 'リンクは送るときに作る');
+  /* Cron が 2 つ重なって走る */
+  s.io.clock = NOW + 45 * 60000;
+  await Promise.all([scheduled(s.env, s.io), scheduled(s.env, s.io)]);
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 2, '最初の 1 通と、送り直しの 1 通だけ');
+  assert.ok(!s.mail.sent[1].text.includes(A.LINK_MARK), '送った文面には印でなくリンクが入る');
+  outbox = stored(s.db).outbox;
+  assert.deepEqual(outbox.map(o => [o.status, o.why]), [['failed', 'resent'], ['sent', '']]);
+});
+
+test('ジンのレビュー: 1 回に印を付けて送るのは 10 件まで。残りは次の回に送る', async () => {
+  const s = setup();
+  for (let i = 0; i < 12; i += 1) {
+    const r = await handle(booking({ ...GOOD, email: `guest${i}@mail.example`, name: `見本 ${i}` }, { ip: `203.0.113.${i + 10}` }), s.env, s.io);
+    assert.equal(r.status, 202);
+  }
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 10);
+  s.io.clock = NOW + 15 * 60000;
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 12);
+  assert.equal(new Set(s.mail.sent.map(m => m.to)).size, 12, '同じ人に 2 回は送らない');
 });
 
 /* 届いたメールの見本（Email Routing が渡す形） */

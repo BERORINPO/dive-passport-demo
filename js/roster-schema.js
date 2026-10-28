@@ -272,11 +272,40 @@
       (e.demo === undefined || e.demo === true);   // demo: デモで「当日として」答えた印
   }
 
+  /* ---------- 名簿の形の版を上げる（ジンのレビュー 2026-10-27 HIGH 7） ----------
+     形を変えるときは VERSION を 1 上げ、MIGRATIONS に「前の版の名簿 → 次の版の名簿」の関数を 1 つ足す（v は名簿・便・予約・人・予定・連絡のすべてに付く。
+     bumpAll で上げられる）。読む所（端末の loadRoster・別のタブの保存・サーバーの readStored・済んだ便の行）は、検査の前に upgradeState を通す。
+     古い版の画面から届いた名簿は、サーバーが上げずに断る（新しい欄を、それを知らない画面の名簿で消さないため。sync-core.mjs の checkPut）。
+     端末の保存場所の名前（redux-roster-v1）は版が変わっても変えない（変えると、前の名簿を読まなくなる） */
+  const MIGRATIONS = {};
+  const bumpAll = (s, to) => {
+    const up = (x) => (isObj(x) ? { ...x, v: to } : x);
+    return { ...s, v: to, trips: (s.trips || []).map(up), bookings: (s.bookings || []).map(up), people: (s.people || []).map(up),
+      ...(s.jobs ? { jobs: s.jobs.map(up) } : {}), ...(s.outbox ? { outbox: s.outbox.map(up) } : {}) };
+  };
+  /* steps は { 版: 名簿 → 次の版の名簿 }。target まで順に上げる。上げる道が無い（新しすぎる・途中が欠けた・形が違う）ときは元のまま返す
+     （検査に落ちて、呼ぶ側が「読めない」として扱う）。テストは steps を渡して確かめる */
+  function upgradeWith(s, steps, target) {
+    if (!isObj(s) || !Number.isInteger(s.v) || s.v >= target) return s;
+    let cur = s;
+    while (cur.v < target) {
+      const step = steps[cur.v];
+      if (typeof step !== 'function') return s;
+      const next = step(cur);
+      if (!isObj(next) || next.v !== cur.v + 1) return s;
+      cur = next;
+    }
+    return cur;
+  }
+  const upgradeState = (s) => upgradeWith(s, MIGRATIONS, VERSION);
+  /* この画面より新しい版の名簿か（読み込み直しを頼む） */
+  const isNewer = (s) => isObj(s) && Number.isInteger(s.v) && s.v > VERSION;
+
   function validateState(s) {
     if (!isObj(s) || s.v !== VERSION) return result(['version']);
     const all = (list, fn) => Array.isArray(list) && list.every(x => fn(x).ok);
     return result([
-      !(isObj(s.shop) && isStr(s.shop.name, 60)) && 'shop',
+      !(isObj(s.shop) && isStr(s.shop.name, 60) && (s.shop.health === undefined || s.shop.health === 'paper')) && 'shop',   // health: 'paper' は健康の質問を紙で聞く
       !all(s.trips, validateTrip) && 'trips', !all(s.bookings, validateBooking) && 'bookings',
       !all(s.people, validatePerson) && 'people', !(Array.isArray(s.log) && s.log.every(logOk)) && 'log',
       !(s.jobs === undefined || isList(s.jobs, MAX_JOBS, jobOk)) && 'jobs', !(s.outbox === undefined || isList(s.outbox, MAX_OUTBOX, outOk)) && 'outbox'
@@ -392,6 +421,7 @@
     ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
     validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody,
     validateReading, fromModel,
-    LANGS, JOB_KINDS, OUT_KINDS, OUT_STATUS, isJst, emailOk, jobOk, outOk
+    LANGS, JOB_KINDS, OUT_KINDS, OUT_STATUS, isJst, emailOk, jobOk, outOk,
+    MIGRATIONS, bumpAll, upgradeWith, upgradeState, isNewer
   };
 })();

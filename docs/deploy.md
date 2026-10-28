@@ -88,7 +88,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 d1 create redux-rosters
    ```
-3. 表を作る（worker/migrations/ の 0001・0002）
+3. 表を作る（worker/migrations/ の 0001〜0005。表は、それを使う Worker を置く前に作る。0004（済んだ便）が無いと便が済んで 7 日を過ぎた日の書き込みが 503 になり、0005（読めなかった予約メール）が無いと、読めなかったことを残せない（ログには残る））
    ```bash
    npx wrangler@4.151.0 d1 migrations apply redux-rosters --remote
    ```
@@ -110,20 +110,55 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 - メールの送り受けは、まだ設定を入れない（無ければ止まる作り。入れる物は plan/auto.md の「置くときの設定」）
 - 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
 
-## 8. ドメイン reduxdive.com とメール（2026-10-28 予定。このブランチの設定はこの日に置く）
+## 8. 毎日の控えと警報、控えから戻す（2026-10-28 から。Cron が動いてから効く）
+
+- 控えの置き場所: Workers KV の `redux-roster-backup`（binding は BACKUP。wrangler.jsonc に入れてある）。Cron が 1 日 1 回、お店ごとに名簿の本体を `day:<お店>:<日付>` に置く（1 年）。済んだ便の行は `past:<お店>:<part>`、警報は `alert:<お店>:<日付>`
+- 警報の宛先（運営）: `npx wrangler@4.151.0 secret put ALERT_TO`（メールの設定 MAIL_FROM・APP_URL と Email Service がそろうまでは、KV とログだけに残る）
+- Cron は Workers Paid にしてから `"triggers": { "crons": ["*/15 * * * *"] }` を入れる（draft PR #15）
+
+控えから戻す（名簿が消えた・壊れたとき。約 15 分）:
+1. どの日の控えに戻すかを決める（`alert:<お店>:<日付>` があれば、その中の数を見て、減る前の日）
+   ```bash
+   npx wrangler@4.151.0 kv key list --binding BACKUP --remote --prefix "day:default:"
+   ```
+2. 控えを取り出す
+   ```bash
+   npx wrangler@4.151.0 kv key get --binding BACKUP --remote "day:default:2026-10-28" > snap.json
+   ```
+3. 今の名簿を書き出して残す（戻すと消える予約を後で入れ直すため。版も、戻す 1 文の守りに使う）
+   ```bash
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data '{"sql":"SELECT shop, version, state FROM rosters WHERE shop = ?1","params":["default"]}' > current.json
+   ```
+4. 戻す 1 文を作る。控えのお店と --shop が違えば止まる。戻すと消える予約と人の数が出るので確かめる
+   ```bash
+   node tools/restore.mjs snap.json --shop default --current current.json > restore-body.json
+   ```
+5. D1 の API に送る（名簿は 100 KB を超えるので、D1 のコンソールには貼れない。トークンは D1 の編集の権限だけの物を、その場で作って使う）
+   ```bash
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data @restore-body.json
+   ```
+6. 答えの changes が 0 なら、3 のあとに予約が入って版が進んだ（予約フォーム・届いたメールは戻す間も書く）。3 からやり直す
+7. 戻すと版が 1 つ進む。開いている画面は戻した名簿を受け取る。4 で出た「消える分」と「控えの時点に戻る分」（健康の答え・確かめた印など）は、current.json を見て入れ直す
+8. 終わったら snap.json・current.json・restore-body.json を消す（お客さんの情報そのもの）
+- 済んだ便（roster_past）が消えたときは、`past:<お店>:<part>` の body を、その行に入れ直す（今は手で。要るとなったら道具にする）
+- 名簿の行が消えたまま 7 日たつと、比べる控えが無くなり警報は止まる。メールが送れるようになるまで（KV にだけ残るあいだ）は、`alert:` を週に 1 度見る
+- お客さんから「消して」と頼まれたときは、名簿から消したうえで、控え（`day:` と `past:`）にも残っていることを伝え、要るなら控えも消す（控えは最長 1 年残る）
+
+## 9. ドメイン reduxdive.com とメール（2026-10-28 から。Workers Paid とドメインがそろってから置く）
 1. ★ Yosuke: reduxdive.com を Cloudflare Registrar で買う（1 年 10.46 ドル、自動更新オフ）。買うと Cloudflare に zone ができる
 2. ★ Yosuke: Workers & Pages → Plans で Workers Paid（月 5 ドル）に切り替える（メールの送信と Cron に要る）
-3. Email Sending を有効にする: Email Service → Email Sending → Onboard Domain で reduxdive.com（SPF・DKIM の DNS は自動で足される）
-4. Email Routing を有効にする: Email Service → Email Routing で reduxdive.com を有効にし、受け口のアドレス（お店ごとの inbox、例 a@reduxdive.com）をお店の Worker（dive-passport-demo）へ送る rule を作る。お店の一覧（shops）の inbox と senders を埋める
-5. お店の Worker の secret ASK_ORIGIN を https://ask.reduxdive.com に変える
+3. Email Sending を有効にする: `npx wrangler@4.151.0 email sending enable reduxdive.com`（SPF・DKIM の DNS は自動で足される）
+4. Email Routing を有効にする: reduxdive.com で有効にし、受け口のアドレス（お店ごとの inbox、例 a@reduxdive.com）をお店の Worker（dive-passport-demo）へ送る rule を作る。お店の一覧（shops）の inbox と senders を埋める
+5. お店の Worker の secret: ASK_ORIGIN を https://ask.reduxdive.com に変える。ALERT_TO（運営の警報の宛先）を入れる
 6. 置く（このブランチを merge したあと）:
    ```bash
    node tools/build-site.mjs
    npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc
    npx wrangler@4.151.0 deploy
    ```
-   - custom_domain の route で app.reduxdive.com と ask.reduxdive.com の DNS は Worker が足す
-7. 確かめ: app.reduxdive.com が Access のログインへ飛ぶ／ask.reduxdive.com/ask が開く／予約メールを inbox に転送 → 名簿に入る → 次の Cron でお願いのメールが届く（自分の受け取れるアドレスで）
+   - custom_domain の route で ask.reduxdive.com の DNS は Worker が足す
+7. 確かめ: ask.reduxdive.com/ask が開く／予約メールを inbox に転送 → 名簿に入る → 次の Cron でお願いのメールが届く（自分の受け取れるアドレスで）／次の日に `day:` の控えができる
+- お店の画面は workers.dev のまま（APP_URL も workers.dev）。app.reduxdive.com に移すには、その住所にも Access の application を作る必要があり、権限の設定を足すことになるので、別に決める（2026-10-28）
 - サイト（AquaGate）は見本のまま workers.dev に置いておく（Turnstile の widget の hostname もそのまま）
 
 ## 置き直したら（2 回目から）

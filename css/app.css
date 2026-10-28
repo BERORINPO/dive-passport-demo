@@ -444,6 +444,21 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .band__text { margin: 0; font-size: 14px; }
 .band--warn { border-color: var(--warn-line); }
 .band--warn .band__title { color: var(--warn); }
+/* 確かめる画面（v12）: 1 項目 = 名前と印・入力欄・理由か前の値。罫線で区切り、箱にしない */
+.cf { display: grid; gap: 6px; padding: 12px var(--inset); border-top: 1px solid var(--line); }
+.sheet__title + .cf { border-top: 0; }
+.cf__head { display: flex; justify-content: space-between; gap: 8px; margin: 0; font-size: 14px; color: var(--muted); }
+.cf__mark { font-weight: 700; white-space: nowrap; }
+.cf__mark--check { color: var(--warn); }
+.cf__mark--fixed { color: var(--accent); }
+.cf__why { margin: 0; font-size: 14px; color: var(--warn); }
+.cf__was { margin: 0; font-size: 14px; color: var(--muted); }
+.cf__was .linkbtn { padding: 0; }
+.cf__more { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 48px; margin-top: 12px; padding: 6px var(--inset);
+  border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: none; color: var(--accent); font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; text-align: left; }
+.cf__locked { margin: 0; min-height: 48px; display: flex; align-items: center; padding: 8px 12px; border-radius: var(--radius); background: var(--disabled-bg); color: var(--disabled-ink); font-size: 15px; }
+.cf__count { margin: 0; text-align: center; }
+.dock .cf__count { grid-column: 1 / -1; }   /* 下の帯では 2 つのボタンの上に 1 行で */
 .samples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .mail__text { min-height: 9em; line-height: 1.5; resize: vertical; }
 .mail__out { margin-top: 12px; }
@@ -534,3 +549,8 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .mailbody summary { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .mailbody__subject { margin: 4px 0 0; font-weight: 700; overflow-wrap: anywhere; }
 .mailbody__text { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 書類の自動化（お店全体、画面 10）: 送れたか分からない連絡は、行の下に確かめてから選ぶ 2 つのボタン（囲まない） */
+.bk__ask { grid-column: 1 / -1; display: grid; gap: 8px; margin: 6px 0 4px; }
+.bk__ask p { margin: 0; font-size: 15px; }
+.sumline--board { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.sumline--board > * { white-space: nowrap; }
