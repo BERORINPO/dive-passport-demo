@@ -65,7 +65,6 @@
     if (!views.pass.hidden) R.renderPassport();
   }
 
-  document.getElementById('logo').innerHTML = R.TURTLE; // arch-allow: 固定の SVG
   document.getElementById('lang').addEventListener('click', () => R.setLang(R.lang === 'ja' ? 'en' : 'ja'));
   R.onLang(relabel);
   relabel();

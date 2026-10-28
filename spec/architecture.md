@@ -8,7 +8,7 @@
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
 | core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/past-core.mjs worker/backup-core.mjs worker/auto-core.mjs worker/ask-core.mjs worker/ask-input.mjs worker/shop-core.mjs |
 | adapter | js/ai-reader.js js/roster-sync.js js/ask-api.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/unread-db.mjs worker/mail.mjs worker/site-guard.mjs worker/ask-db.mjs worker/ask-key.mjs worker/shop-client.mjs worker/shop-db.mjs worker/limit-db.mjs worker/fakes.mjs |
-| entry | index.html sw.js pass.html ask.html js/ask-page.js js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/auto-flow.js js/booking.js js/booking-add.js js/booking-edit.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs worker/public-handler.mjs worker/api-http.mjs worker/shop-service.mjs worker/shop-rpc.mjs worker/backup.mjs |
+| entry | index.html sw.js pass.html ask.html js/ask-page.js js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/auto-flow.js js/booking.js js/booking-add.js js/booking-edit.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs worker/public-handler.mjs worker/api-http.mjs worker/shop-service.mjs worker/shop-rpc.mjs worker/backup.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - Worker（worker/）は画面と同じ 4 役割で分ける。core の worker/read-core.mjs は js/roster-schema.js と js/health-redact.js を読んで、画面と同じ検査をもう一度かける。worker/fakes.mjs は Worker の adapter の見本（テストだけが読み、置く物には入らない）
@@ -56,7 +56,7 @@
 `…` で囲んだ先を前方一致で許す。表に書いて使っていない先も FAIL にする。ここに無いファイルからは外を読まない。
 | ファイル | 外から読んでよい先 | integrity なしでよい先 | 字体 |
 |---|---|---|---|
-| index.html | `https://cdn.jsdelivr.net/npm/three@0.160.0/` `https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/` | なし | 読む |
+| index.html | `https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/` | なし | 読む |
 | pass.html | なし | なし | 読まない |
 | ask.html | なし | なし | 読まない |
 | css/app.css | なし | なし | — |
@@ -66,9 +66,8 @@
 - css/*.css では @import を使わない（読む CSS は HTML の link に並べ、検査がたどれる形にする）
 - fonts/ の字体は fonts/SHA256SUMS と中身を突き合わせる
 
-- three.js（importmap）と qrcode-generator（script）は、画面と同じ権限で動くコード。qrcode-generator は健康の答えを含むパスポートの URL を受け取る。両方に integrity（中身が書き換えられていないかをブラウザが確かめる指定）を付けた
-- importmap の integrity が効くのは Chrome/Edge 127・Safari/iOS 18・Firefox 138 から（古い iPhone では確かめないまま読む）
-- js の import は importmap で URL に直し、1 つずつ integrity を求める。CDN のファイルの中の import（GLTFLoader.js → BufferGeometryUtils.js）は検査で追えないので、integrity に並べて、Network で漏れが無いか確かめる
+- qrcode-generator（script）は、画面と同じ権限で動くコード。qrcode-generator は健康の答えを含むパスポートの URL を受け取る。integrity（中身が書き換えられていないかをブラウザが確かめる指定）を付けた
+- js の import は、importmap があれば URL に直し、1 つずつ integrity を求める（いまの index.html に importmap は無く、js は import を使わない。足すときの決まり）
 - js では、ai-reader.js 以外の fetch、全部の js の動的な import・sendBeacon・XMLHttpRequest・WebSocket・EventSource・Worker、読み込むタグ（script・link・iframe など）を作ること、外の URL を文字で書くこと、window[…]・eval・Function を禁止する（同じ 8 番）。HTML の中に直に書いてよいスクリプトは importmap だけ（on… の属性・javascript: の URL・iframe・frame・object・embed も禁止）。js では setTimeout に文字列を渡すこと、constructor・Reflect・top[…] も禁止
 - 検査で追えない形（window を変数に入れてから文字で名前を引く、など）は、P6 の CSP で止める。検査が見るのはルートの HTML と js/・css/ の直下だけなので、P6 で js/vendor/ などを作るときは、検査を下の階層まで広げる
 
@@ -80,6 +79,7 @@
 | 2026-10-28 guest-companion-names | 予約のリンクを開いた人は、名前が空の同行者の名前だけ入れられる（入っている名前は変えられない・人数は増減しない・1 人ずつの健康のリンクからは入れない）。検査は auto-core の NAME_BAD と同じ式 | 同行者の名前が空のまま残り、1 人ずつのリンクも作れなかった（正しさ H6）。却下: 入っている名前の訂正もお客さんに許す（なりすましで名簿の名前を書き換えられる） | 有（test/guest.test.mjs・test/ask-link.test.mjs） |
 | 2026-10-28 offline-shell | お店の画面は Service Worker（sw.js、Worker 版だけ登録）で、画面の部品をネット優先・3 秒で写しに切り替えて出す。/api・/cdn-cgi・ask・pass・CDN は写さず、転送と 200 以外も写さない。版は置く物の hash | 船の上で閉じたタブを電波なしで開き直せなかった（WebKit の通しで確かめた）。却下: 写しを先に出す（置き直した新しい画面がすぐ出ない）、字と亀も最初に取る（約 7 MB を携帯の回線で取る） | 有（test/sw.test.mjs） |
 | 2026-10-28 op-log | 送れていない直しは、関数でなく `{ op, args, id, at }` のデータで持ち、端末（localStorage）にも置く。op は js/roster-core.js の表（ops）の名前。直しの中で作る id は直しの id から決まり、時刻は押した時刻なので、いつ・どの名簿に当て直しても同じ結果になる（R.newId は差し替えない）。開き直したら、サーバーの最新の名簿へ当て直して送る。同じ項目を別の端末が先に直していたら、押した方の値にして画面で知らせる。つながらない間は間隔を延ばして試し直し（online・画面に戻ったときは待たない）、画面に「サーバーにつながっていない」を出す。端末に残した名簿（-kept-）は新しい 5 つまでで、一覧から戻せる。サーバーの名簿の行が消えたときは、空の名簿に直しを当てて置かず止める | ジンのレビュー 2026-10-28 C1・C2・H7・L4・M6・M7、リンの設計 10・11。関数のまま貯めると、読み込み直しで消え、当て直すたびに画面の「今の」入力を読み直して別の予約の中身に化けた。却下: 名簿まるごとを端末に貯める（別の端末の直しを古い名簿で消す）・ぶつかった直しを止めて選ばせる（船の上で押せない。知らせるだけ）・画面ごとに入力を写す（漏れる。画面が関数を渡せない形にして防ぐ） | 有: test/roster.test.mjs（画面は update を使わない・表に無い op を使わない・同じ入力は同じ id と時刻）・test/sync-client.test.mjs（開き直し・試し直し・食い違い） |
+| 2026-10-28 shell-character | 案内役を、3D のウミガメ（three.js・turtle.glb・声の mp3・音のボタン）から、デザイナーの貝の絵（assets/chara.png、256 px・約 70 KB）に替える。three.js・importmap と CSP の hash/CDN・media-src・声を作る道具ごと外し、答えは文字だけで出す。絵は全身のまま小さく使い（丸く切らない）、お客さまの画面の「よく聞かれること」の見出し・答えの左の印・帯に出し、店員の画面（受付・予約と名簿・pass.html）には出さない。名前はまだ無いので画面に名前を出さない。AI が文を作らない決めは変えない | 持ち主の了承「リドと替えていいよ」（2026-10-28）。却下: 3D を残して絵だけ足す（three.js の CDN と hash・3 MB の glb・声が残り、読み込みと攻めどころが減らない）、絵を丸く切る（デザイナーの決め）。持ち主が戻したくなったら git の履歴から戻せる | 有（test/build-site.test.mjs: CSP に three.js・hash・media-src が無い、置く物に glb・mp3 が無い） |
 | 2026-10-28 shops-fail-closed | お店の一覧（shops）が空・表が無いときは、1 店に倒さず 503（理由の名前だけをログに出す）。1 店で動くのは env の `SINGLE_SHOP`（お店の id）を書いたときだけで、行があれば行が先。2 店が同じ受け口・メール・サイトを持つ一覧は、形の壊れた行と同じく例外（受け口は D1 の一意索引でも止める）。AI の上限（KV のキー）はお店の id を含め、サイトの予約・メールの 1 日の件数は D1 の daily_counts で正確に数える（お店ごと + 全店あわせ） | 空の一覧で全員が default の名簿を共有する開いた側の穴（設計の不足 4・15、セキュリティ SEC-19、正確さ M3）。KV は同じキーへ 1 秒に 1 回しか書けず、続けて届いた予約が「上限」として落ちた。却下: 一覧が空のときの default を残す（穴が残る）・件数を Durable Object で数える（今は D1 の 1 文で足りる）・枠を超えた予約を「お店の確かめ待ち」に回す（SEC-19 の残り。別の作業） | 有: test/shops.test.mjs（空・表なし・重なりで 503、SINGLE_SHOP だけ 1 店）・test/d1-sql.test.mjs（上限ちょうどで止まる、受け口の一意） |
 | 2026-10-28 server-builds-messages | お客さんへの連絡を作り、予定を動かすのは Worker の Cron だけ。サーバーにつながっている画面は予定を動かさず、送り直しは印（requestResend）を付けるだけ。PUT で届いた名簿の送る連絡（outbox）と予定の状態はサーバーの物に戻し（serverOwned。受けるのは「届いていた」と「送り直しを頼む」だけ）、送る直前に宛先と本文を今の予約から作り直す（rebuildOut） | ジンのレビュー 2026-10-28 H1（画面が作った連絡のリンクが Access の中を指し、お客さんが開けない）と H2（ログインした端末が outbox に任意の宛先・本文を書くと、会社のドメインから送られる）。却下: 画面の askBase だけ直す（H2 が残る）・outbox を別の表に分ける（大きな作り直し） | test/sync.test.mjs（画面が足した連絡を置かない）・test/auto-worker.test.mjs（作り直して送る・送り直しは 1 通） |
 | 2026-10-28 server-owns-jobs-and-text | 決まった文面に入れる名前・ツアー・お店の名前は、改行とリンクらしい物（://・www.・ドメインやメールアドレスの並び）を外して短く切る（名前 30 字・ツアーとお店 40 字。plain）。PUT で届いた予定は、今ある物はサーバーの物をそのまま使い、新しい物はサーバーに同じ予約・同じ種類の予定が無いときだけ受ける。版が合うのに保存済みの名簿が読めなければ 500 | ザクのレビュー 2026-10-28 MEDIUM-1・2・LOW。決まった文面に偽の案内を書かせない・画面から何度でもお願いを送らせない・空の名簿を元に画面の物を通さない。却下: 名前に URL を書けないよう入力で断る（今ある名簿と他の入口が残る） | 有（test/sync.test.mjs・test/auto-worker.test.mjs のザク 2026-10-28 の 3 本） |

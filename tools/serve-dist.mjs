@@ -15,7 +15,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const port = Number(process.argv[2]) || 8106;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.woff2': 'font/woff2', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml',
-  '.glb': 'model/gltf-binary', '.mp3': 'audio/mpeg', '': 'text/plain; charset=utf-8' };
+  '': 'text/plain; charset=utf-8' };
 
 /* _headers を読む（「/path」か「/dir/*」の行と、その下の字下げした「名前: 値」） */
 const rules = [];

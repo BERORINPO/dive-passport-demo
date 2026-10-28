@@ -674,7 +674,7 @@ test('op: 触った項目と「前」の値を取り、当て直した名簿で�
 
 test('op: 画面の直しは全部この表を通る（関数を貯める update は使わない。表に無い名前も使わない）', () => {
   const dir = new URL('../js/', import.meta.url);
-  const files = readdirSync(dir).filter(f => f.endsWith('.js') && f !== 'turtle3d.js');
+  const files = readdirSync(dir).filter(f => f.endsWith('.js'));
   const names = new Set(C.ops.names);
   files.forEach(f => {
     const text = readFileSync(new URL(f, dir), 'utf8');
