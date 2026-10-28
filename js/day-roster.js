@@ -48,7 +48,7 @@
     const { trip, items } = g;
     const prev = D().previousSite(s, trip);
     const edit = (patch) => {
-      const r = ui.save(st => C().editTrip(st, { tripId: trip.id, patch, at: nowIso() }));
+      const r = ui.save('core.editTrip', { tripId: trip.id, patch, at: nowIso() });
       ui.go('day', r.error ? { tripId: trip.id, warn: '入れられませんでした。長すぎないか確かめてください（ガイドは 1 人 40 字まで）' } : { tripId: trip.id, saved: r.saved });
     };
     const list = (id, values) => el('datalist', { id }, values.map(v => el('option', { value: v })));
@@ -110,7 +110,7 @@
     R.saveFile(`meibo-${trip.date}${trip.start ? `-${trip.start.replace(':', '')}` : ''}.csv`, C().toCsv({ items, rows: table.rows }), 'text/csv;charset=utf-8');
     const withHealth = csvHealth;
     csvHealth = false;
-    const r = ui.save(st => C().logOutput(st, { tripId: trip.id, act: 'csv', people: table.rows.length, health: withHealth, at: nowIso() }));
+    const r = ui.save('core.logOutput', { tripId: trip.id, act: 'csv', people: table.rows.length, health: withHealth, at: nowIso() });
     ui.go('day', { tripId: trip.id, saved: r.saved, notice: withHealth
       ? `CSV に書き出しました（${table.rows.length} 人、健康の欄あり）。人に送らず、使い終わったら消してください`
       : `CSV に書き出しました（${table.rows.length} 人、健康の欄なし）。使い終わったら消してください` });
@@ -163,7 +163,7 @@
       el('p', { class: 'act__title', text: `! 中止（${reasonJa(trip.cancel.reason)}）` }),
       el('p', { text: [`${shortTime(trip.cancel.at)} に知らせた`, acked].filter(Boolean).join('。') }),
       el('p', { class: 'reset' }, button('中止を取り消す', () => {
-        const r = ui.save(st => C().reopenTrip(st, { tripId: trip.id, at: nowIso() }));
+        const r = ui.save('core.reopenTrip', { tripId: trip.id, at: nowIso() });
         ui.go('day', r.error ? { tripId: trip.id, warn: '取り消せませんでした' } : { tripId: trip.id, saved: r.saved, notice: '中止を取り消しました' });
       })));
   }
@@ -181,7 +181,7 @@
     const shops = trip.partners.map(shop => ({ shop, n: X().shopPeople(s, tripId, shop).length, guide: X().partnerGuide(s, tripId, shop) }));
     const text = `${ui.md(trip.date)}${trip.start ? clock(trip.start) : ''}の${trip.boat || '便'}は、${S().CANCEL_TEXT[cancelReason].why}中止です。料金は全額お返しします。${s.shop.name}`;
     const go = () => {
-      const r = ui.save(st => C().cancelTrip(st, { tripId, reason: cancelReason, at: nowIso() }));
+      const r = ui.save('core.cancelTrip', { tripId, reason: cancelReason, at: nowIso() });
       ui.go('day', r.error ? { tripId, warn: '中止にできませんでした' } : { tripId, saved: r.saved,
         notice: trip.partners.length ? `中止を知らせました（この店のお客さん ${own} 人と、相乗りの ${trip.partners.length} 店）` : `中止を知らせました（お客さん ${own} 人）` });
     };
@@ -248,7 +248,7 @@
     spo2Bad = Object.fromEntries(Object.entries(spo2Bad).filter(([k]) => k !== key));
     setTimeout(() => {
       const next = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.spo2 : '';
-      const r = ui.save(st => D().setSpo2(st, { id, dive, side, value, at: nowIso() }));
+      const r = ui.save('day.setSpo2', { id, dive, side, value, at: nowIso() });
       ui.go('spo2', r.error ? { tripId: trip.id, warn: '入れられませんでした。もう一度入れてください' } : { tripId: trip.id, saved: r.saved });
       const again = next ? document.querySelector(`[data-spo2="${CSS.escape(next)}"]`) : null;
       if (again) again.focus();
@@ -443,8 +443,8 @@
     const paper = document.querySelector('#view-booking:not([hidden]) .paper[data-trip]');
     if (!paper) return;
     try {
-      R.rosterStore.update(st => C().logOutput(st, { tripId: paper.dataset.trip, act: 'print', people: Number(paper.dataset.people),
-        health: paper.dataset.health !== 'false', paper: paper.dataset.paper, at: nowIso() }));
+      R.rosterStore.apply('core.logOutput', { tripId: paper.dataset.trip, act: 'print', people: Number(paper.dataset.people),
+        health: paper.dataset.health !== 'false', paper: paper.dataset.paper, at: nowIso() });
     } catch (e) {
       /* 記録できなくても印刷は止めない。記録の画面に出ないだけ */
     }

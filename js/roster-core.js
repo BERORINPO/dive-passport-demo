@@ -549,6 +549,67 @@
       entry(at, 'staff', 'check', 'person', id, { fields: [...p.unsure] }));
   }
 
+  /* ---------- 予約を直す・取り消す・便を移す（H4。連絡先の直しと取り消しはここ、移したあとの予定の作り直しは roster-auto.js の moveBooking） ----------
+     取り消した予約は、予約・人・その予定と送る連絡ごと名簿から外す（名簿と合同名簿に残さない。Worker は予約が無い連絡を送らず、予定は飛ばす）。
+     いつ・だれが・なぜは記録に残る。名簿の形に取り消しの印の欄を足さないのは、古い Worker が知らない欄の名簿を断ち、直しが全部止まるため。
+     乗り合いの他のお店の予約は、この店では直さない（そのお店の名簿が元） */
+  const BOOKING_EDITABLE = ['leadName', 'leadPhone', 'leadEmail', 'lang', 'note'];
+  const BOOKING_DEFAULT = { leadName: '', leadPhone: '', leadEmail: '', lang: 'ja', note: '' };   // 欄が無い予約（前の版）の値
+  const BOOKING_CANCEL_REASONS = ['guest', 'dup', 'shop', 'other'];   // お客さんの都合 / 同じ予約が二つある / お店の都合 / その他
+  function ownBooking(state, bookingId, who) {
+    const b = state.bookings.find(x => x.id === bookingId) || null;
+    if (b && isPartnerBooking(b)) throw new Error(`${who}: 乗り合いの他のお店の予約は、この店では直せない (${bookingId})`);
+    return b;
+  }
+
+  /* 代表者の名前・電話・メールアドレス・言葉・メモを直す。前と後を記録に残す。変わらなければ何もしない */
+  function editBooking(state, { bookingId, patch, at }) {
+    const before = ownBooking(state, bookingId, 'editBooking');
+    if (!before) throw new Error(`editBooking: 予約が見つからない (${bookingId})`);
+    const was = (k) => (before[k] === undefined ? BOOKING_DEFAULT[k] : before[k]);
+    const clean = Object.fromEntries(Object.keys(patch || {}).filter(k => BOOKING_EDITABLE.includes(k))
+      .map(k => [k, typeof patch[k] === 'string' ? patch[k].trim() : patch[k]]));
+    const keys = Object.keys(clean).filter(k => !same(clean[k], was(k)));
+    if (!keys.length) return state;
+    const after = { ...before, ...pick(clean, keys) };
+    const v = S().validateBooking(after);
+    if (!v.ok) throw new Error(`editBooking: 直した後の形が合わない (${v.errors.join(',')})`);
+    return withLog({ ...state, bookings: state.bookings.map(b => (b.id === bookingId ? after : b)) },
+      entry(at, 'staff', 'edit', 'booking', bookingId, { fields: keys, before: Object.fromEntries(keys.map(k => [k, was(k)])), after: pick(after, keys) }));
+  }
+
+  /* 予約を別の便へ移す（予定の作り直しはしない）。中止した便・同じ便・乗り合いの他のお店の予約は移さない */
+  function moveBooking(state, { bookingId, tripId, at }) {
+    const b = ownBooking(state, bookingId, 'moveBooking');
+    if (!b) throw new Error(`moveBooking: 予約が見つからない (${bookingId})`);
+    const from = state.trips.find(t => t.id === b.tripId);
+    const to = tripOrThrow(state, tripId, 'moveBooking');
+    if (to.cancel) throw new Error(`moveBooking: 中止した便には移せない (${tripId})`);
+    if (b.tripId === tripId) return state;
+    const where = (t) => (t ? { tripId: t.id, date: t.date, start: t.start } : { tripId: b.tripId, date: '', start: '' });
+    return withLog({ ...state, bookings: state.bookings.map(x => (x.id === bookingId ? { ...x, tripId } : x)) },
+      entry(at, 'staff', 'edit', 'booking', bookingId, { fields: ['tripId'], before: where(from), after: where(to) }));
+  }
+
+  /* 予約を取り消す。理由は BOOKING_CANCEL_REASONS のどれか。もう無い予約は何もしない（2 台で取り消しても、当て直しても同じ） */
+  function cancelBooking(state, { bookingId, reason, at }) {
+    if (!BOOKING_CANCEL_REASONS.includes(reason)) throw new Error(`cancelBooking: reason は ${BOOKING_CANCEL_REASONS.join(' / ')} のどれか (${reason})`);
+    const b = ownBooking(state, bookingId, 'cancelBooking');
+    if (!b) return state;
+    const trip = state.trips.find(t => t.id === b.tripId);
+    const people = state.people.filter(p => p.bookingId === bookingId);
+    const jobs = (state.jobs || []).filter(j => j.bookingId === bookingId);
+    const mails = (state.outbox || []).filter(o => o.bookingId === bookingId);
+    return withLog(
+      { ...state, bookings: state.bookings.filter(x => x.id !== bookingId), people: state.people.filter(p => p.bookingId !== bookingId),
+        ...(state.jobs ? { jobs: state.jobs.filter(j => j.bookingId !== bookingId) } : {}),
+        ...(state.outbox ? { outbox: state.outbox.filter(o => o.bookingId !== bookingId) } : {}) },
+      entry(at, 'staff', 'cancel', 'booking', bookingId, {
+        before: { leadName: b.leadName, people: people.length, tripId: b.tripId, date: trip ? trip.date : '', start: trip ? trip.start : '' },
+        after: { reason, jobs: jobs.length, mails: mails.length }
+      }));
+  }
+
   /* ---------- 条例の名簿（印刷・CSV） ---------- */
   const slash = (d) => d.replace(/-/g, '/');
   /* 1 つでも未回答があれば空（「なし」と印刷しない） */
@@ -647,12 +708,65 @@
       entry(at, 'system', 'remove', 'state', '', { after: { trips: trips.size, people: people.size, log: removed } }));
   }
 
+  /* ---------- 直しの記録（op log） ----------
+     電波が無いときや読み込み直しをまたいで貯める直しは、関数でなく { op, args, id, at } のデータで持つ（貯めて当て直すのは js/core.js）。
+     op は下の表の名前。at は押した時刻、id は押すたびに画面が作る印で、直しの中で作る id（newId）はここから決まる。
+     だから、いつ・どの名簿に当て直しても、同じ入力は同じ id・同じ時刻になる。args は JSON にできる物だけ（関数は入れない） */
+  const OP_MODULES = { core: () => R.rosterCore, auto: () => R.rosterAuto, share: () => R.rosterShare, guest: () => R.rosterGuest, day: () => R.rosterDay };
+  const OP_NAMES = [
+    'core.logAi', 'core.addTrip', 'core.addBookingToTrip', 'core.editPerson', 'core.editTrip', 'core.logOutput', 'core.cancelTrip', 'core.reopenTrip',
+    'core.ackCancel', 'core.confirmReview', 'core.applyReadingTo', 'core.setHealthPaper', 'core.editBooking', 'core.cancelBooking',
+    'auto.runDue', 'auto.addFromReading', 'auto.addFromForm', 'auto.planJobs', 'auto.moveBooking', 'auto.requestResend', 'auto.resend', 'auto.confirmSent',
+    'share.addBigSample', 'share.addPartner', 'share.removePartner', 'share.setHost', 'share.addPartnerPeople', 'share.setPartnerGuide',
+    'share.handOver', 'share.recordReturn', 'share.undoReturn', 'share.recordHere', 'share.recordLeave',
+    'guest.applyGuest', 'guest.answerToday', 'guest.applyPassport', 'day.setSpo2'
+  ];
+  /* 表の関数をそのまま呼べない物: 名簿を丸ごと置く（デモの全消し・端末に残した名簿を戻す）、2 つの関数を続けて呼ぶ（他のお店の写真の名簿を渡す） */
+  const OP_SPECIAL = {
+    'roster.reset': (state, { shop }) => S().blankState(shop),
+    'roster.replace': (state, a) => a.state,
+    'share.listAndHandOver': (state, a) => {
+      const out = R.rosterShare.addPartnerList(state, a);
+      return out.problem ? { ...out, state } : { ...out, state: R.rosterShare.handOver(out.state, a) };
+    }
+  };
+  const opFn = (name) => {
+    if (has(OP_SPECIAL, name)) return OP_SPECIAL[name];
+    if (!OP_NAMES.includes(name)) return null;
+    const [mod, fn] = name.split('.');
+    return OP_MODULES[mod]()[fn];
+  };
+  const seqIds = (seed) => { let n = 0; return () => `${seed}-${(n += 1)}`; };
+  /* 直し 1 つを名簿に当てる。返すのは { state, ... }（関数が state だけを返す物も、この形にそろえる）。知らない op・当てられない直しは例外 */
+  function runOp(state, { op, args, id, at }) {
+    const fn = opFn(op);
+    if (!fn) throw new Error(`runOp: 知らない直し (${op})`);
+    const out = fn(state, { at, ...args, newId: seqIds(id) });
+    return out && typeof out === 'object' && has(out, 'state') ? out : { state: out };
+  }
+  /* 直しが触った項目と、その「前」の値（記録に足された、直した項目のある行）。別の端末が先に同じ項目を直していたかを、当て直したときに比べる */
+  function opTouches(before, after) {
+    if (!Array.isArray(before.log) || !Array.isArray(after.log) || after.log.length <= before.log.length) return [];
+    return after.log.slice(before.log.length).filter(e => Array.isArray(e.fields) && e.fields.length)
+      .map(e => ({ kind: e.kind, id: e.id, fields: e.fields, before: e.before }));
+  }
+  /* 当て直したとき（now）の「前」の値が、押したとき（was）と違う項目。{ kind, id, field } の並び */
+  function opConflicts(was, now) {
+    const out = [];
+    now.forEach(t => was.filter(w => w.kind === t.kind && w.id === t.id).forEach(w => {
+      t.fields.filter(f => w.fields.includes(f) && !same(w.before[f], t.before[f])).forEach(field => out.push({ kind: t.kind, id: t.id, field }));
+    }));
+    return out;
+  }
+
   R.rosterCore = {
     COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, reviewFields, confirmReview, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
     addPerson, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,
-    cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
+    BOOKING_CANCEL_REASONS, editBooking, moveBooking, cancelBooking,
+    cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired,
+    ops: { names: [...OP_NAMES, ...Object.keys(OP_SPECIAL)], run: runOp, touches: opTouches, conflicts: opConflicts }
   };
 })();

@@ -64,7 +64,10 @@
       const r = await call('GET');
       if (r.status === 200 && r.data && R.roster.isNewer(r.data.state)) return { ok: false, why: 'newer' };   // サーバーの名簿がこの画面より新しい版
       const got = r.status === 200 ? shapeOf(r.data) : null;
-      return got ? { ok: true, ...got } : { ok: false, why: r.status || 'network' };
+      if (got) return { ok: true, ...got };
+      /* local: この場所には名簿の口が無い（GitHub Pages の 404・D1 がまだ無い Worker の 503 config）。試し直しても変わらないので、端末だけで続ける */
+      const noRoster = r.status === 404 || (r.status === 503 && !!r.data && r.data.error === 'config');
+      return { ok: false, why: r.status || 'network', ...(noRoster ? { local: true } : {}) };
     },
     /* { ok: true, version, state }（書けた。state はサーバーが直した後）/ { conflict: true, version, state }（先に別の端末が書いた）/
        { shrink: true, version, state }（人が大きく消えるので、サーバーが断った）/ { ok: false, why }。
