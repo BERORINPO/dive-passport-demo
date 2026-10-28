@@ -155,16 +155,18 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 いまの形:
 | 物 | 中身 | どこで |
 |---|---|---|
-| ドメイン | reduxdive.com（Cloudflare Registrar、自動更新オフ、期限 2027-10-28。.com は 2026-11-01 から 11.17 ドル） | Domains → Registrations |
+| ドメイン | reduxdive.com（Cloudflare Registrar、自動更新オン（2026-10-28 に入れた。2027-10-28 に 11.17 ドルを登録のカードに請求）、期限 2027-10-28） | Domains → Registrations |
 | Workers | Paid（月 5 ドル）。Cron と Email Sending に要る | Workers plans |
 | 受信 | Email Routing を有効にし（MX・SPF・DKIM は自動）、`inbox@reduxdive.com` → お店の Worker（dive-passport-demo）の rule | API `/zones/{zone}/email/routing/rules`（rule の名前 REDUX booking inbox） |
 | 受ける送り主 | secret `MAIL_SENDERS`（「,」区切り。お店が予約メールを転送する元のアドレス。Gmail・Microsoft 365 の自動転送を受けるなら、転送を受ける予約サイトのドメインを `@booking.example` の形で足す。足さないと転送は断る）。お店の一覧（shops）が空の間は 1 店で、これを使う | `wrangler secret put MAIL_SENDERS` |
-| 送り主の確かめの名前 | secret `MAIL_AUTHSERV_ID`。Cloudflare が付ける Authentication-Results の最初の言葉（authserv-id）。**これが無いと全部のメールを断る**。置く前に、本番に届いた 1 通の生の見出しで一番上の Authentication-Results を見て、その名前を入れる（文書に書いていないので推測では入れない）。一番上が Cloudflare の行でなければ、このコードでは通らない | `wrangler secret put MAIL_AUTHSERV_ID` |
+| 送り主の確かめの名前 | wrangler.jsonc の vars `MAIL_AUTHSERV_ID` = `mx.cloudflare.net`（2026-10-28、本番に届いた Gmail の 1 通の生の見出しで確かめた。一番上の Authentication-Results が Cloudflare の行）。**これが無いと全部のメールを断る**。Cloudflare はこの行に SPF の結果を 2 つ並べる（`spf=none smtp.helo=…` と `spf=pass smtp.mailfrom=…`）。見るのは mailfrom の方だけ（PR #48） | wrangler.jsonc |
 | 送信 | Email Sending を reduxdive.com で有効（送り元 `yoyaku@reduxdive.com`、Return-Path は `cf-bounce.reduxdive.com`。DKIM・SPF・DMARC p=reject は自動） | API `/zones/{zone}/email/sending/subdomains`（wrangler の `email sending enable` は 4.151.0 で認証の誤りになった） |
 | お客さんのリンク | `ask.reduxdive.com`（redux-ask の custom domain）。お店の Worker の secret `ASK_ORIGIN` もこの住所 | wrangler.ask.jsonc |
 | 警報の宛先 | secret `ALERT_TO` | `wrangler secret put ALERT_TO` |
 | お客さんの返信の行き先（Reply-To） | secret `REPLY_TO` | `wrangler secret put REPLY_TO`（無ければ Reply-To を付けない。返信は受け口の無い yoyaku@ に行く） |
 | Cron | `*/15 * * * *`（書類の自動化と毎日の控え） | wrangler.jsonc |
+| DMARC の報告 | Cloudflare の DMARC Management を有効（2026-10-28。`_dmarc` の TXT に Cloudflare の rua が足された。p=reject はそのまま） | Email → DMARC Management |
+| 外の死活監視 | UptimeRobot（Yosuke のアカウント、無料）が `https://ask.reduxdive.com/api/health` を 5 分ごとに見る。Cron が 45 分動かないと 503 になり、Yosuke の Gmail に知らせが来る（Cloudflare と別の系統） | uptimerobot.com |
 
 - お店の画面は workers.dev のまま（APP_URL も workers.dev）。app.reduxdive.com に移すには、その住所にも Access の application を作る必要があり、権限の設定を足すことになるので、別に決める
 - サイト（AquaGate）は見本のまま workers.dev に置いておく（Turnstile の widget の hostname もそのまま）
@@ -173,6 +175,13 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 置き直し: `node tools/build-site.mjs` のあと、`npx wrangler@4.151.0 deploy`（お店の Worker）→ `npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc`（redux-ask）の順（7 節の 4）
 
 確かめ方（2026-10-28 に通した）: `ask.reduxdive.com/ask` が 200／MAIL_SENDERS のアドレスから `inbox@reduxdive.com` に予約メールを送る → 名簿に入り予定が 4 つできる → 次の Cron でお願いのメールが届く／Cron のあとに BACKUP の KV に `day:<お店>:<日付>` ができる。届いた記録は GraphQL の `emailRoutingAdaptive` で見られる
+
+## 壊れた版を置いたとき（戻し方）
+1. `npx wrangler@4.151.0 deployments list`（お店の Worker）と `npx wrangler@4.151.0 deployments list -c wrangler.ask.jsonc`（redux-ask）で、前の版の Version ID を見る
+2. `npx wrangler@4.151.0 rollback <前の Version ID> --message "<理由>"` で戻す。redux-ask も壊したなら、`-c wrangler.ask.jsonc` を付けて同じようにする（Service Binding があるので、戻すときは redux-ask を先、お店の Worker を後）
+3. 戻らない物: D1 の表（migration）・secret・KV・Email Routing の設定。これらを変えた版を戻すときは、手で元に戻す
+4. 戻したら、main の直す PR を作り、通ってから置き直す。戻したことはこの節の下に 1 行足す
+- 2026-10-28: 送り主の確かめ（#42）が本物の Gmail を断った → `rollback 51f5200e…` で戻し、#48 で直して置き直した（止まっていたのは約 20 分）
 
 ## 置き直したら（2 回目から）
 - 開いているタブを全部読み込み直す（スマホ・PC とも）。古い版の画面が残ったまま保存すると、古い形の名簿を書く
