@@ -1,7 +1,7 @@
 /* 書類の自動化の入口（entry）。Cron（scheduled）・届いた予約メール（email()）・サイトの予約フォーム（POST /api/bookings の中身）を、
    名簿の正本（D1）につなぐだけ。決まりは auto-core.mjs と js/roster-auto.js、外との境目は roster-db・mail・site-guard・ask。計画は plan/auto.md。
    ログは 1 回 1 行で、道の名前・数・止まった理由だけ（宛先・名前・本文は出さない） */
-import { getRoster, putRoster } from './roster-db.mjs';
+import { getRoster, putRoster, listTables } from './roster-db.mjs';
 import { checkPut, readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { checkRequest, periods } from './read-core.mjs';
 import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, markResults, runDue, roomForPublic, claimQueued, claimedBy, releaseStale, SENDING_STALE_MS,
@@ -9,6 +9,7 @@ import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, mark
 import { takeDaily } from './budget.mjs';
 import { addUnread } from './unread-db.mjs';
 import { dailyBackup } from './backup.mjs';
+import { missingMigrations } from './backup-core.mjs';
 import { listShops, rosterShops } from './shop-db.mjs';
 import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName } from './shop-core.mjs';
 import { mailReady, sendOne } from './mail.mjs';
@@ -96,6 +97,9 @@ export async function scheduled(env, io) {
   try {
     if (!dbReady(env)) note.why = 'config:DB';
     else {
+      /* migration が足りない D1 では動かさない（書き込みの途中で初めて 503 にならないように）。足りない番号をログに出す */
+      const missing = missingMigrations(await listTables(env.DB));
+      if (missing.length) { note.schema = missing.join('+'); throw new Error('schema'); }
       /* 名簿があるお店を 1 つずつ回る。1 店が失敗しても、ほかのお店は止めない */
       const directory = await listShops(env.DB);
       const shops = (await rosterShops(env.DB)).filter(shop => knownShop(directory, shop));

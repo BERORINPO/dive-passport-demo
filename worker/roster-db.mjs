@@ -6,6 +6,12 @@
    見本は worker/fakes.mjs の fakeD1 */
 
 /* 返すのは { version, text }。まだ無ければ { version: 0, text: null } */
+/* D1 にある表の名前（migration が流れたかを Cron が確かめる。点検 2026-10-28 設計 16） */
+export async function listTables(db) {
+  const got = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+  return (got.results || []).map(r => r.name);
+}
+
 export async function getRoster(db, shop) {
   const row = await db.prepare('SELECT version, state FROM rosters WHERE shop = ?1').bind(shop).first();
   return row ? { version: Number(row.version), text: String(row.state) } : { version: 0, text: null };
