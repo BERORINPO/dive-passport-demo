@@ -8,6 +8,7 @@
   const { el } = R;
   const C = () => R.rosterCore;
   const X = () => R.rosterShare;
+  const A = () => R.rosterAuto;
   const healthShort = () => R.HEALTH.map(q => q.short);
 
   const SHOP_PROBLEM_JA = { empty: 'お店の名前を入れてください', long: 'お店の名前は 60 字までです', same: 'もう入っているお店です', many: '乗り合いのお店は 10 店までです' };
@@ -59,7 +60,7 @@
 
   /* ---------- 乗り合い（船と乗るお店） ---------- */
   /* そろい具合は、船に要る合同名簿の 5 項目で見る（他のお店のお客さんの条例の名簿は、そのお店が作る。船の店は 13 項目を持たない） */
-  function partnerLine(group, g, ui) {
+  function partnerLine(group, g, ui, c) {
     const tripId = g.trip.id;
     const people = group.members.filter(m => m.kind === 'person');
     const s = R.rosterStore.get();
@@ -67,13 +68,16 @@
     const blank = rows.filter(r => r.blank > 0).length;
     const guide = X().partnerGuide(s, tripId, group.name);
     const cancel = g.trip.cancel;   // 中止したら、そのお店が確かめたかを出す（名簿のそろい具合より先に知りたいこと）
-    const st = cancel ? (cancel.acked.includes(group.name) ? ['ok', '✓ 中止を確かめた'] : ['check', '! 中止をまだ見ていない'])
-      : !people.length ? ['wait', '・まだ 0 人'] : blank ? ['wait', `・空の欄 ${blank} 人`] : ['ok', '✓ そろった'];
+    const w = c && c.own ? c.shops.find(x => x.name === group.name) : null;   // 船を出す店だけが、確認待ちを見る
+    const st = w && !w.confirmed ? ['check', `! 確認待ち（${group.name}）`]
+      : cancel ? (cancel.acked.includes(group.name) ? ['ok', '✓ 中止を確かめた'] : ['check', '! 中止をまだ見ていない'])
+        : !people.length ? ['wait', '・まだ 0 人'] : blank ? ['wait', `・空の欄 ${blank} 人`] : ['ok', '✓ そろった'];
     const health = people.length ? `健康の 2 欄は${group.name}が確かめる` : '';
+    const waitText = w ? (w.confirmed ? `${cancel ? '中止を確かめた' : '名簿を渡した'}${w.at ? ` ${shortTime(w.at)}` : ''}` : `${shortTime(w.since)} から待っている`) : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name', text: group.name }),
       el('span', { class: `st st--${st[0]}`, text: st[1] }),
-      el('span', { class: 'bk__meta', text: [`${people.length} 人`, guide ? `ガイド ${guide}` : '', health].filter(Boolean).join('・') }),
+      el('span', { class: 'bk__meta', text: [waitText, `${people.length} 人`, guide ? `ガイド ${guide}` : '', health].filter(Boolean).join('・') }),
       button(`${group.name}役で入れる（この端末で）`, () => ui.go('partner', { tripId, shop: group.name })),
       people.length ? null : button('外す', () => apply(ui, 'share.removePartner', { tripId, name: group.name, at: nowIso() },
         { mode: 'share', ctx: { tripId } }, () => '人のいるお店は外せません'), 'linkbtn linkbtn--muted'));
@@ -94,16 +98,37 @@
     ];
   }
 
+  /* 船を出す店の画面: どのお店がまだ確認していないか、いつから、誰が誰を待っているか。確認の意味は js/roster-share.js の confirmations。
+     相乗りのお店の宛先（メール）は持たないので、送らず「連絡してください」と出す（前日の夜を過ぎたら、Cron が知らせも足す。js/roster-auto.js） */
+  function waitingSheet(c, s) {
+    if (!c || !c.own || !c.shops.length) return null;
+    const cancel = c.scope === 'cancel';
+    if (!c.waiting.length) {
+      return el('div', { class: 'sheet' }, el('p', { class: 'sheet__title', text: '相乗りのお店の確認' }),
+        el('p', { class: 'sheet__note', text: `✓ ${c.shops.length} 店とも${cancel ? '中止を確かめました' : '名簿を渡しました'}。` }));
+    }
+    const notice = (s.outbox || []).filter(o => A().isPartnersNotice(o) && o.tripId === c.trip.id).pop();
+    return el('div', { class: 'sheet' },
+      el('p', { class: 'sheet__title' }, `! 確認待ち ${c.waiting.length} 店`, el('small', { text: cancel ? '中止の知らせ' : '名簿を渡すこと' })),
+      el('ul', { class: 'bks bks--sheet' }, c.waiting.map(x => el('li', { class: 'bk' },
+        el('span', { class: 'bk__name', text: x.name }),
+        el('span', { class: 'st st--check', text: `! 確認待ち（${x.name}）` }),
+        el('span', { class: 'bk__meta', text: `${shortTime(x.since)} から。${c.owner}が${x.name}を待っています。${x.name}に連絡してください` })))),
+      el('p', { class: 'sheet__note', text: notice ? `前日の夜の知らせは ${shortTime(notice.at)} に出しました。` : '前日の夜（20:00）になっても確認が無ければ、知らせが出ます。' }));
+  }
+
   function renderShare({ tripId, ui }) {
     const s = R.rosterStore.get();
     const g = X().boatGroups(s, tripId);
     if (!g) return notFound(ui, '乗り合い');
     const { trip } = g;
+    const confirm = X().confirmations(s, tripId);
     const partners = g.groups.filter(x => !x.own);
     const setBoat = (boat) => apply(ui, 'core.editTrip', { tripId, patch: { boat }, at: nowIso() }, { mode: 'share', ctx: { tripId } }, String);
     const setHost = (host) => apply(ui, 'share.setHost', { tripId, host, at: nowIso() }, { mode: 'share', ctx: { tripId } }, () => '乗り合いのお店から選んでください');
     return [
       ...ui.head('乗り合い', `${ui.md(trip.date)} ${ui.tripLabel(trip)}`),
+      waitingSheet(confirm, s),
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title', text: '船' }),
         el('label', { class: 'pickrow' }, el('span', { class: 'rd__k', text: '船' }),
@@ -114,7 +139,7 @@
             trip.partners.map(name => el('option', { value: name, selected: trip.host === name, text: name }))))),
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, '同じ船に乗るお店', el('small', { text: `${partners.length} 店` })),
-        partners.length ? el('ul', { class: 'bks bks--sheet' }, partners.map(group => partnerLine(group, g, ui))) : null,
+        partners.length ? el('ul', { class: 'bks bks--sheet' }, partners.map(group => partnerLine(group, g, ui, confirm))) : null,
         ...addShopRow(trip, ui),
         el('p', { class: 'sheet__note', text: '試作では、他のお店の分もこの端末で入れます。2 台のあいだのやりとりは後で作ります。' })),
       el('div', { class: 'sheet' },

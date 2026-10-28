@@ -170,6 +170,39 @@
     return C().logHandover(st, { bookingId: b.id, people: shopPeople(st, tripId, shop).length, health: false, at });
   }
 
+  /* ---------- 相乗りのお店の確認待ち（決定ログ shared-trip-reminders） ----------
+     船を出す店が「どのお店がまだ確認していないか」を見るための数え方。確認の意味は 2 つ（今あるボタンのまま、新しい欄は足さない）:
+       中止の便: 中止の知らせを確かめた（trip.cancel.acked。ackCancel が記録に ack を足す）
+       中止でない便: 名簿を渡した（handOver が記録に handover を足す）。0 人のお店は渡せないので、確認待ちのまま
+     いつから待っているかと、いつ確認したかは記録から引く（記録は足すだけ。便の形は変えない）。船を出す店が他のお店のとき（host）は、
+     この店は待つ側でないので own: false を返す（画面も通知も出さない） */
+  const lastLog = (state, test) => state.log.filter(test).pop() || null;
+  /* そのお店を便に足した時刻。記録に無い（前の版・便を作るときに入れた）ときは便を作った時刻 */
+  function joinedAt(state, trip, name) {
+    const e = lastLog(state, x => x.kind === 'trip' && x.id === trip.id && x.act === 'edit' && x.fields.includes('partners') &&
+      (x.after.partners || []).includes(name) && !(x.before.partners || []).includes(name));
+    return e ? e.at : trip.createdAt;
+  }
+  function confirmedAt(state, trip, name, since) {
+    if (trip.cancel) {
+      const e = lastLog(state, x => x.kind === 'trip' && x.id === trip.id && x.act === 'ack' && x.after.shop === name && x.at >= trip.cancel.at);
+      return trip.cancel.acked.includes(name) ? { confirmed: true, at: e ? e.at : '' } : { confirmed: false, at: '' };
+    }
+    const ids = new Set(shopBookings(state, trip.id, name).map(b => b.id));
+    const e = lastLog(state, x => x.kind === 'booking' && x.act === 'handover' && ids.has(x.id) && x.at >= since);
+    return { confirmed: !!e, at: e ? e.at : '' };
+  }
+  function confirmations(state, tripId) {
+    const trip = tripById(state, tripId);
+    if (!trip) return null;
+    const scope = trip.cancel ? 'cancel' : 'join';
+    const shops = trip.partners.filter(name => name !== trip.host).map(name => {
+      const since = trip.cancel ? trip.cancel.at : joinedAt(state, trip, name);
+      return { name, since, ...confirmedAt(state, trip, name, since) };
+    });
+    return { trip, owner: boatOwner(state, trip), own: !trip.host, scope, shops, waiting: shops.filter(x => !x.confirmed) };
+  }
+
   /* ---------- 写真で渡す（予約の一覧・紙の名簿） ---------- */
   /* AI の読み取りから、船に渡す人の形にする。渡すのは合同名簿に要る物だけ（名前・体験かどうか・緊急時の連絡先）。
      電話・住所・生年月日などを読んでいても渡さない（店から船へ渡す物を少なくする。決定ログ photo-shopcheck）。
@@ -316,7 +349,7 @@
 
   R.rosterShare = {
     MAX_PARTNERS, JOINT_KEYS, boatOwner, shopsOf, shopPeople, shopProblem, addPartner, removePartner, setHost,
-    partnerGuide, addPartnerPeople, setPartnerGuide, holdPartnerHealth, handOver, addBigSample,
+    partnerGuide, addPartnerPeople, setPartnerGuide, holdPartnerHealth, handOver, confirmations, addBigSample,
     fromListReading, listMissing, addPartnerList,
     kindLabel, boatGroups, jointRows, returns, recordReturn, undoReturn, recordHere, recordLeave, leaves
   };
