@@ -4,18 +4,22 @@
 
 import { newKey, keyHash } from './ask-key.mjs';
 
+const MINTERS = ['staff', 'booking'];
+
 /* 鍵を置く。予約のリンク（personId が空）は前の鍵を消す（作り直したら古いリンクは開けない）。
    1 人ずつのリンクは前の鍵を残す（同行者に送ったリンクを、写し直しで止めない。本数は countLinks で絞る。ザクのレビュー 2026-10-27 M-3） */
-export async function putLink(db, { hash, shop, bookingId, personId, expiresOn, at }) {
+export async function putLink(db, { hash, shop, bookingId, personId, expiresOn, at, mintedBy = 'booking' }) {
+  if (!MINTERS.includes(mintedBy)) throw new Error(`putLink: mintedBy は ${MINTERS.join(' / ')} (${mintedBy})`);
   if (!personId) await db.prepare('DELETE FROM ask_links WHERE shop = ?1 AND booking_id = ?2 AND person_id = ?3').bind(shop, bookingId, personId).run();
-  await db.prepare('INSERT INTO ask_links (hash, shop, booking_id, person_id, expires_on, created_at, day, uses) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \'\', 0)')
-    .bind(hash, shop, bookingId, personId, expiresOn, at).run();
+  await db.prepare('INSERT INTO ask_links (hash, shop, booking_id, person_id, expires_on, created_at, day, uses, minted_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, \'\', 0, ?7)')
+    .bind(hash, shop, bookingId, personId, expiresOn, at, mintedBy).run();
 }
 
-/* 鍵の行。無ければ null */
+/* 鍵の行。無ければ null。mintedBy は作った人（'staff' はお店か Cron、'booking' は予約のリンクを持つお客さん）。知らない値は 'booking'（見せる側に倒さない） */
 export async function findLink(db, hash) {
-  const row = await db.prepare('SELECT shop, booking_id, person_id, expires_on FROM ask_links WHERE hash = ?1').bind(hash).first();
-  return row ? { shop: String(row.shop), bookingId: String(row.booking_id), personId: String(row.person_id), expiresOn: String(row.expires_on) } : null;
+  const row = await db.prepare('SELECT shop, booking_id, person_id, expires_on, minted_by FROM ask_links WHERE hash = ?1').bind(hash).first();
+  return row ? { shop: String(row.shop), bookingId: String(row.booking_id), personId: String(row.person_id), expiresOn: String(row.expires_on),
+    mintedBy: row.minted_by === 'staff' ? 'staff' : 'booking' } : null;
 }
 
 /* 同じ予約・同じ人の、今ある鍵の数 */
@@ -39,8 +43,8 @@ export async function dropExpired(db, today) {
 }
 
 /* リンクを作って置き、開く URL を返す。鍵は URL の # の後ろだけに置く（サーバーの記録・Referer・履歴に残さない） */
-export async function mintLink(db, { shop, bookingId, personId, expiresOn, at, base }) {
+export async function mintLink(db, { shop, bookingId, personId, expiresOn, at, base, mintedBy }) {
   const key = newKey();
-  await putLink(db, { hash: await keyHash(key), shop, bookingId, personId: personId || '', expiresOn, at });
+  await putLink(db, { hash: await keyHash(key), shop, bookingId, personId: personId || '', expiresOn, at, mintedBy });
   return `${String(base).replace(/\/+$/, '')}/ask#k=${key}`;
 }

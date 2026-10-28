@@ -34,7 +34,7 @@
     const isTrip = (k) => items.find(i => i.key === k).trip;
     const people = C().peopleOf(state, tripId, { own: true }).map(person => {
       const st = C().status(person, trip, { paper: C().paperOf(state) });
-      return { person, unsure: st.unsure, guest: st.missing.filter(k => !isTrip(k)), done: st.done };
+      return { person, unsure: st.unsure, guest: st.missing.filter(k => !isTrip(k)), done: st.done, unconfirmed: C().unconfirmed(state, person, trip) };
     });
     const blank = { ...S().blankPerson(), id: 'trip' };
     const tripMissing = items.filter(i => i.trip && !C().filled(blank, trip, i.key)).map(i => i.key);
@@ -42,8 +42,11 @@
     const onlyMorning = (x) => before && x.unsure.length === 0 && x.guest.length === 1 && x.guest[0] === 'today';
     const needs = (x) => !onlyMorning(x) && (x.unsure.length > 0 || x.guest.length > 0);
     const count = C().bookingsOf(state, tripId).filter(b => !C().isPartnerBooking(b)).reduce((n, b) => n + b.people, 0);
+    /* 未確認: AI が読んだまま、お店もお客さんも確かめていない項目（名簿の紙の「未確認」の印と同じ数え方。core の unconfirmed）。人は名簿の並びの順 */
+    const unconfirmedPeople = people.filter(x => x.unconfirmed.length > 0);
     return { trip, items, tripMissing, check: people.filter(needs), morning: people.filter(onlyMorning),
-      ready: people.filter(x => !needs(x) && !onlyMorning(x)), count };
+      ready: people.filter(x => !needs(x) && !onlyMorning(x)), count, unconfirmedPeople,
+      unconfirmedCount: unconfirmedPeople.reduce((n, x) => n + x.unconfirmed.length, 0) };
   }
 
   /* ---------- 血中酸素と年齢の印（県警の体調チェック表。数値と言葉は data-sipe.js） ---------- */

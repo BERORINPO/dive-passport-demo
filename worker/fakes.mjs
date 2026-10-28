@@ -76,6 +76,10 @@ const CLAIM_IDEM_SQL = "INSERT INTO api_idempotency (key_id, idem, booking_id, c
   "created_at = ?3 WHERE (booking_id = '' AND created_at < ?4) OR created_at < ?5";
 const TAKE_DAILY_SQL ='INSERT INTO daily_counts (scope, shop, day, n) VALUES (?1, ?2, ?3, 1) ON CONFLICT(scope, shop, day) DO UPDATE SET n = n + 1 WHERE n < ?4';
 
+/* worker/ask-db.mjs の putLink の文（長いので 2 つに分ける） */
+const PUT_LINK_RE = new RegExp('^INSERT INTO ask_links \\(hash, shop, booking_id, person_id, expires_on, created_at, day, uses, minted_by\\) ' +
+  "VALUES \\(\\?1, \\?2, \\?3, \\?4, \\?5, \\?6, '', 0, \\?7\\)$");
+
 export function fakeD1() {
   const rows = new Map();
   const links = new Map();   // ask_links（お客さんのリンクの鍵の SHA-256 → 行）
@@ -135,9 +139,9 @@ export function fakeD1() {
             const k = walkinKeys.get(args[0]);
             return k ? { created_at: k.created_at } : null;
           }
-          if (/^SELECT shop, booking_id, person_id, expires_on FROM ask_links WHERE hash = \?1$/.test(text)) {
+          if (/^SELECT shop, booking_id, person_id, expires_on, minted_by FROM ask_links WHERE hash = \?1$/.test(text)) {
             const l = links.get(args[0]);
-            return l ? { shop: l.shop, booking_id: l.booking_id, person_id: l.person_id, expires_on: l.expires_on } : null;
+            return l ? { shop: l.shop, booking_id: l.booking_id, person_id: l.person_id, expires_on: l.expires_on, minted_by: l.minted_by } : null;
           }
           if (!/^SELECT version, state FROM rosters WHERE shop = \?1$/.test(text)) throw new Error(`fakeD1: 知らない文 ${text}`);
           const row = rows.get(args[0]);
@@ -153,9 +157,9 @@ export function fakeD1() {
             if (row && row.version === args[3]) { rows.set(args[0], { version: row.version + 1, state: args[1], updated_at: args[2] }); changes = 1; }
           } else if (/^DELETE FROM ask_links WHERE shop = \?1 AND booking_id = \?2 AND person_id = \?3$/.test(text)) {
             for (const [h, l] of links) if (l.shop === args[0] && l.booking_id === args[1] && l.person_id === args[2]) { links.delete(h); changes += 1; }
-          } else if (/^INSERT INTO ask_links \(hash, shop, booking_id, person_id, expires_on, created_at, day, uses\) VALUES \(\?1, \?2, \?3, \?4, \?5, \?6, '', 0\)$/.test(text)) {
+          } else if (PUT_LINK_RE.test(text)) {
             if (links.has(args[0])) throw new Error('UNIQUE constraint failed: ask_links.hash');
-            links.set(args[0], { shop: args[1], booking_id: args[2], person_id: args[3], expires_on: args[4], created_at: args[5], day: '', uses: 0 });
+            links.set(args[0], { shop: args[1], booking_id: args[2], person_id: args[3], expires_on: args[4], created_at: args[5], day: '', uses: 0, minted_by: args[6] });
             changes = 1;
           } else if (/^UPDATE ask_links SET uses = CASE WHEN day = \?2 THEN uses \+ 1 ELSE 1 END, day = \?2 WHERE hash = \?1 AND \(day <> \?2 OR uses < \?3\)$/.test(text)) {
             const l = links.get(args[0]);

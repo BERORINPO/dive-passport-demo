@@ -549,6 +549,34 @@
       entry(at, 'staff', 'check', 'person', id, { fields: [...p.unsure] }));
   }
 
+  /* ---------- 未確認の印（決定ログ 2026-10-28 unconfirmed-marks） ----------
+     AI（メール・申込書・C カード）が入れた値を、お店もお客さんもまだ確かめていない項目。出どころ（src）が AI で、その項目を AI が入れた最後の記録より後に、
+     お店の「確かめた」かお客さんの「合っている」（項目つき）の記録が無い物。自信なしの印が残る項目も数える。直した項目は出どころが変わるので数えない。
+     記録は足すだけなので、人の形を変えずに数えられる。名簿の紙・今日の名簿の数・お客さんの「合っていますか」が同じ関数を使う */
+  function confirmedSince(state, id, field) {
+    let [filled, checked] = [-1, -1];
+    state.log.forEach((e, i) => {
+      if (e.kind !== 'person' || e.id !== id) return;
+      if (e.who === 'ai' && e.act !== 'check' && e.fields.includes(field)) filled = i;
+      if (e.act === 'check' && (e.who === 'staff' || e.fields.includes(field))) checked = i;
+    });
+    return checked > filled;
+  }
+  /* 名簿の項目（健康と便の項目を除く）のうち、値が入っていて未確認の物。[{ key, field }]（field は人の項目の名前） */
+  function unconfirmedItems(state, p, trip) {
+    return S().ITEMS[trip.kind].filter(i => !i.trip && !i.health && filled(p, trip, i.key)).map(i => ({ key: i.key, field: FIELD_OF[i.key] || i.key }))
+      .filter(x => p.unsure.includes(x.field) || (AI_SRC.includes(p.src[x.field]) && !confirmedSince(state, p.id, x.field)));
+  }
+  const unconfirmed = (state, p, trip) => unconfirmedItems(state, p, trip).map(x => x.key);
+  const unconfirmedFields = (state, p, trip) => [...new Set(unconfirmedItems(state, p, trip).map(x => x.field))];
+  /* お客さんが「合っている」と答えた項目。値は変えず、自信なしの印を外し、した人（guest）・時刻・項目を記録に残す */
+  function confirmByGuest(state, { id, fields, at }) {
+    if (!state.people.some(p => p.id === id)) throw new Error(`confirmByGuest: 人が見つからない (${id})`);
+    if (!fields.length || !fields.every(f => S().AI_FIELDS.includes(f))) throw new Error(`confirmByGuest: AI が読む項目だけ受け取る (${fields.join(',')})`);
+    return withLog({ ...state, people: state.people.map(x => (x.id === id ? { ...x, unsure: x.unsure.filter(u => !fields.includes(u)) } : x)) },
+      entry(at, 'guest', 'check', 'person', id, { fields: [...fields] }));
+  }
+
   /* ---------- 予約を直す・取り消す・便を移す（H4。連絡先の直しと取り消しはここ、移したあとの予定の作り直しは roster-auto.js の moveBooking） ----------
      取り消した予約は、予約・人・その予定と送る連絡ごと名簿から外す（名簿と合同名簿に残さない。Worker は予約が無い連絡を送らず、予定は飛ばす）。
      いつ・だれが・なぜは記録に残る。名簿の形に取り消しの印の欄を足さないのは、古い Worker が知らない欄の名簿を断ち、直しが全部止まるため。
@@ -660,7 +688,7 @@
     const paper = paperOf(state);
     const doneOf = (p) => { const st = status(p, trip, { paper }); return shop ? st.unsure.length === 0 && st.missing.every(k => healthKey.has(k)) : st.done; };
     const rows = people.map(p => ({
-      personId: p.id, done: doneOf(p),
+      personId: p.id, done: doneOf(p), unconfirmed: unconfirmed(state, p, trip),
       cells: Object.fromEntries(items.map(i => [i.key, shop && i.health ? SHOP_FILLS
         : paper && PAPER_KEYS.includes(i.key) ? (cellText(p, trip, i.key, healthShort) || PAPER_TEXT) : cellText(p, trip, i.key, healthShort)]))
     }));
@@ -719,7 +747,7 @@
     'auto.runDue', 'auto.addFromReading', 'auto.addFromForm', 'auto.planJobs', 'auto.moveBooking', 'auto.requestResend', 'auto.resend', 'auto.confirmSent',
     'share.addBigSample', 'share.addPartner', 'share.removePartner', 'share.setHost', 'share.addPartnerPeople', 'share.setPartnerGuide',
     'share.handOver', 'share.recordReturn', 'share.undoReturn', 'share.recordHere', 'share.recordLeave',
-    'guest.applyGuest', 'guest.answerToday', 'guest.applyPassport', 'guest.addWalkin', 'guest.mergeWalkin', 'day.setSpo2'
+    'guest.applyGuest', 'guest.confirmGuest', 'guest.answerToday', 'guest.applyPassport', 'guest.addWalkin', 'guest.mergeWalkin', 'day.setSpo2'
   ];
   /* 表の関数をそのまま呼べない物: 名簿を丸ごと置く（デモの全消し・端末に残した名簿を戻す）、2 つの関数を続けて呼ぶ（他のお店の写真の名簿を渡す） */
   const OP_SPECIAL = {
@@ -763,7 +791,7 @@
     COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, reviewFields, confirmReview, toCheck, scrubLog,
-    mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
+    mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, unconfirmed, unconfirmedFields, confirmByGuest, logAi, editTrip, logOutput,
     addPerson, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,
     BOOKING_CANCEL_REASONS, editBooking, moveBooking, cancelBooking,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired,

@@ -89,11 +89,20 @@
   }
   const nameOf = (person, trip) => el('span', { class: 'bk__name' }, person.name || '名前の分からない人', ageChip(person, trip));
 
+  /* 未確認の印（決定ログ 2026-10-28 unconfirmed-marks）。AI が読んだまま、お店もお客さんも確かめていない項目。数え方は core の unconfirmed */
+  const UNCONF_MARK = '▲未確認';
+  const UNCONF_LEGEND = `${UNCONF_MARK} = AI（予約メール・申込書・C カード）が読んだまま、お店もお客さんもまだ確かめていない項目。元の書類や本人と見比べてください`;
+  const reviewUnconfirmed = (person, tripId, ui) => ui.go('review', { personId: person.id, tripId });
+  /* 画面の上の帯。数が見えて、押すと確かめる画面（印刷は止めない） */
+  const unconfirmedBand = (count, onTap) => el('button', { class: 'cf__more unconf', type: 'button', onclick: onTap },
+    el('span', { text: `まだ確かめていない項目 ${count}` }), el('span', { text: '（タップで確かめる）' }));
+
   function checkLine(x, g, ui) {
     const p = x.person;
     const why = [
       x.unsure.length ? `確かめる: ${x.unsure.map(k => labelOf(g.items, k)).join('・')}` : '',
-      x.guest.length ? `お客さんの入力待ち: ${x.guest.map(k => labelOf(g.items, k)).join('・')}` : ''
+      x.guest.length ? `お客さんの入力待ち: ${x.guest.map(k => labelOf(g.items, k)).join('・')}` : '',
+      x.unconfirmed.length && !x.unsure.length ? `未確認: ${x.unconfirmed.map(k => labelOf(g.items, k)).join('・')}` : ''
     ].filter(Boolean);
     const st = x.unsure.length ? ['check', '! 確かめる'] : ['wait', `・まだ ${x.guest.length}`];
     return el('li', { class: 'bk' },
@@ -123,6 +132,8 @@
     const { trip } = g;
     return [
       ...tripMast(trip, '今日の名簿', ui, g.count),
+      g.unconfirmedCount ? unconfirmedBand(g.unconfirmedCount, () => reviewUnconfirmed(g.unconfirmedPeople[0].person, tripId, ui))
+        : g.count ? el('p', { class: 'flag flag--ok', role: 'status', text: '✓ まだ確かめていない項目はありません' }) : null,
       /* 書類の自動化: 当日の朝 6 時に名簿を作った印（js/roster-auto.js の runDue） */
       trip.rosterAt ? el('p', { class: 'flag flag--ok', role: 'status', text: `✓ 条例の名簿ができました（${new Date(Date.parse(trip.rosterAt) + 9 * 3600000).toISOString().slice(11, 16)}、自動）` }) : null,
       cancelBand(trip, ui),
@@ -141,7 +152,9 @@
         el('summary', { text: `そろった人　${g.ready.length} 人` }),
         el('ul', { class: 'bks bks--sheet' }, g.ready.map(x => el('li', { class: 'bk' },
           nameOf(x.person, trip),
-          el('span', { class: 'st st--ok', text: x.done ? '✓ そろった' : '✓ お客さんの分' }))))) : null,
+          x.unconfirmed.length ? el('span', { class: 'st st--check', text: `! 未確認 ${x.unconfirmed.length}` })
+            : el('span', { class: 'st st--ok', text: x.done ? '✓ そろった' : '✓ お客さんの分' }),
+          x.unconfirmed.length ? button('確かめる', () => reviewUnconfirmed(x.person, tripId, ui)) : null)))) : null,
       /* ほかの書き出しは 1 行にまとめる。主な操作（印刷）だけを下の帯に */
       el('p', { class: 'morelinks' }, button('乗り合い', () => ui.go('share', { tripId })), button('名簿の取り込み', () => ui.go('intake', { tripId })),
         button('CSV に書き出す', () => exportCsv(trip, ui)), button('カレンダー（.ics）', () => ui.go('ics', { tripId })), button('記録', () => ui.go('log', { tripId })),
@@ -316,10 +329,19 @@
   }
 
   /* ---------- 条例の名簿（印刷） ---------- */
+  /* 名簿の 1 マス。未確認の項目には、色だけでなく字（▲未確認）と太い破線の枠を付ける（白黒で印刷しても、写真に撮っても分かる） */
+  function paperCell(row, key) {
+    const text = row.cells[key];
+    const unconf = (row.unconfirmed || []).includes(key);
+    return el('td', { class: [text ? '' : 'paper__none', unconf ? 'paper__cell--unconf' : ''].filter(Boolean).join(' ') || null },
+      text || '—', unconf ? el('span', { class: 'paper__unconf', text: UNCONF_MARK }) : null);
+  }
+
   /* opt: 相乗りのお店に返す名簿なら { shop, guide, paper: 'partner' }（事業者とガイドをそのお店にする） */
   function paper(s, trip, table, opt = {}) {
     const law = LAW[trip.kind];
     const notDone = table.rows.filter(r => !r.done).length;
+    const unconf = table.rows.reduce((n, r) => n + (r.unconfirmed || []).length, 0);
     const label = (key) => table.items.find(i => i.key === key).ja;
     const meta = [['事業者', opt.shop || s.shop.name], [label('when'), `${slash(trip.date)} ${trip.start ? clock(trip.start) : ''}`.trim()],
       [label('site'), trip.site || '—'], [label('guide'), (opt.shop ? opt.guide : trip.guides.join('・')) || '—'], ['人数', String(table.rows.length)]];
@@ -328,9 +350,11 @@
       el('h3', { class: 'paper__title', text: law.title }),
       el('p', { class: 'paper__meta' }, meta.map(([k, v]) => el('span', {}, `${k} `, el('b', { text: v })))),
       notDone ? el('p', { class: 'paper__warn', text: `まだそろっていない人が ${notDone} 人います（— の欄）。そろってから印刷し直してください。` }) : null,
+      unconf ? el('p', { class: 'paper__warn', text: `AI が読んだまま確かめていない項目が ${unconf} 件あります（${UNCONF_MARK} の印）。印刷は止めません。確かめてから印刷し直すと、印が消えます。` }) : null,
       el('div', { class: 'paper__wrap' }, el('table', { class: 'paper__table' },
         el('thead', {}, el('tr', {}, table.items.map(i => el('th', { scope: 'col', text: i.ja })))),
-        el('tbody', {}, table.rows.map(r => el('tr', {}, table.items.map(i => el('td', { class: r.cells[i.key] ? null : 'paper__none', text: r.cells[i.key] || '—' }))))))),
+        el('tbody', {}, table.rows.map(r => el('tr', {}, table.items.map(i => paperCell(r, i.key))))))),
+      el('p', { class: 'paper__legend', text: unconf ? UNCONF_LEGEND : '未確認の項目（AI が読んだまま確かめていない値）: なし' }),
       el('p', { class: 'paper__foot' },
         el('span', { text: `この名簿は ${slash(C().keepUntil(trip.date))} まで残す（作成の日から 1 年。${law.rule}）` }),
         el('span', { text: `印刷 ${shortTime(nowIso())}　見る人はこのお店の人だけ（乗り合いの便でも、同じ船の他のお店には見せない）。健康の欄は人に見せない` })));
@@ -342,8 +366,12 @@
     const trip = s.trips.find(t => t.id === tripId);
     if (!trip) return [...ui.head('条例の名簿'), el('p', { class: 'errors', text: 'この便が見つかりません。' }), ui.back()];
     const table = C().rosterRows(s, tripId, healthShort(), { own: true });
+    /* 印刷は止めない。紙の上の印とは別に、画面の上に数と「確かめる」を出す（済んだ便は読むだけなので出さない） */
+    const first = state ? null : table.rows.find(r => (r.unconfirmed || []).length);
+    const waiting = table.rows.reduce((n, r) => n + (r.unconfirmed || []).length, 0);
     return [
       ...ui.head(LAW[trip.kind].title, `${ui.md(trip.date)} ${ui.tripLabel(trip)}。印刷の画面で「PDF に保存」も選べます`),
+      first ? unconfirmedBand(waiting, () => reviewUnconfirmed({ id: first.personId }, tripId, ui)) : null,
       paper(s, trip, table),
       el('p', { class: 'reset' }, back ? button('済んだ便の一覧に戻る', back, 'linkbtn linkbtn--muted')
         : button('今日の名簿に戻る', () => ui.go('day', { tripId }), 'linkbtn linkbtn--muted')),
@@ -396,7 +424,7 @@
     const fields = e.fields.map(f => labelOf(items, f)).join('・');
     const text = {
       add: e.kind === 'trip' ? '便を作った' : e.kind === 'booking' ? '予約を入れた' : `${who.slice(0, -1)}を名簿に入れた`,
-      edit: `${who}${fields}`, check: `${who.slice(0, -1)}を確かめた`,
+      edit: `${who}${fields}`, check: e.who === 'guest' ? `${who}${fields}を「合っている」と答えた` : `${who.slice(0, -1)}を確かめた`,
       print: e.after.paper === 'board' ? `札ボードの印刷の画面を開いた（札 ${e.after.people} 枚）` : `${PAPER_JA[e.after.paper] || '名簿'}の印刷の画面を開いた（${e.after.people} 人）`,
       csv: `名簿を CSV に書き出した（${e.after.people} 人、健康の欄${e.after.health === false ? 'なし' : 'あり'}）`, remove: '保存期間を過ぎた便を消した',
       handover: `${(booking && booking.shop) || '乗り合いのお店'}から ${e.after.people} 人を受け取った（健康の欄${e.after.health ? 'あり' : 'なし'}）`,

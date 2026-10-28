@@ -19,7 +19,7 @@ export const linkExpiry = (trip, today) => R.rosterAuto.dayAdd(trip && trip.date
 /* リンクで開ける予約と人。期限切れ・予約が無い・人が別の予約、はどれも null（呼ぶ側は同じ 404 を返す） */
 function target(state, link, today) {
   if (!link || link.expiresOn < today) return null;
-  const v = G().guestView(state, link.bookingId);
+  const v = G().guestView(state, link.bookingId, { personId: link.personId });
   if (!v || !v.trip) return null;
   const people = link.personId ? v.people.filter(e => e.person.id === link.personId) : v.people;
   if (!people.length) return null;
@@ -34,7 +34,11 @@ function split(entry, link, isDay) {
   return { ask, needsToday: forHealth && entry.needsToday, todayOpen: forHealth && entry.needsToday && isDay, healthOpen };
 }
 
-/* お客さんに見せる物。名簿の中身は出さない（名前・聞く項目の名前・入っている項目の名前・C カードの講習の名前だけ） */
+/* お客さんに見せる物。名簿の中身は出さない（名前・聞く項目の名前・入っている項目の名前・C カードの講習の名前だけ）。
+   例外は confirm だけ: AI が読んだまま確かめていない値を、予約のリンクでは代表者の分だけ、1 人ずつのリンクではその人の分だけ出す（決定ログ 2026-10-28 unconfirmed-marks） */
+/* AI が読んだ値を見せる・直せるのは、お店（か Cron）が作った鍵だけ。予約のリンクを持つお客さんが作った 1 人ずつのリンクは、空の項目（健康の答えなど）を入れるだけ */
+const showsValues = (link) => link.mintedBy === 'staff';
+
 export function linkView(state, link, today) {
   const t = target(state, link, today);
   if (!t) return null;
@@ -51,6 +55,9 @@ export function linkView(state, link, today) {
       return {
         person: { id: e.person.id, name: e.person.name },
         ask: s.ask, needsToday: s.needsToday, todayOpen: s.todayOpen, healthOpen: s.healthOpen, known: e.known, consented: e.consented,
+        /* 「この内容で合っていますか」: AI が読んだまま確かめていない値。値が見えるのは、予約のリンクでは代表者だけ、1 人ずつのリンクではその人だけ。
+           ほかの人は未確認の項目の名前（confirmLeft）だけ。確かめるとこの一覧から消える */
+        confirm: showsValues(link) ? e.confirm : [], confirmLeft: showsValues(link) ? e.confirmLeft : [],
         parts: { emergency: e.parts.emergency, cert: e.parts.cert, course: e.parts.course, date: '', hasDate: !!e.parts.date }
       };
     })
@@ -64,6 +71,10 @@ export function applyLink(state, link, req, { today, at }) {
   const entry = t.people.find(e => e.person.id === req.personId);
   if (!entry) return { state, problems: ['gone'] };
   if (t.v.trip.cancel) return { state, problems: ['cancelled'] };
+  if (req.action === 'confirm') {
+    if (!showsValues(link)) return { state, problems: ['not-allowed'] };
+    return G().confirmGuest(state, { id: entry.person.id, agree: req.agree, fix: req.fix, at, viewer: link.personId });
+  }
   if (req.action === 'send') {
     const only = link.personId ? HEALTH : entry.ask.filter(k => !HEALTH.includes(k));
     return G().applyGuest(state, { id: entry.person.id, input: req.input, today, at, only });
@@ -86,10 +97,11 @@ export function personLinkTarget(state, link, personId, today) {
 }
 
 /* お店が作る予約のリンク（/api/ask-link）。予約があり、便がまだ終わっていないときだけ */
-export function bookingLinkTarget(state, bookingId, today) {
+export function bookingLinkTarget(state, bookingId, today, personId = '') {
   const b = state.bookings.find(x => x.id === bookingId);
   const trip = b ? state.trips.find(x => x.id === b.tripId) : null;
   if (!b || !trip) return { ok: false };
+  if (personId && !state.people.some(p => p.id === personId && p.bookingId === bookingId)) return { ok: false };
   const expiresOn = linkExpiry(trip, today);
   return expiresOn < today ? { ok: false } : { ok: true, trip, expiresOn };
 }

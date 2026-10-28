@@ -6,9 +6,10 @@
 export const KEY_RE = /^[A-Za-z0-9_-]{43}$/;
 export const HASH_RE = /^[0-9a-f]{64}$/;
 export const MAX_ASK_BODY = 8192;
-const ACTIONS = ['view', 'send', 'today', 'person-link'];
-const FIELDS = ['action', 'personId', 'input', 'answer', 'consent'];
+const ACTIONS = ['view', 'send', 'today', 'person-link', 'confirm'];
+const FIELDS = ['action', 'personId', 'input', 'answer', 'consent', 'agree', 'fix'];
 const ID = /^[\w-]{1,64}$/;
+const CONFIRM_MAX = 10;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /* 鍵のほかの項目 */
@@ -17,6 +18,9 @@ function checkAction(given) {
   if (given.action !== 'view' && !(typeof given.personId === 'string' && ID.test(given.personId))) return { ok: false, error: 'person' };
   if (given.action === 'send' && !isObj(given.input)) return { ok: false, error: 'input' };
   if (given.action === 'today' && !['ok', 'unwell'].includes(given.answer)) return { ok: false, error: 'answer' };
+  /* confirm: 「この内容で合っていますか」の答え。agree は合っている項目の名前（ok は検査の合否の名前と重なるので使わない）、fix は直した値（項目の中身の検査は名簿の部品 roster-guest.js の confirmGuest） */
+  if (given.action === 'confirm' && !(Array.isArray(given.agree) && given.agree.length <= CONFIRM_MAX && given.agree.every(f => typeof f === 'string' && f.length <= 20) &&
+    (given.fix === undefined || isObj(given.fix)))) return { ok: false, error: 'confirm' };
   return { ok: true };
 }
 

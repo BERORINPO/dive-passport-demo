@@ -67,6 +67,9 @@ async function scenario(db) {
   await log('link-put-again', putLink(db, { hash: 'h2', shop: 'shop-a', bookingId: 'b1', personId: '', expiresOn: '2026-10-30', at: AT }));
   await log('link-person', putLink(db, { hash: 'h3', shop: 'shop-a', bookingId: 'b1', personId: 'p1', expiresOn: '2026-10-26', at: AT }));
   await log('link-dup', putLink(db, { hash: 'h3', shop: 'shop-a', bookingId: 'b1', personId: 'p1', expiresOn: '2026-10-26', at: AT }));
+  await log('link-staff', putLink(db, { hash: 'h4', shop: 'shop-a', bookingId: 'b1', personId: 'p2', expiresOn: '2026-10-30', at: AT, mintedBy: 'staff' }));
+  await log('link-find-staff', findLink(db, 'h4'));
+  await log('link-find-booking', findLink(db, 'h3'));
   await log('link-find-old', findLink(db, 'h1'));
   await log('link-find', findLink(db, 'h2'));
   await log('link-count', countLinks(db, { shop: 'shop-a', bookingId: 'b1', personId: '', today: '2026-10-01' }));
@@ -192,6 +195,30 @@ test('migration 0006: 2 店が同じ受け口（大文字小文字・空白違�
   db.addShop({ id: 'shop-c', name: 'C', inbox: '  ' });
   assert.throws(() => db.addShop({ id: 'shop-d', name: 'D', inbox: ' A@Yoyaku.example' }), /UNIQUE/);
   assert.equal((await listShops(db, {})).length, 3);
+});
+
+test('migration 0009: 前からある鍵は staff、前からある 1 人ずつの鍵（お客さんが予約のリンクから作った物）は booking。作った人の欄は staff か booking だけを返す', async () => {
+  const sqlite = await import('node:sqlite');
+  const raw = new sqlite.DatabaseSync(':memory:');
+  const dir = new URL('../worker/migrations/', import.meta.url);
+  const files = readdirSync(dir).filter(f => f.endsWith('.sql')).sort();
+  assert.ok(files.includes('0009_ask_links_minted_by.sql'));
+  files.filter(f => f < '0009').forEach(f => raw.exec(readFileSync(new URL(f, dir), 'utf8')));
+  const put = raw.prepare("INSERT INTO ask_links (hash, shop, booking_id, person_id, expires_on, created_at, day, uses) VALUES (?1, 'shop-a', 'b1', ?2, '2026-10-30', '', '', 0)");
+  put.run('old-booking', '');
+  put.run('old-person', 'p1');
+  raw.exec(readFileSync(new URL('0009_ask_links_minted_by.sql', dir), 'utf8'));
+  const by = (h) => raw.prepare('SELECT minted_by FROM ask_links WHERE hash = ?1').get(h).minted_by;
+  assert.deepEqual([by('old-booking'), by('old-person')], ['staff', 'booking']);
+  raw.prepare("INSERT INTO ask_links (hash, shop, booking_id, person_id, expires_on, created_at, day, uses) VALUES ('new', 's', 'b', '', '2026-10-30', '', '', 0)").run();
+  assert.equal(by('new'), 'staff', '欄を指定しない行は staff');
+  const db = await sqliteD1();
+  await putLink(db, { hash: 'x1', shop: 's', bookingId: 'b', personId: 'p', expiresOn: '2026-10-30', at: AT });
+  await putLink(db, { hash: 'x2', shop: 's', bookingId: 'b', personId: 'p', expiresOn: '2026-10-30', at: AT, mintedBy: 'staff' });
+  assert.deepEqual([(await findLink(db, 'x1')).mintedBy, (await findLink(db, 'x2')).mintedBy], ['booking', 'staff'], 'mintedBy を渡さない鍵は booking（見せる側に倒さない）');
+  await assert.rejects(putLink(db, { hash: 'x3', shop: 's', bookingId: 'b', personId: 'p', expiresOn: '2026-10-30', at: AT, mintedBy: 'admin' }), /mintedBy/);
+  db.raw.prepare("UPDATE ask_links SET minted_by = 'weird' WHERE hash = 'x2'").run();
+  assert.equal((await findLink(db, 'x2')).mintedBy, 'booking', '知らない値は booking');
 });
 
 test('adapter（worker/*-db.mjs）の SQL は、全部 SQLite で流れた', async () => {
