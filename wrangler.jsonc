@@ -43,7 +43,10 @@
     "MONTHLY_USD": "5",
     // 連絡の送り元と、お店の画面の住所（worker/mail.mjs の mailReady が両方を見る）。お店の画面は workers.dev のまま（app.reduxdive.com に移すには Access の application が要る。docs/deploy.md の 9）。お客さんのリンクの住所は secret の ASK_ORIGIN
     "MAIL_FROM": "yoyaku@reduxdive.com",
-    "APP_URL": "https://dive-passport-demo.cibimaro-yousuke.workers.dev"
+    "APP_URL": "https://dive-passport-demo.cibimaro-yousuke.workers.dev",
+    // 1 店で動かすときの、そのお店の id（今の名簿の行 = default）。D1 の shops が空のとき、これを書いた場合だけ 1 店で動く。無くて空なら 503（開いた側に倒さない）。
+    // shops に行を足したら行が先になるので、この行は消してよい（足す前に shops に default の行も入れる: tools/shop.mjs keep-sample）
+    "SINGLE_SHOP": "default"
   },
   // Cloudflare の画面のログに要求を残さない（Worker のログは console.log の 1 行だけで、中身は出さない）
   "observability": { "enabled": false }

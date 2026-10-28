@@ -64,11 +64,13 @@ export function fakeAnthropic() {
 }
 
 /* roster-db.mjs の 6 つの文（名簿の SELECT・INSERT … ON CONFLICT DO NOTHING・版つきの UPDATE・済んだ便を足す・消す・読む）と ask-db.mjs の 6 つの文と
-   shop-db.mjs の 2 つの文だけを、本物の D1 と同じ答えの形で返す。batch は本物と同じく 1 つの transaction（途中で失敗したら全部を戻す）。
+   shop-db.mjs の 2 つの文と limit-db.mjs の 2 つの文だけを、本物の D1 と同じ答えの形で返す。batch は本物と同じく 1 つの transaction（途中で失敗したら全部を戻す）。
    知らない文は例外にする（roster-db.mjs に文を足したら、ここにも足してテストを通す。済んだ便の SQL は test/past.test.mjs が node:sqlite でも確かめる） */
 const ADD_PAST_SQL = "INSERT INTO roster_past (shop, part, day, keep_until, body, moved_at) SELECT ?1, json_extract(value, '$.part'), json_extract(value, '$.day'), " +
   "json_extract(value, '$.keepUntil'), json_extract(value, '$.body'), ?3 FROM json_each(?2) WHERE COALESCE((SELECT version FROM rosters WHERE shop = ?1), 0) = ?4 " +
   'ON CONFLICT(shop, part) DO NOTHING';
+
+const TAKE_DAILY_SQL = 'INSERT INTO daily_counts (scope, shop, day, n) VALUES (?1, ?2, ?3, 1) ON CONFLICT(scope, shop, day) DO UPDATE SET n = n + 1 WHERE n < ?4';
 
 export function fakeD1() {
   const rows = new Map();
@@ -76,7 +78,11 @@ export function fakeD1() {
   const shops = new Map();   // shops（お店の一覧）。shopsTable が false のあいだは表が無い D1 と同じ
   const past = new Map();    // roster_past（済んだ便）。キーは「お店 + 改行 + part」
   const unread = new Map();  // mail_unread（読めなかった予約メール）。キーは「お店 + 改行 + id」
+  const daily = new Map();   // daily_counts（1 日の回数）。キーは「scope + 改行 + お店 + 改行 + 日」、値は n
   const db = {
+    daily,
+    /* テストの手伝い: 1 日の回数をいきなり n にする（上限の手前まで進めるため） */
+    setCount(scope, shop, day, n) { daily.set([scope, shop, day].join('\n'), n); },
     past,
     unread,
     shops,
@@ -140,6 +146,11 @@ export function fakeD1() {
             changes = unread.delete(`${args[0]}\n${args[1]}`) ? 1 : 0;
           } else if (/^DELETE FROM roster_past WHERE shop = \?1 AND keep_until < \?2$/.test(text)) {
             for (const [k, p] of past) if (p.shop === args[0] && p.keep_until < args[1]) { past.delete(k); changes += 1; }
+          } else if (text === TAKE_DAILY_SQL) {
+            const key = [args[0], args[1], args[2]].join('\n');
+            if (!daily.has(key)) { daily.set(key, 1); changes = 1; } else if (daily.get(key) < args[3]) { daily.set(key, daily.get(key) + 1); changes = 1; }
+          } else if (/^DELETE FROM daily_counts WHERE day < \?1$/.test(text)) {
+            for (const k of [...daily.keys()]) if (k.split('\n')[2] < args[0]) { daily.delete(k); changes += 1; }
           } else if (/^DELETE FROM ask_links WHERE expires_on < \?1$/.test(text)) {
             for (const [h, l] of links) if (l.expires_on < args[0]) { links.delete(h); changes += 1; }
           } else {
