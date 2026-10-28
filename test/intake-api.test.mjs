@@ -387,6 +387,15 @@ test('受け付け中の同じ予約: 先の要求が入れている間は 503�
   assert.equal(countBookings(s), 2);
 });
 
+test('ザクのレビュー 2026-10-28: 鍵を何本作っても、お店ごと（200）と全店（1000）の 1 日の上限で止まる（漏れた鍵で大量にメールを出させない）', async () => {
+  const s = setup();
+  const k = await mint(s, 'A');
+  s.db.daily.set(['api-shop', 'default', '2026-10-27'].join('\n'), 200);
+  const shopFull = await send(s, k.key, { ...GOOD, external_id: undefined }, { headers: { 'idempotency-key': 'shop-cap' } });
+  assert.deepEqual([shopFull.status, shopFull.body], [429, { error: 'limit' }]);
+  assert.equal(countBookings(s), 0);
+});
+
 test('1 日の件数: 鍵ごとに数える（既定 100）。上限を超えたら 429、別の鍵は別、日が変われば戻る。誤り・2 回目は数えない', async () => {
   assert.equal(INTAKE_DAILY_MAX, 100);
   const s = setup({ INTAKE_DAILY_MAX: '3' });

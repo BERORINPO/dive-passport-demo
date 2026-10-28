@@ -7,7 +7,7 @@
    返すのは { status, body }。ログに出す理由は note.why に足す（鍵・名前・メールアドレス・電話・Idempotency-Key は出さない） */
 import { clockOf, changeRoster, newId } from './auto.mjs';
 import { newKey, keyHash } from './ask-key.mjs';
-import { takeDaily } from './limit-db.mjs';
+import { takeDaily, takeDailyAll } from './limit-db.mjs';
 import { putApiKey, findApiKey, countApiKeys, listApiKeys, rotateApiKey, revokeApiKey, claimIdem, readIdem, finishIdem, releaseIdem } from './intake-db.mjs';
 import { checkIntake, addIntakeBooking, externalIdOf, checkKeyAction, dailyMax, MAX_API_KEYS, IDEM_KEEP_DAYS, IDEM_PENDING_MS } from './intake-core.mjs';
 import { idemKeyOf } from './ask-input.mjs';
@@ -39,13 +39,21 @@ async function openKey(env, note, hash) {
   return { key, shops };
 }
 
+/* お店ごと・全店あわせた 1 日の上限（鍵ごとの上限 dailyMax とは別） */
+const API_SHOP_DAILY_MAX = 200;
+const API_ALL_DAILY_MAX = 1000;
+
 /* 本文を検査し、件数を数え、名簿に入れる。受け付けた印の扱いは呼ぶ側 */
 async function addBooking(env, io, note, { key, shops }, given) {
   const { at, nowJst, today } = clockOf(io);
   const checked = checkIntake(given, { today });
   if (!checked.ok) { note.why = 'input'; note.problems = checked.fields.length; return { status: 400, body: { error: 'input', fields: checked.fields } }; }
   let taken;
-  try { taken = await takeDaily(env.DB, { scope: 'api', shop: key.id, day: today, max: dailyMax(env) }); } catch (e) { note.why = 'limit-db'; return DB_DOWN; }
+  /* 鍵ごとに加えて、お店ごとと全店あわせた上限もかける（漏れた鍵 1 本で、任意の宛先へお願いのメールを大量に出させない。ザクのレビュー 2026-10-28 MEDIUM） */
+  try {
+    taken = await takeDaily(env.DB, { scope: 'api', shop: key.id, day: today, max: dailyMax(env) })
+      && await takeDailyAll(env.DB, { scope: 'api-shop', shop: key.shop, day: today, max: API_SHOP_DAILY_MAX, maxAll: API_ALL_DAILY_MAX });
+  } catch (e) { note.why = 'limit-db'; return DB_DOWN; }
   if (!taken) { note.why = 'api-daily'; return { status: 429, body: { error: 'limit' } }; }
   const added = await changeRoster(env, io, s => addIntakeBooking(s, { booking: checked.booking, label: key.label, at, nowJst, newId }),
     { fromOutside: true, shop: key.shop, name: nameOf(shops, key.shop, '') });
