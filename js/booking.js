@@ -104,7 +104,7 @@
     if (ctx.day) day = ctx.day;
     R.bookingAdd.enter(next);    // メールと電話は、開くたびに空から始める
     R.bookingEdit.enter(next);   // 直す・別の便へ・取り消すは、開くたびに今の予約から入力を作り直す
-    if (next === 'ask') { copied = null; showQr = ctx.showQr === true; }
+    if (next === 'ask') { copied = null; showQr = ctx.showQr === true; R.personLinks.enter(); }
     render();
   }
 
@@ -411,6 +411,8 @@
         el('p', { class: 'sheet__title' }, '名簿のそろい具合', el('small', { text: `${items.length} 項目` })),
         people.map(p => personLine(p, trip))),
       real && url ? sendSheet(b, s.shop.name, url) : null,
+      /* 1 人ずつのリンク（お店が作ったものだけが、AI が読んだ値を見せる。js/person-links.js） */
+      real ? R.personLinks.render({ state: s, booking: b, shopName: s.shop.name, md, rerender: render }) : null,
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, 'お客さんに送るリンク', el('small', { text: '予約 1 件に 1 つ' })),
         url ? el('p', { class: 'url', text: url }) : null,

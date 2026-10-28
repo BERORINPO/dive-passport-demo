@@ -50,6 +50,18 @@ test('検出: AI が入れて誰も確かめていない値だけが未確認。
   assert.equal(saburo.src.name, 'staff');
 });
 
+test('人ごとの数: 予約の人を名簿の並びで数える。職員が打った人は 0、確かめた人は減る。別の予約・便の無い予約は混ざらない', () => {
+  let st = seeded();
+  const [hanako, taro, saburo] = peopleOf(st);
+  const mail = hanako.bookingId;
+  assert.deepEqual(C.unconfirmedByPerson(st, mail).map(x => [x.person.id, x.count]), [[hanako.id, 4], [taro.id, 4]]);
+  assert.deepEqual(C.unconfirmedByPerson(st, saburo.bookingId).map(x => x.count), [0]);
+  st = C.checkPerson(st, { id: hanako.id, at: AT });
+  assert.deepEqual(C.unconfirmedByPerson(st, mail).map(x => x.count), [0, 4], '確かめた人だけ減る');
+  assert.deepEqual(C.unconfirmedByPerson(st, 'none'), []);
+  assert.deepEqual(C.unconfirmedByPerson({ ...st, trips: [] }, mail).map(x => x.count), [0, 0], '便が無ければ数えない');
+});
+
 test('検出: 自信なしの印が残っている項目は、出どころが AI でなくても未確認（片方だけ入れた C カード）', () => {
   let st = seeded();
   const id = peopleOf(st)[2].id;

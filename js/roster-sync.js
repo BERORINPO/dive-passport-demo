@@ -162,9 +162,10 @@
       return r.status === 200 || r.status === 404;
     },
     /* お客さんに送るリンクを作る（同じ場所の /api/ask-link。Access の内）。作り直すと前のリンクは開けない。
-       { ok: true, url, expiresOn } か { ok: false, why }（why 404 = サーバーにまだこの予約が無い） */
-    async askLink(bookingId) {
-      const r = await call('POST', { bookingId }, '/api/ask-link');
+       { ok: true, url, expiresOn } か { ok: false, why }（why 404 = サーバーにまだこの予約が無い）。
+       personId を渡すと、その人 1 人のリンク（お店が作った鍵だけが、AI が読んだ値を見せる・直せる。決定ログ 2026-10-28 staff-person-links） */
+    async askLink(bookingId, personId) {
+      const r = await call('POST', personId ? { bookingId, personId } : { bookingId }, '/api/ask-link');
       const d = r.data;
       if (r.status === 200 && d && typeof d.url === 'string' && linkOk(d.url)) return { ok: true, url: d.url, expiresOn: String(d.expiresOn || '') };
       return { ok: false, why: r.status || 'network' };

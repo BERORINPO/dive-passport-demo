@@ -533,6 +533,7 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 /* 店頭の QR・QR を見せる・SMS / LINE で送る（js/walkin-staff.js・js/booking.js。決定ログ 2026-10-28 walkin-qr） */
 .sendrow { display: grid; gap: 8px; padding: 0 var(--inset) 12px; }
 a.btn { text-decoration: none; }
+.perlink + .perlink { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 4px; }   /* 1 人ずつのリンク（js/person-links.js） */
 .qr--big .qr__img { width: min(420px, 100%); }
 .poster { margin: 24px 0 0; padding: 20px 16px; border: 1px solid var(--line-2); background: var(--paper-bg); color: var(--paper-ink); text-align: center; }
 .poster__shop { margin: 0; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
