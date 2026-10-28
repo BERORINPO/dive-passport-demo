@@ -22,10 +22,13 @@ jobs:
           node-version: '24'
       - name: typecheck
         shell: bash
-        run: bash -c "$(sed -n 's/^typecheck: //p' harness.yaml)"
+        run: |
+          bash -c "$(sed -n 's/^typecheck: //p' harness.yaml)"
       - name: offline_smoke
         shell: bash
-        run: bash -c "$(sed -n 's/^offline_smoke: //p' harness.yaml)"
+        run: |
+          bash -c "$(sed -n 's/^offline_smoke: //p' harness.yaml)"
       - name: arch
         shell: bash
-        run: bash -c "$(sed -n 's/^arch: //p' harness.yaml)"
+        run: |
+          bash -c "$(sed -n 's/^arch: //p' harness.yaml)"
