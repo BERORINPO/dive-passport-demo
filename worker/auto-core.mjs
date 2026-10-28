@@ -308,7 +308,9 @@ export function senderVerdict({ raw, envelope, senders, authservId }) {
   if (!ADDRESS.test(env) || !list.includes(forwarder)) return { ok: false, why: 'sender' };
   const fromDomain = headerFromDomain(headerList(raw));
   if (!fromDomain) return { ok: false, why: 'from' };
-  const spf = auth.results.filter(r => r.method === 'spf');
+  /* SPF は封筒の送り主（smtp.mailfrom）の結果だけを見る。Cloudflare は helo の結果（spf=none smtp.helo=…）も同じ見出しに並べる
+     （2026-10-28、本番に届いた Gmail の 1 通で確かめた: dkim, dmarc, spf=none, spf=pass, arc）。mailfrom の結果が 1 つでなければ断る */
+  const spf = auth.results.filter(r => r.method === 'spf' && r.props['smtp.mailfrom'] !== undefined);
   if (spf.length !== 1 || spf[0].result !== 'pass' || lower(spf[0].props['smtp.mailfrom']) !== env) return { ok: false, why: 'spf' };
   if (!rewritten && fromDomain === env.split('@')[1]) return { ok: true, via: 'own' };
   const signed = auth.results.some(r => r.method === 'dkim' && r.result === 'pass' && lower(r.props['header.d']) === fromDomain);

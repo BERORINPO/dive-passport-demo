@@ -495,6 +495,11 @@ test('SEC-02: 正しく署名された別のメールを流し直しても通ら
   assert.equal(replay('pass smtp.mailfrom=gmail.com').why, 'spf', 'ドメインだけの報告は完全一致でない');
   assert.equal(replay('pass smtp.mailfrom=OWNER@gmail.com').ok, true, '大文字小文字は見ない（対照: 送り主が自分で書いたメール）');
   assert.deepEqual(verdict(eml({ ar: [cf('pass smtp.mailfrom=owner@gmail.com')], from: 'Owner <owner@gmail.com>' }), GM, GM), { ok: true, via: 'own' }, '許した送り主が自分で送ったメールは通る');
+  /* 本番の形（2026-10-28 に届いた Gmail の 1 通）: Cloudflare は helo の SPF（none）と mailfrom の SPF（pass）を両方並べる */
+  const real = (mailfromSpf) => `${CF_ID}; dkim=pass header.d=gmail.com header.s=20230601; dmarc=pass header.from=gmail.com; spf=none smtp.helo=mail-lf1-x129.google.com; spf=${mailfromSpf}; arc=pass`;
+  assert.deepEqual(verdict(eml({ ar: [real('pass smtp.mailfrom=owner@gmail.com')], from: 'Owner <owner@gmail.com>' }), GM, GM), { ok: true, via: 'own' }, 'helo の結果が並んでいても、mailfrom の pass で通る');
+  assert.equal(verdict(eml({ ar: [real('fail smtp.mailfrom=owner@gmail.com')], from: 'Owner <owner@gmail.com>' }), GM, GM).why, 'spf', 'mailfrom が fail なら断る');
+  assert.equal(verdict(eml({ ar: [`${real('pass smtp.mailfrom=owner@gmail.com')}; spf=pass smtp.mailfrom=other@gmail.com`], from: 'Owner <owner@gmail.com>' }), GM, GM).why, 'spf', 'mailfrom の結果が 2 つあれば断る');
   assert.equal(verdict(eml({ ar: [cf(`pass smtp.mailfrom=${FWD}`)], from: 'noreply@booking.example' }), FWD, FWD).why, 'origin', 'SPF は pass でも、見出しの From が別のドメインで、DKIM も表の指定も無い');
   assert.equal(verdict(eml({ ar: [cf(`pass smtp.mailfrom=${FWD}`, 'booking.example')], from: 'noreply@booking.example' }), FWD, FWD).why, 'origin', 'DKIM が通っても、表に「@ドメイン」が無ければ受けない');
   assert.equal(verdict(eml({ ar: [cf(`pass smtp.mailfrom=${FWD}`, 'mail.booking.example')], from: 'noreply@booking.example' }), FWD, SENDERS).why, 'origin', 'DKIM のドメインは完全に同じ（親子では合わせない）');
