@@ -58,6 +58,45 @@
     }
   }
 
+  /* 店頭の QR の鍵のリンク（お客さんの Worker の https、手元では localhost）。/walkin と # の後ろの鍵だけ */
+  function walkinLinkOk(u) {
+    try {
+      const x = new URL(u);
+      return (x.protocol === 'https:' || (x.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(x.hostname)))
+        && x.pathname === '/walkin' && !x.search && /^#w=[A-Za-z0-9_-]{43}$/.test(x.hash);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /* 店頭で入れた人の 1 行（サーバーが名簿と同じ検査を通した物。通信の途中で壊れた物は画面に出さない） */
+  function walkinOk(x) {
+    const e = x && x.emergency;
+    return !!x && typeof x.id === 'string' && /^[a-z0-9]{1,40}$/.test(x.id) && typeof x.tripId === 'string' && typeof x.at === 'string' && typeof x.day === 'string' &&
+      ['name', 'email', 'birthDate', 'address'].every(k => typeof x[k] === 'string') && Number.isInteger(x.people) && !!e && typeof e === 'object' &&
+      ['name', 'relation', 'phone'].every(k => typeof e[k] === 'string');
+  }
+
+  /* 「入れた」「入れない」を押した行は、まずこの端末で隠し、サーバーで消せたら忘れる（電波が無いときは貯めて、あとで消す）。
+     入れた物は、名簿の直しがサーバーに届いてから消す（mustSync。届く前に消すと、端末が壊れたときに個人情報が両方から無くなる） */
+  const DROPPED_KEY = 'redux-walkin-dropped';
+  const WALKIN_ID = /^[a-z0-9]{1,40}$/;
+  function droppedMap() {
+    try {
+      const o = JSON.parse(localStorage.getItem(DROPPED_KEY) || '{}');
+      if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+      return Object.fromEntries(Object.entries(o).filter(([id]) => WALKIN_ID.test(id)).slice(0, 200).map(([id, v]) => [id, v === true]));
+    } catch (e) {
+      return {};
+    }
+  }
+  function setDropped(map) {
+    try {
+      if (Object.keys(map).length) localStorage.setItem(DROPPED_KEY, JSON.stringify(map));
+      else localStorage.removeItem(DROPPED_KEY);
+    } catch (e) { /* 書けなければ、次に開いたときに一覧にまた出る */ }
+  }
+
   R.rosterSync = {
     /* { ok: true, version, state } か { ok: false, why } */
     async pull() {
@@ -112,6 +151,40 @@
       const d = r.data;
       if (r.status === 200 && d && typeof d.url === 'string' && linkOk(d.url)) return { ok: true, url: d.url, expiresOn: String(d.expiresOn || '') };
       return { ok: false, why: r.status || 'network' };
+    },
+    /* 店頭の QR を作る・作り直す（同じ場所の /api/walkin-key。Access の内）。作り直すと前の QR は開けない。
+       { ok: true, url, at } か { ok: false, why }。鍵つきの URL が出るのはこの 1 回だけ（サーバーは SHA-256 しか持たない） */
+    async walkinKey() {
+      const r = await call('POST', {}, '/api/walkin-key');
+      const d = r.data;
+      if (r.status === 200 && d && typeof d.url === 'string' && walkinLinkOk(d.url)) return { ok: true, url: d.url, at: String(d.at || '') };
+      return { ok: false, why: r.status || 'network' };
+    },
+    /* 店頭で入れた人の一覧（同じ場所の /api/walkins）。この端末で「入れた」「入れない」を押した行は除く。{ ok: true, items, keyAt } か { ok: false, why } */
+    async walkins() {
+      const r = await call('GET', undefined, '/api/walkins');
+      const d = r.data;
+      if (r.status === 200 && d && Array.isArray(d.items) && d.items.every(walkinOk)) {
+        const hidden = droppedMap();
+        return { ok: true, items: d.items.filter(x => !Object.prototype.hasOwnProperty.call(hidden, x.id)), keyAt: String(d.keyAt || '') };
+      }
+      return { ok: false, why: r.status || 'network' };
+    },
+    /* 押した行をこの端末で隠す。mustSync が true（入れた）なら、名簿の直しがサーバーに届いてからサーバーの行を消す */
+    hideWalkin(id, mustSync) {
+      if (!WALKIN_ID.test(String(id))) return;
+      setDropped({ ...droppedMap(), [id]: mustSync === true });
+    },
+    /* 隠した行を、サーバーで消す。synced が false のときは、名簿の直しを待っている行は残す。消せた（か、もう無い）行は忘れる。残った数を返す */
+    async flushWalkinDrops({ synced }) {
+      const map = droppedMap();
+      for (const [id, mustSync] of Object.entries(map)) {
+        if (mustSync && !synced) continue;
+        const r = await call('POST', { id }, '/api/walkin-drop');
+        if (r.status === 200 || r.status === 404) delete map[id];
+      }
+      setDropped(map);
+      return Object.keys(map).length;
     }
   };
 })();

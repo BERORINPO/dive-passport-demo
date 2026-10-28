@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ご来店の受付</title>
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- 店頭に貼った QR から開く、来店したお客さんの画面。鍵は URL の # の後ろにあり、/api/walkin へは本文で送る（決定ログ 2026-10-28 walkin-qr）。
+     お店の画面の JS と名簿の道（/api/roster）は読まない。字体も読まない（取りに行く字の束から、打った字が分かるため。ask.html と同じ） -->
+<header class="bar">
+  <div class="brand">
+    <span class="brand__name">REDUX <small id="brandSub"></small></span>
+  </div>
+  <button class="lang" id="lang" type="button"></button>
+</header>
+<main class="wrap wrap--narrow"><div id="walkin"></div></main>
+
+<script src="js/core.js"></script>
+<script src="js/ask-api.js"></script>
+<script src="js/walkin-page.js"></script>
+</body>
+</html>

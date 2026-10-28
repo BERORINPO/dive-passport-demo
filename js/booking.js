@@ -104,7 +104,7 @@
     if (ctx.day) day = ctx.day;
     R.bookingAdd.enter(next);    // メールと電話は、開くたびに空から始める
     R.bookingEdit.enter(next);   // 直す・別の便へ・取り消すは、開くたびに今の予約から入力を作り直す
-    if (next === 'ask') copied = null;
+    if (next === 'ask') { copied = null; showQr = ctx.showQr === true; }
     render();
   }
 
@@ -171,6 +171,9 @@
       el('span', { class: 'bk__meta', text: `${where}　${status}`.trim() }),
       R.autoFlow.hasPlan(R.rosterStore.get(), b.id) ? el('button', { class: 'linkbtn', type: 'button', text: '流れを見る', onclick: () => go('flow', { bookingId: b.id }) })
         : guests ? el('button', { class: 'linkbtn', type: 'button', text: 'お客さんに聞く', onclick: () => go('ask', { bookingId: b.id }) }) : null,
+      /* 電話の予約などで、その場のお客さんにリンクを QR で見せる（作ったリンクは SMS・LINE でも送れる）。リンクを作れるのはサーバーにつながる版だけ */
+      R.rosterStore.synced() && onWorker() && !C().isPartnerBooking(b)
+        ? el('button', { class: 'linkbtn', type: 'button', text: 'QR を見せる', onclick: () => go('ask', { bookingId: b.id, showQr: true }) }) : null,
       acts);
   }
 
@@ -274,6 +277,7 @@
       /* デモの時計はつながっていない試作だけ（サーバーの版では予定を動かすのは Cron） */
       !R.rosterStore.synced() && (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
       healthModeRow(s),
+      R.walkinStaff.listRow({ ui }),
       R.rosterStore.kept().length ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button',
         text: `端末に残した名簿（${R.rosterStore.kept().length}）`, onclick: () => go('kept') })) : null,
       /* 済んで 7 日を過ぎた便は、サーバーが便ごとに分けて置く（読むだけ）。サーバーを使わない版には無い */
@@ -331,6 +335,7 @@
   const askUrl = (id) => `${location.origin}${location.pathname}#ask=${encodeURIComponent(id)}`;
   const onWorker = () => !!document.querySelector('meta[name="redux-worker"]');
   let copied = null;        // リンクを写せたか（ok / fail）
+  let showQr = false;       // リンクを大きな QR でお客さんに見せている
   let made = null;          // Worker が作ったリンク { bookingId, url, expiresOn } か { bookingId, wait } か { bookingId, error }
 
   async function makeLink(bookingId) {
@@ -353,6 +358,35 @@
         el('span', { class: 'rd__sub', text: st.done ? '✓ そろった' : labels.length ? `まだ: ${labels.slice(0, 4).join('・')}${rest}` : '! 確かめる所がある' })));
   }
 
+  /* リンクを大きな QR で見せる（お客さんが自分のスマホのカメラで読む）。リンクがまだ無いときは、作る前に「前のリンクが開けなくなる」と知らせる */
+  function qrView(url, mine) {
+    const qr = url ? R.qrSvg(url) : null;
+    return el('div', { class: 'sheet' },
+      el('p', { class: 'sheet__title' }, 'QR を見せる', el('small', { text: 'お客さんのスマホで読む' })),
+      url
+        ? [el('div', { class: 'qr qr--big' }, qr || el('p', { class: 'errors', role: 'alert', text: 'QR を描けませんでした。下の「リンクを写す」で送ってください。' })),
+          el('p', { class: 'sheet__note', text: 'この画面をお客さんに見せ、スマホのカメラで読み取ってもらいます。開いた人は、この予約の人の「まだ」の所だけを入れられます。' }),
+          el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: 'QR を閉じる', onclick: () => { showQr = false; render(); } }))]
+        : el('p', { class: 'sheet__note', text: mine && mine.wait ? 'リンクを作っています…'
+          : 'まだこの予約のリンクがありません。作ると、前に送ったリンクは開けなくなります。下の「リンクを作る」を押すと、ここに QR が出ます。' }));
+  }
+
+  /* スタッフの携帯から送る（契約も鍵も要らない。リンクを文に入れて、SMS アプリか LINE の共有画面を開くだけで、送るのはスタッフが押す）。
+     本文に入るのはお店の名前・決まった 1 行・この予約のリンクだけ。電話番号の無い予約には SMS のボタンを出さない */
+  function sendSheet(b, shopName, url) {
+    const L = R.contactLink;
+    const sms = L.smsHref(b.leadPhone, shopName, url);
+    const line = L.lineHref(shopName, url);
+    return el('div', { class: 'sheet' },
+      el('p', { class: 'sheet__title' }, 'スマホで送る', el('small', { text: '送るのはスタッフ' })),
+      el('p', { class: 'sheet__note', text: 'リンクを入れた文を作って、この端末の SMS か LINE を開きます。宛先と送信は、開いた先で確かめて押します。' }),
+      el('div', { class: 'sendrow' },
+        el('button', { class: showQr ? 'btn' : 'btn btn--ghost', type: 'button', 'aria-pressed': String(showQr), text: 'QR を見せる', onclick: () => { showQr = !showQr; render(); } }),
+        sms ? el('a', { class: 'btn btn--ghost', href: sms, text: 'SMS で送る' }) : null,
+        line ? el('a', { class: 'btn btn--ghost', href: line, target: '_blank', rel: 'noopener noreferrer', text: 'LINE で送る' }) : null),
+      sms ? null : el('p', { class: 'sheet__note', text: '予約に電話番号が入っていないので、SMS では送れません。' }));
+  }
+
   function renderAskLink() {
     const s = R.rosterStore.get();
     const b = s.bookings.find(x => x.id === askBooking);
@@ -371,9 +405,11 @@
     };
     return [
       ...head(people.length > 1 ? `${lead} ほか ${people.length - 1} 人` : lead, trip ? `${md(trip.date)} ${tripLabel(trip)}` : ''),
+      real && showQr ? qrView(url, mine) : null,
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, '名簿のそろい具合', el('small', { text: `${items.length} 項目` })),
         people.map(p => personLine(p, trip))),
+      real && url ? sendSheet(b, s.shop.name, url) : null,
       el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, 'お客さんに送るリンク', el('small', { text: '予約 1 件に 1 つ' })),
         url ? el('p', { class: 'url', text: url }) : null,
@@ -414,6 +450,7 @@
       : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
+            : mode === 'walkin' ? R.walkinStaff.render({ ui })
             : mode === 'flow' ? R.autoFlow.render({ bookingId: askBooking, ui })
             : mode === 'board' ? (loadUnread(), R.autoFlow.renderBoard({ ui, unread: unreadView() }))
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })
