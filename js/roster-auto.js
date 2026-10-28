@@ -240,6 +240,69 @@
     return { ...state, ...(state.jobs ? { jobs } : {}), ...(state.outbox ? { outbox } : {}) };
   }
 
+  /* ---------- 送り直す・届いていた（お店が確かめてから。画面の「書類の自動化」） ---------- */
+  /* 元の連絡の why に付ける印。送り直した物は二度と送り直さない（2 回押しても、2 台で押しても新しい連絡は 1 つ）。
+     届いていた物は sent にする（sentAt は確かめた時刻） */
+  const RESENT = 'resent';
+  const CONFIRMED = 'confirmed';
+  const liveTrip = (trip, today) => !!trip && !trip.cancel && !(trip.date && trip.date < today);
+  /* 送り直せない理由の短い名前。送り直せるなら '' */
+  function resendProblem(state, o, today) {
+    if (!o) return 'not-found';
+    if (o.kind === 'staff' || !['failed', 'unsent'].includes(o.status)) return 'not-failed';
+    if (o.why === RESENT) return 'resent';
+    const booking = bookingOf(state, o.bookingId);
+    const trip = tripOfBooking(state, booking);
+    if (!booking || !trip) return 'not-found';
+    if (!liveTrip(trip, today)) return trip.cancel ? 'cancel' : 'past';
+    if (!booking.leadEmail) return 'no-email';
+    return '';
+  }
+  /* 送れなかった・送れたか分からない連絡を、今の予約から作り直して送る準備をする（送るのは Worker。印の付け方は worker/auto-core.mjs の claimQueued）。
+     宛先と人は今の予約から取り直す（お店がメールアドレスを直してから送り直せる）。{ state, problem, id: 新しい連絡の id } */
+  function resend(state, { id, nowJst, at, newId, askBase }) {
+    if (!S().isJst(nowJst)) throw new Error(`resend: nowJst は YYYY-MM-DDTHH:MM (${nowJst})`);
+    const o = (state.outbox || []).find(x => x.id === id);
+    const problem = resendProblem(state, o, nowJst.slice(0, 10));
+    if (problem) return { state, problem, id: '' };
+    const booking = bookingOf(state, o.bookingId);
+    const people = o.kind === 'today' ? needToday(state, booking.id) : missingPeople(state, booking.id);
+    if (!people.length) return { state, problem: 'done', id: '' };   // もうそろった。送る理由が無い
+    const copy = outItem(state, { kind: o.kind, booking, trip: tripOfBooking(state, booking), people, at, newId, askBase });
+    return { state: { ...state, outbox: [...state.outbox.map(x => (x.id === id ? { ...x, why: RESENT } : x)), copy] }, problem: '', id: copy.id };
+  }
+  /* 送れたか分からない連絡が、お客さんに届いていた（お店が確かめた）。{ state, problem } */
+  function confirmSent(state, { id, at }) {
+    const o = (state.outbox || []).find(x => x.id === id);
+    if (!o || o.status !== 'failed' || o.why !== 'maybe-sent') return { state, problem: o ? 'not-maybe' : 'not-found' };
+    return { state: { ...state, outbox: state.outbox.map(x => (x.id === id ? { ...x, status: 'sent', why: CONFIRMED, sentAt: at } : x)) }, problem: '' };
+  }
+
+  /* お店全体の自動の予定と連絡（画面の「書類の自動化」）。nowJst の日を今日とし、済んだ便・中止の便の物は出さない。
+     行は { out | job, booking, trip }。並びは時刻の順。
+     maybe: 送れたか分からない / failed: 送れなかった・送っていない（送り直していない物） / ready: 送る準備ができた（sending: 送っている途中）/
+     today: 今日の予定（済んだ物も）と、時刻を過ぎてまだ動いていない予定 / later: 明日から先の予定 */
+  function board(state, { nowJst }) {
+    if (!S().isJst(nowJst)) throw new Error(`board: nowJst は YYYY-MM-DDTHH:MM (${nowJst})`);
+    const today = nowJst.slice(0, 10);
+    const rowOf = (key) => (x) => {
+      const booking = bookingOf(state, x.bookingId);
+      return { [key]: x, booking, trip: tripOfBooking(state, booking) };
+    };
+    const live = (r) => !!r.booking && liveTrip(r.trip, today);
+    const order = (f) => (a, b) => (f(a) < f(b) ? -1 : f(a) > f(b) ? 1 : 0);
+    const outs = (state.outbox || []).map(rowOf('out')).filter(live).sort(order(r => r.out.at));
+    const jobs = (state.jobs || []).map(rowOf('job')).filter(live).sort(order(r => r.job.due));
+    const day = (r) => r.job.due.slice(0, 10);
+    return {
+      maybe: outs.filter(r => r.out.status === 'failed' && r.out.why === 'maybe-sent'),
+      failed: outs.filter(r => ['failed', 'unsent'].includes(r.out.status) && !['maybe-sent', RESENT].includes(r.out.why)),
+      ready: outs.filter(r => r.out.status === 'queued').map(r => ({ ...r, sending: r.out.why.startsWith('sending:') })),
+      today: jobs.filter(r => day(r) === today || (r.job.status === 'waiting' && day(r) < today)),
+      later: jobs.filter(r => r.job.status === 'waiting' && day(r) > today)
+    };
+  }
+
   /* 次に予定がある時刻（デモの「時刻を進める」）。無ければ '' */
   function nextDue(state, nowJst) {
     const later = (state.jobs || []).filter(j => j.status === 'waiting' && j.due > nowJst).map(j => j.due).sort();
@@ -259,5 +322,6 @@
     return items.sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : 0));
   }
 
-  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS };
+  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS,
+    RESENT, CONFIRMED, resendProblem, resend, confirmSent, board };
 })();
