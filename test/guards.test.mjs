@@ -14,14 +14,14 @@ import '../js/roster-day.js';
 import '../js/roster-share.js';
 import '../js/data-samples.js';
 import { scheduled, receiveMail, changeRoster } from '../worker/auto.mjs';
-import { claimQueued, queuedOf, claimedBy, authPassed, senderAllowed, CLAIM_MAX, MAX_MAIL_BYTES, SENDING, SENDING_STALE_MS } from '../worker/auto-core.mjs';
+import { claimQueued, queuedOf, claimedBy, senderAllowed, CLAIM_MAX, MAX_MAIL_BYTES, SENDING, SENDING_STALE_MS } from '../worker/auto-core.mjs';
 import { MAX_ROSTER_BYTES } from '../worker/sync-core.mjs';
 import { mailReady } from '../worker/mail.mjs';
 import { underLimit } from '../worker/site-guard.mjs';
 import { verifyAccess } from '../worker/access.mjs';
 import { handlePublic } from '../worker/public-handler.mjs';
 import { fakeRateLimit } from '../worker/fakes.mjs';
-import { setup, siteBooking, staffCall, guestCall, publicEnv, stored, putState, message, MAIL_RAW, MAIL_BODY, READING, GOOD, jwtFor, ASK_ORIGIN, ORIGIN, STAFF, NOW, AT, logs, runTests } from './kit.mjs';
+import { setup, siteBooking, staffCall, guestCall, publicEnv, stored, putState, message, PASS, MAIL_RAW, MAIL_BODY, READING, GOOD, jwtFor, ASK_ORIGIN, ORIGIN, STAFF, NOW, AT, logs, runTests } from './kit.mjs';
 
 const { roster: S, rosterCore: C, rosterShare: X, rosterAuto: A, SAMPLE_READINGS } = globalThis.REDUX;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -115,7 +115,7 @@ test('M11 届いたメール: 申告が上限を超えていれば中身は読�
   await receiveMail(big, s.env, s.io);
   assert.equal(honest.pulled, 0, '申告だけで断る');
   assert.deepEqual(unreadWhy(s), ['size']);
-  const head = MAIL_RAW('');
+  const head = `Authentication-Results: ${PASS}\r\n${MAIL_RAW('')}`;   // 確かめは生の見出しを読む（PR #42）
   const exact = new TextEncoder().encode(head + 'a'.repeat(MAX_MAIL_BYTES - head.length));
   assert.equal(exact.byteLength, MAX_MAIL_BYTES);
   await receiveMail(message(exact, 'forward@shop.example', undefined, { rawSize: 1 }), s.env, s.io);
@@ -307,19 +307,20 @@ test('M03 送り主の許可: 同じドメインで SPF / DKIM が通っても�
 test('M03 送り主の許可（お店が複数）: 別のお店の送り主は、このお店の受け口に予約を入れられない', async () => {
   const s = setup({ SINGLE_SHOP: undefined, MAIL_SENDERS: undefined });
   s.db.addShop({ id: 'shop-a', name: 'A ダイブ', inbox: 'a@yoyaku.example', senders: ['fwd-a@shop.example'] });
-  s.db.addShop({ id: 'shop-b', name: 'B マリン', inbox: 'b@yoyaku.example', senders: ['fwd-b@shop.example'] });
+  s.db.addShop({ id: 'shop-b', name: 'B マリン', inbox: 'b@yoyaku.example', senders: ['fwd-b@shop.example', '@booking.example'] });
   const crossed = await inbound(s, message(MAIL_RAW(MAIL_BODY), 'fwd-a@shop.example', undefined, { to: 'b@yoyaku.example' }));
   assert.match(crossed.rejected, /Sender not accepted/);
   assert.equal(s.api.calls.length, 0);
   assert.equal(s.db.rows.size, 0);
-  const own = await inbound(s, message(MAIL_RAW(MAIL_BODY), 'fwd-b@shop.example', undefined, { to: 'b@yoyaku.example' }));
+  const ownAuth = 'mx.cloudflare.net; dkim=pass header.d=booking.example header.s=s1; spf=pass smtp.mailfrom=fwd-b@shop.example';
+  const own = await inbound(s, message(MAIL_RAW(MAIL_BODY), 'fwd-b@shop.example', ownAuth, { to: 'b@yoyaku.example' }));
   assert.equal(own.rejected, '');
   assert.deepEqual([...s.db.rows.keys()], ['shop-b']);
 });
 
 /* ---------- M04: 届いたメールの SPF / DKIM（送り主のドメインと合う物が 1 つも通っていなければ断る） ---------- */
 
-test('M04 SPF / DKIM: 許可の表の送り主でも、認証の見出しが無い・別のドメイン・失敗・親子の取り違えなら断る。ARC の見出しだけでも通ったら受ける', async () => {
+test('M04 SPF / DKIM: 許可の表の送り主でも、認証の見出しが無い・別のドメイン・失敗・親子の取り違えなら断る。ARC の見出しだけでは通さない（PR #42）', async () => {
   const cases = [
     ['見出しなし', null], ['空', ''], ['dkim が別のドメイン', 'mx; dkim=pass header.d=evil.example'], ['spf が別のドメイン', 'mx; spf=pass smtp.mailfrom=bounce@evil.example'],
     ['どちらも失敗', 'mx; dkim=fail header.d=shop.example; spf=softfail smtp.mailfrom=forward@shop.example'], ['none', 'mx; dkim=none; spf=none'],
@@ -333,15 +334,15 @@ test('M04 SPF / DKIM: 許可の表の送り主でも、認証の見出しが無�
     assert.equal(s.db.rows.size, 0, name);
   }
   const arc = setup();
-  const viaArc = message(MAIL_RAW(MAIL_BODY));
-  viaArc.headers.delete('authentication-results');
-  viaArc.headers.set('arc-authentication-results', 'i=1; mx; dkim=pass header.d=shop.example');
+  const viaArc = message(MAIL_RAW(MAIL_BODY), 'forward@shop.example', null);
+  viaArc.headers.set('arc-authentication-results', 'i=1; mx.cloudflare.net; dkim=pass header.d=booking.example');
   await inbound(arc, viaArc);
-  assert.equal(viaArc.rejected, '');
-  assert.equal(arc.api.calls.length, 1);
-  assert.equal(authPassed(undefined, 'forward@shop.example'), false);
-  assert.equal(authPassed('mx; dkim=pass header.d=shop.example', 'forward@'), false, '送り主にドメインが無い');
-  assert.equal(authPassed('mx; spf=pass smtp.mailfrom=shop.example', 'forward@shop.example'), true, 'mailfrom がドメインだけでも合えば通る');
+  assert.match(viaArc.rejected, /not authenticated/, 'ARC の見出しだけでは通さない');
+  assert.equal(arc.api.calls.length, 0);
+  const ok = setup();
+  const good = message(MAIL_RAW(MAIL_BODY));
+  await inbound(ok, good);
+  assert.equal(good.rejected, '', '正しい見出しのメールは通る');
 });
 
 /* ---------- M06: 送る前の印のある連絡は、もう一度は選ばない（二重送信よけ） ---------- */

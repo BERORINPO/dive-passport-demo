@@ -158,7 +158,8 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 | ドメイン | reduxdive.com（Cloudflare Registrar、自動更新オフ、期限 2027-10-28。.com は 2026-11-01 から 11.17 ドル） | Domains → Registrations |
 | Workers | Paid（月 5 ドル）。Cron と Email Sending に要る | Workers plans |
 | 受信 | Email Routing を有効にし（MX・SPF・DKIM は自動）、`inbox@reduxdive.com` → お店の Worker（dive-passport-demo）の rule | API `/zones/{zone}/email/routing/rules`（rule の名前 REDUX booking inbox） |
-| 受ける送り主 | secret `MAIL_SENDERS`（「,」区切り。お店が予約メールを転送する元）。お店の一覧（shops）が空の間は 1 店で、これを使う | `wrangler secret put MAIL_SENDERS` |
+| 受ける送り主 | secret `MAIL_SENDERS`（「,」区切り。お店が予約メールを転送する元のアドレス。Gmail・Microsoft 365 の自動転送を受けるなら、転送を受ける予約サイトのドメインを `@booking.example` の形で足す。足さないと転送は断る）。お店の一覧（shops）が空の間は 1 店で、これを使う | `wrangler secret put MAIL_SENDERS` |
+| 送り主の確かめの名前 | secret `MAIL_AUTHSERV_ID`。Cloudflare が付ける Authentication-Results の最初の言葉（authserv-id）。**これが無いと全部のメールを断る**。置く前に、本番に届いた 1 通の生の見出しで一番上の Authentication-Results を見て、その名前を入れる（文書に書いていないので推測では入れない）。一番上が Cloudflare の行でなければ、このコードでは通らない | `wrangler secret put MAIL_AUTHSERV_ID` |
 | 送信 | Email Sending を reduxdive.com で有効（送り元 `yoyaku@reduxdive.com`、Return-Path は `cf-bounce.reduxdive.com`。DKIM・SPF・DMARC p=reject は自動） | API `/zones/{zone}/email/sending/subdomains`（wrangler の `email sending enable` は 4.151.0 で認証の誤りになった） |
 | お客さんのリンク | `ask.reduxdive.com`（redux-ask の custom domain）。お店の Worker の secret `ASK_ORIGIN` もこの住所 | wrangler.ask.jsonc |
 | 警報の宛先 | secret `ALERT_TO` | `wrangler secret put ALERT_TO` |

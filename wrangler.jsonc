@@ -48,7 +48,9 @@
     "APP_URL": "https://dive-passport-demo.cibimaro-yousuke.workers.dev",
     // 1 店で動かすときの、そのお店の id（今の名簿の行 = default）。D1 の shops が空のとき、これを書いた場合だけ 1 店で動く。無くて空なら 503（開いた側に倒さない）。
     // shops に行を足したら行が先になるので、この行は消してよい（足す前に shops に default の行も入れる: tools/shop.mjs keep-sample）
-    "SINGLE_SHOP": "default"
+    "SINGLE_SHOP": "default",
+    // 届いたメールの確かめで読む Authentication-Results の名前（Cloudflare が付ける物。2026-10-28 に本番の 1 通で確かめた）
+    "MAIL_AUTHSERV_ID": "mx.cloudflare.net"
   },
   // Cloudflare の画面のログに要求を残さない（Worker のログは console.log の 1 行だけで、中身は出さない）
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } }

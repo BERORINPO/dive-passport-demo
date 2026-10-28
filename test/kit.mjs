@@ -37,7 +37,7 @@ export function setup(over = {}) {
     SITE_ORIGINS: SITE, TURNSTILE_SECRET: 'turnstile-test-secret', DB: db, BOOKING_LIMIT: fakeRateLimit(100), ASK_LIMIT: fakeRateLimit(100),
     ANTHROPIC_API_KEY: 'sk-test-not-real', DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), SHOP_NAME: 'B マリン（見本）',
     ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: STAFF,
-    EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN, ASK_ORIGIN, MAIL_SENDERS: 'forward@shop.example', SINGLE_SHOP: 'default', ...over
+    EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN, ASK_ORIGIN, MAIL_SENDERS: 'forward@shop.example, @booking.example', MAIL_AUTHSERV_ID: 'mx.cloudflare.net', SINGLE_SHOP: 'default', ...over
   };
   const io = {
     clock: NOW,
@@ -85,9 +85,12 @@ export function keyOfMail(msg) {
 export const stored = (s, shop = 'default') => JSON.parse(s.db.rows.get(shop).state);
 
 /* 届いたメール（Email Routing が渡す形）の見本 */
-export const PASS = 'mx.cloudflare.net; dkim=pass header.d=shop.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass';
+export const PASS = 'mx.cloudflare.net; dkim=pass header.d=booking.example header.s=s1; spf=pass smtp.mailfrom=forward@shop.example; dmarc=pass';
 export function message(raw, from = 'forward@shop.example', auth = PASS, { to = 'yoyaku@shop.example', rawSize } = {}) {
-  const bytes = typeof raw === 'string' ? new TextEncoder().encode(raw) : raw;
+  /* 送り主の確かめは生の見出しを読む（PR #42）ので、Cloudflare が付ける Authentication-Results を生のメールの一番上にも入れる */
+  const withAuth = auth !== null && typeof raw === 'string' ? `Authentication-Results: ${auth}
+${raw}` : raw;
+  const bytes = typeof withAuth === 'string' ? new TextEncoder().encode(withAuth) : withAuth;
   const headers = new Headers();
   if (auth !== null) headers.set('authentication-results', auth);
   return {
