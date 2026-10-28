@@ -225,6 +225,8 @@ test('Cron: 時刻が来た予定（2 日前・前日の夜・当日の朝）が
   assert.deepEqual(s.mail.sent.map(m => m.to), ['hanako@mail.example']);
   await scheduled(s.env, s.io);
   assert.equal(s.mail.sent.length, 1, '同じ時刻にもう一度動いても、二度は送らない');
+  s.io.clock = Date.parse('2026-11-02T11:00:00Z');   // 日本で 11/2 の 20:00（前日の夜）
+  await scheduled(s.env, s.io);
   s.io.clock = Date.parse('2026-11-02T21:00:00Z');   // 日本で 11/3 の 6:00（当日の朝）
   await scheduled(s.env, s.io);
   st = stored(s.db);
