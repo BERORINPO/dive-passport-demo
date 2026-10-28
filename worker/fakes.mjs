@@ -168,6 +168,10 @@ export function fakeD1() {
             if (!db.shopsTable) throw new Error('D1_ERROR: no such table: shops: SQLITE_ERROR');
             return { results: [...shops.values()] };
           }
+          if (/^SELECT name FROM sqlite_master WHERE type = 'table'$/.test(text)) {
+            const tables = ['rosters', 'ask_links', 'shops', 'roster_past', 'mail_unread', 'daily_counts'];
+            return { results: tables.filter(t => !(db.missingTables || []).includes(t)).map(name => ({ name })) };
+          }
           if (/^SELECT shop FROM rosters$/.test(text)) return { results: [...rows.keys()].map(shop => ({ shop })) };
           const MOVED_SQL = 'SELECT part, day, keep_until, body, moved_at FROM roster_past WHERE shop = ?1 AND (moved_at > ?2 OR (moved_at = ?2 AND part > ?4)) ' +
             'ORDER BY moved_at, part LIMIT ?3';

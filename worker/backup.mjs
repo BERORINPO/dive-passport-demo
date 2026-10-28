@@ -4,7 +4,7 @@
    済んだ便の行は、最後に写した行の時刻（pastcursor）の続きから全部写す（Cron が止まっていた間や、初めて動いた日より前の行も抜けない）。
    警報は運営（ALERT_TO）にメールで送り、KV にも残す（メールの設定がそろうまでは、KV とログだけ） */
 import { getRoster, getMovedSince } from './roster-db.mjs';
-import { snapshotOf, peopleInPart, baseOf, dropAlert, alertMail, dayKey, pastKey, alertKey, cursorKey, BACKUP_KEEP_DAYS, LOOKBACK_DAYS } from './backup-core.mjs';
+import { snapshotOf, peopleInPart, baseOf, dropAlert, sizeAlert, alertMail, dayKey, pastKey, alertKey, cursorKey, BACKUP_KEEP_DAYS, LOOKBACK_DAYS } from './backup-core.mjs';
 import { mailReady, sendOne } from './mail.mjs';
 import { periods } from './read-core.mjs';
 
@@ -62,7 +62,7 @@ async function snapshotAndAlert(env, shop, now, today, note) {
     note.backup = snap.people;
   }
   const moved = base ? (await getMovedSince(env.DB, shop, base.at, 5000)).reduce((n, r) => n + peopleInPart(r.body), 0) : 0;
-  const alert = dropAlert(base, snap, moved);
+  const alert = dropAlert(base, snap, moved) || sizeAlert(snap);
   if (!alert) return;
   note.alert = alert.kind;
   const record = { at, ...alert, mailed: 'pending' };

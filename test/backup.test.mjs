@@ -6,9 +6,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { scheduled } from '../worker/auto.mjs';
+import { dropAlert, snapshotOf, baseOf, dayKey, sizeAlert, alertMail, missingMigrations, REQUIRED_TABLES } from '../worker/backup-core.mjs';
+import { readdirSync } from 'node:fs';
 import { handlePublic } from '../worker/handler.mjs';
 import { cronFresh } from '../worker/auto-core.mjs';
-import { dropAlert, snapshotOf, baseOf, dayKey } from '../worker/backup-core.mjs';
 import { checkPut } from '../worker/sync-core.mjs';
 import { fakeKv, fakeD1, fakeMail } from '../worker/fakes.mjs';
 
@@ -161,6 +162,29 @@ test('控えの置き場所（BACKUP）が無ければ何もしない。メー�
   await scheduled(s.env, s.io);
   assert.ok(s.kv.peek('alert:default:2026-10-29'));
   assert.equal(s.mail.sent.filter(m => m.subject.includes('REDUX')).length, 0);
+});
+
+test('点検 2026-10-28 設計 12: 名簿が上限の 50・70・85% を超えたら、その段で知らせる。名前は入れない', () => {
+  const snap = (bytes) => ({ people: 3, text: 'a'.repeat(bytes) });
+  assert.equal(sizeAlert(snap(499999)), null);
+  assert.deepEqual([sizeAlert(snap(500000)).step, sizeAlert(snap(700000)).step, sizeAlert(snap(900000)).step], [50, 70, 85]);
+  const m = alertMail('default', '2026-10-29', sizeAlert(snap(720000)));
+  assert.ok(m.subject.includes('72%'));
+  assert.equal(dropAlert(null, snapshotOf('{"people":[]}', { shop: 'default', version: 1, at: '' }), 0), null, '人数の警報は今までどおり');
+});
+
+test('点検 2026-10-28 設計 16: D1 の表が足りなければ Cron は動かず、足りない migration の番号をログに出す。表の一覧は migrations と一致する', async () => {
+  const created = readdirSync(new URL('../worker/migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).flatMap(f =>
+    [...readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), 'utf8').matchAll(/CREATE TABLE(?: IF NOT EXISTS)? (\w+)/gi)].map(m => [m[1], f.slice(0, 4)]));
+  assert.deepEqual(Object.fromEntries(created), REQUIRED_TABLES, 'migration を足したら REQUIRED_TABLES にも足す');
+  assert.deepEqual(missingMigrations(['rosters', 'ask_links', 'shops']), ['0004', '0005', '0006']);
+  const s = setup();
+  store(s, big('2026-11-05'));
+  s.db.missingTables = ['mail_unread'];
+  logs.length = 0;
+  await scheduled(s.env, s.io).catch(() => {});
+  assert.ok(logs.some(l => /"schema":"0005"/.test(l)), '番号をログに出す');
+  assert.equal(s.kv.peek(dayKey('default', '2026-10-28')), null, '控えも取らない（動かさない）');
 });
 
 test('点検 2026-10-28 運用 C3: 警報のメールが送れなかったら、次の Cron でもう一度送る。送れたら二度は送らない', async () => {
