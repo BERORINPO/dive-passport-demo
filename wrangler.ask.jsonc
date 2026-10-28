@@ -27,7 +27,11 @@
     // サイトの予約フォームの、1 つの IP の回数（1 分に 5 回）
     { "name": "BOOKING_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } }
   ],
-  // 1 日の件数（サイトの予約）は D1 の daily_counts で数える（migration 0006）ので、KV の BUDGET は要らない。
+  "kv_namespaces": [
+    // 1 日の件数（サイトの予約）は D1 の daily_counts で数える（migration 0006）。KV は Cron が最後に動いた時刻（cron:last）を
+    // /api/health が読むためだけに残す（お店の Worker と同じ KV。id は鍵ではない）
+    { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" }
+  ],
   // お店の Worker（wrangler.jsonc）と同じ SINGLE_SHOP: D1 の shops が空のとき、これを書いた場合だけ 1 店で動く。無くて空なら 503
   "vars": { "SINGLE_SHOP": "default" },
   "observability": { "enabled": false }
