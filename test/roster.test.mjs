@@ -669,6 +669,121 @@ test('op: 画面の直しは全部この表を通る（関数を貯める update
   });
 });
 
+/* ---------- 予約を直す・別の便へ・取り消す（H4）。直しの記録（op）で当て直しても同じになる ---------- */
+const A = globalThis.REDUX.rosterAuto;
+const JSTNOW = '2026-10-21T18:00';
+/* 予約 2 件（電話）を入れた名簿。1 件目には予定を作ってある。便は 10/24 8:30 と、もう 1 つ 10/26 8:30（id は trip-26） */
+const twoBookings = () => {
+  let st = [phoneOp('ka', AT, { booking: { source: 'phone', leadName: '見本 一郎', leadEmail: 'ichiro@mail.example', people: 2 } }),
+    phoneOp('kb', AT, { booking: { source: 'phone', leadName: '見本 二郎', people: 1 } })].reduce((s, e) => C.ops.run(s, e).state, S.blankState('見本の店'));
+  let k = 0;
+  st = A.planJobs(st, { bookingId: st.bookings[0].id, nowJst: JSTNOW, newId: () => `j${(k += 1)}` });
+  return C.addTrip(st, { trip: { date: '2026-10-26', start: '08:30', kind: 'dive', tour: '体験ダイビング' }, at: AT, newId: () => 'trip-26' }).state;
+};
+const op = (name, id, args) => ({ op: name, id, at: '2026-10-22T01:00:00.000Z', args });
+
+test('editBooking: 代表者の名前・電話・メール・メモを直し、前と後を記録に残す。変わらなければ何もしない', () => {
+  const st = twoBookings();
+  const b = st.bookings[0];
+  const after = C.editBooking(st, { bookingId: b.id, patch: { leadEmail: ' ichiro@fixed.example ', leadPhone: '090-1111-2222', leadName: b.leadName }, at: AT });
+  const nb = after.bookings[0];
+  assert.deepEqual([nb.leadEmail, nb.leadPhone, nb.leadName], ['ichiro@fixed.example', '090-1111-2222', '見本 一郎'], '前後の空白を取る');
+  const e = after.log[after.log.length - 1];
+  assert.deepEqual([e.who, e.act, e.kind, e.id, e.at], ['staff', 'edit', 'booking', b.id, AT]);
+  assert.deepEqual(e.fields, ['leadEmail', 'leadPhone'], '変わった項目だけ（同じ名前は入れない）');
+  assert.deepEqual(e.before, { leadPhone: '', leadEmail: 'ichiro@mail.example' });
+  assert.deepEqual(e.after, { leadPhone: '090-1111-2222', leadEmail: 'ichiro@fixed.example' });
+  assert.ok(S.validateState(after).ok);
+  assert.equal(C.editBooking(after, { bookingId: b.id, patch: { leadEmail: 'ichiro@fixed.example' }, at: AT }), after, '変わらない直しは同じ名簿のまま');
+  const cleared = C.editBooking(after, { bookingId: b.id, patch: { leadEmail: '' }, at: AT });
+  assert.equal(cleared.bookings[0].leadEmail, '', 'メールアドレスは空にできる（送らない）');
+  assert.equal(st.bookings[0].leadPhone, '', '渡した名簿は書き換えない');
+});
+
+test('editBooking: 形に合わない直し・見つからない予約・他のお店の予約は例外。直せる項目以外は無視する', () => {
+  const st = twoBookings();
+  const id = st.bookings[0].id;
+  assert.throws(() => C.editBooking(st, { bookingId: id, patch: { leadEmail: 'not-an-address' }, at: AT }), /直した後の形が合わない/);
+  assert.throws(() => C.editBooking(st, { bookingId: id, patch: { note: 'x'.repeat(401) }, at: AT }), /直した後の形が合わない/);
+  assert.throws(() => C.editBooking(st, { bookingId: 'ない', patch: { note: 'a' }, at: AT }), /予約が見つからない/);
+  assert.equal(C.editBooking(st, { bookingId: id, patch: { tripId: 'x', people: 9, source: 'mail' }, at: AT }), st, '便・人数・出どころはここでは直せない');
+  const partner = { ...st, bookings: st.bookings.map(x => (x.id === id ? { ...x, source: 'partner', shop: '他店' } : x)) };
+  assert.throws(() => C.editBooking(partner, { bookingId: id, patch: { note: 'a' }, at: AT }), /乗り合いの他のお店の予約/);
+  assert.throws(() => C.cancelBooking(partner, { bookingId: id, reason: 'guest', at: AT }), /乗り合いの他のお店の予約/);
+});
+
+test('moveBooking（core）: 別の便へ移し、前と後を記録に残す。同じ便は何もせず、中止した便・知らない便には移さない', () => {
+  const st = twoBookings();
+  const id = st.bookings[0].id;
+  const moved = C.moveBooking(st, { bookingId: id, tripId: 'trip-26', at: AT });
+  assert.equal(moved.bookings[0].tripId, 'trip-26');
+  const e = moved.log[moved.log.length - 1];
+  assert.deepEqual([e.act, e.kind, e.id, e.fields], ['edit', 'booking', id, ['tripId']]);
+  assert.deepEqual([e.before.date, e.before.start, e.after.tripId, e.after.date], ['2026-10-24', '08:30', 'trip-26', '2026-10-26']);
+  assert.equal(C.moveBooking(moved, { bookingId: id, tripId: 'trip-26', at: AT }), moved);
+  assert.throws(() => C.moveBooking(st, { bookingId: id, tripId: 'ない', at: AT }), /便が見つからない/);
+  const off = C.cancelTrip(st, { tripId: 'trip-26', reason: 'wind', at: AT });
+  assert.throws(() => C.moveBooking(off, { bookingId: id, tripId: 'trip-26', at: AT }), /中止した便には移せない/);
+});
+
+test('cancelBooking: 予約・人・その予定と送る連絡を外し、ほかの予約は残す。理由と件数を記録に残し、2 回目は何もしない', () => {
+  const st = twoBookings();
+  const [a, b] = st.bookings;
+  assert.ok(st.jobs.length > 0 && st.jobs.every(j => j.bookingId === a.id));
+  const queued = { ...st, outbox: [{ v: 1, id: 'o1', kind: 'request', bookingId: a.id, tripId: a.tripId, to: 'ichiro@mail.example', lang: 'ja', subject: 's', body: 'b',
+    people: [], status: 'queued', why: '', at: AT, sentAt: '' }] };
+  const after = C.cancelBooking(queued, { bookingId: a.id, reason: 'guest', at: AT });
+  assert.deepEqual(after.bookings.map(x => x.id), [b.id]);
+  assert.ok(after.people.every(p => p.bookingId === b.id) && after.people.length === 1);
+  assert.deepEqual([after.jobs.length, after.outbox.length], [0, 0], '予定も、送る準備ができていた連絡も残さない');
+  const e = after.log[after.log.length - 1];
+  assert.deepEqual([e.who, e.act, e.kind, e.id, e.at], ['staff', 'cancel', 'booking', a.id, AT]);
+  assert.deepEqual(e.before, { leadName: '見本 一郎', people: 2, tripId: a.tripId, date: '2026-10-24', start: '08:30' });
+  assert.deepEqual(e.after, { reason: 'guest', jobs: st.jobs.length, mails: 1 });
+  assert.ok(S.validateState(after).ok);
+  assert.equal(C.cancelBooking(after, { bookingId: a.id, reason: 'guest', at: AT }), after, 'もう無い予約は何もしない（2 台で取り消しても同じ）');
+  assert.throws(() => C.cancelBooking(st, { bookingId: a.id, reason: '', at: AT }), /reason は/);
+  assert.throws(() => C.cancelBooking(st, { bookingId: a.id, reason: 'おかしい', at: AT }), /reason は/);
+  assert.deepEqual(C.BOOKING_CANCEL_REASONS, ['guest', 'dup', 'shop', 'other']);
+});
+
+test('op: 直す・移す・取り消すは JSON に写して別の名簿に当て直しても同じ結果になる（電波が無い間に貯めて、開き直したあとに送る）', () => {
+  const st = twoBookings();
+  const [a, b] = st.bookings;
+  const entries = [
+    op('core.editBooking', 'e1', { bookingId: a.id, patch: { leadEmail: 'ichiro@fixed.example' } }),
+    op('auto.moveBooking', 'e2', { bookingId: a.id, tripId: 'trip-26', nowJst: JSTNOW }),
+    op('core.cancelBooking', 'e3', { bookingId: b.id, reason: 'dup' })
+  ];
+  const stored = JSON.parse(JSON.stringify(entries));   // 端末に置いて読み戻した形
+  const run = (base, list) => list.reduce((s, e) => C.ops.run(s, e).state, base);
+  const first = run(st, entries);
+  assert.deepEqual(run(st, stored), first, '同じ入力は同じ id・同じ時刻・同じ結果');
+  assert.deepEqual(first.bookings.map(x => [x.id, x.tripId, x.leadEmail]), [[a.id, 'trip-26', 'ichiro@fixed.example']]);
+  assert.ok(first.log.slice(-3).every(e => e.at === '2026-10-22T01:00:00.000Z'), '記録の時刻は押した時刻');
+  assert.ok(S.validateState(first).ok);
+  /* 別の端末が先に予約を足していた名簿に当て直しても、その予約は残る */
+  const theirs = run(st, [phoneOp('kc', AT, { booking: { source: 'phone', leadName: '見本 三郎', people: 1 } })]);
+  assert.deepEqual(run(theirs, stored).bookings.map(x => x.leadName), ['見本 一郎', '見本 三郎']);
+  /* 別の端末が先に取り消していたら、直しと移しは当てられない（core.js の rebase が外して知らせる）。取り消しは何もしない */
+  const gone = run(st, [op('core.cancelBooking', 'x1', { bookingId: a.id, reason: 'guest' })]);
+  assert.throws(() => C.ops.run(gone, entries[0]), /予約が見つからない/);
+  assert.throws(() => C.ops.run(gone, entries[1]), /予約が見つからない/);
+  assert.equal(C.ops.run(gone, op('core.cancelBooking', 'x2', { bookingId: a.id, reason: 'guest' })).state, gone);
+  assert.deepEqual(C.ops.names.filter(n => /Booking$/.test(n)).sort(), ['auto.moveBooking', 'core.cancelBooking', 'core.editBooking']);
+});
+
+test('op: 予約を直したとき、別の端末が先に同じ項目を直していれば食い違いとして知らせる', () => {
+  const st = twoBookings();
+  const a = st.bookings[0];
+  const mine = op('core.editBooking', 'm1', { bookingId: a.id, patch: { leadPhone: '090-0000-0001' } });
+  const was = C.ops.touches(st, C.ops.run(st, mine).state);
+  assert.deepEqual(was.map(x => [x.kind, x.id, x.fields, x.before]), [['booking', a.id, ['leadPhone'], { leadPhone: '' }]]);
+  const theirs = C.ops.run(st, op('core.editBooking', 't1', { bookingId: a.id, patch: { leadPhone: '090-0000-0002' } })).state;
+  const replay = C.ops.touches(theirs, C.ops.run(theirs, mine).state);
+  assert.deepEqual(C.ops.conflicts(was, replay), [{ kind: 'booking', id: a.id, field: 'leadPhone' }]);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {
