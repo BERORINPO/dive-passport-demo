@@ -14,28 +14,20 @@ const outAsk = join(root, 'dist-ask');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
 const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^walkin\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
-  /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.glb$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/, /^audio\/[^/]+\.mp3$/];
+  /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.png$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/];
 
 export function siteFiles() {
   return execFileSync('git', ['ls-files', '-z'], { cwd: root }).toString('utf8').split('\0').filter(Boolean)
     .filter(f => KEEP.some(r => r.test(f)) && !/\.local\./.test(f));
 }
 
-/* importmap は HTML の中のスクリプトなので、CSP では中身の hash で許す（<script type="importmap"> と </script> の間の文字）。
-   ブラウザは HTML を読む前に改行を LF にそろえる（CRLF と CR は LF になる）ので、hash も LF にそろえてから取る。
-   Windows で取り出した repo（core.autocrlf）は CRLF なので、そろえないと CSP が importmap を止め、three.js（3D の亀）が動かない（2026-10-28） */
-export function importmapHash(html) {
-  const m = html.match(/<script type="importmap">([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('index.html に importmap が無い');
-  return `sha256-${createHash('sha256').update(m[1].replace(/\r\n?/g, '\n'), 'utf8').digest('base64')}`;
-}
-
 /* CDN を残す間は、サイト名だけで許さずパスまで書く（中身は integrity で確かめる）。自前で配ったら 'self' だけにする */
-const CDN = ['https://cdn.jsdelivr.net/npm/three@0.160.0/', 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/'];
+const CDN = ['https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/'];
 
-export function headers(indexHtml) {
-  const index = [`default-src 'none'`, `script-src 'self' '${importmapHash(indexHtml)}' ${CDN.join(' ')}`, `style-src 'self'`, `font-src 'self'`,
-    `img-src 'self' blob: data:`, `connect-src 'self' blob:`, `media-src 'self'`, `worker-src 'self'`, `manifest-src 'none'`,
+/* HTML の中に直に書くスクリプトは無いので、script-src に hash は要らない（importmap をやめた 2026-10-28） */
+export function headers() {
+  const index = [`default-src 'none'`, `script-src 'self' ${CDN.join(' ')}`, `style-src 'self'`, `font-src 'self'`,
+    `img-src 'self' blob: data:`, `connect-src 'self' blob:`, `worker-src 'self'`, `manifest-src 'none'`,
     `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
   /* pass.html（他のお店のスマホで開くパスポート）は字体も画像も読まず、どこにもつながない */
   const pass = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`,
@@ -76,13 +68,13 @@ function build() {
   /* redux-worker: 画面はこの印があるときだけ /api/healthz を確かめる（js/app.js） */
   writeFileSync(join(out, 'index.html'), index.replace(REFERRER_META,
     `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-worker" content="1">`));
-  writeFileSync(join(out, '_headers'), headers(index));
+  writeFileSync(join(out, '_headers'), headers());
   writeFileSync(join(out, 'sw.js'), swFor(files.map(f => [f, readFileSync(join(out, f))])));
   console.log(`dist/: ${files.length} files + _headers`);
 }
 
 /* sw.js に、最初に写しておく画面の骨組み（SHELL）と版（VERSION）を書き込む。版は置く物の中身の hash（置き直すと変わり、前の写しが消える）。
-   字（fonts）と亀（assets）は重いので最初には取らず、使ったときに写す（sw.js の shell） */
+   字（fonts）と絵（assets）は最初には取らず、使ったときに写す（sw.js の shell） */
 const SHELL_FILES = /^(js\/[^/]+\.js|css\/[^/]+\.css|favicon\.svg)$/;
 export function swFor(entries, template = readFileSync(join(root, 'sw.js'), 'utf8')) {
   const hash = createHash('sha256');
@@ -107,8 +99,8 @@ export function askFiles(htmls = ASK_PAGES.map(p => [p, readFileSync(join(root, 
   return [...htmls.map(([page]) => page), ...new Set(refs)];
 }
 
-export function askHeaders(indexHtml) {
-  const all = headers(indexHtml).split('\n');
+export function askHeaders() {
+  const all = headers().split('\n');
   /* 共通（/*）と、ask.html・/ask の CSP、js と css のキャッシュだけを、同じ書き方で写す */
   const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/js/*', '/css/*']);
   const out = [];
@@ -120,18 +112,18 @@ export function askHeaders(indexHtml) {
   return `${out.join('\n')}\n`;
 }
 
-function buildAsk(index) {
+function buildAsk() {
   rmSync(outAsk, { recursive: true, force: true });
   const files = askFiles();
   for (const f of files) {
     mkdirSync(dirname(join(outAsk, f)), { recursive: true });
     cpSync(join(root, f), join(outAsk, f));
   }
-  writeFileSync(join(outAsk, '_headers'), askHeaders(index));
+  writeFileSync(join(outAsk, '_headers'), askHeaders());
   console.log(`dist-ask/: ${files.length} files + _headers`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   build();
-  buildAsk(readFileSync(join(root, 'index.html'), 'utf8'));
+  buildAsk();
 }

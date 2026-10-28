@@ -80,7 +80,7 @@
   }
 
   function questions(s) {
-    if (!s.questions.length) return el('p', { class: 'note', text: 'リドが答えられなかった質問は、まだありません。' });
+    if (!s.questions.length) return el('p', { class: 'note', text: '答えられなかった質問は、まだありません。' });
     return el('ul', { class: 'qlist' }, s.questions.map(q =>
       el('li', {}, el('span', { class: 'qlist__text', text: q.text }), el('span', { class: 'qlist__meta', text: `${langLabel(q.lang)} ・ ${new Date(q.at).toLocaleString('ja-JP')}` }))));
   }
@@ -104,8 +104,8 @@
 
   function faqTable() {
     return el('div', { class: 'card' },
-      el('h2', { class: 'h2', text: 'リドが使う答えの一覧' }),
-      el('p', { class: 'note', text: 'お店が書いた文です。書き換えると、リドの答えも変わります（デモでは書き換えできません）。' }),
+      el('h2', { class: 'h2', text: 'よく聞かれることの答えの一覧' }),
+      el('p', { class: 'note', text: 'お店が書いた文です。書き換えると、お客さまに出る答えも変わります（デモでは書き換えできません）。' }),
       el('div', { class: 'table-wrap' },
         el('table', { class: 'table' },
           el('thead', {}, el('tr', {}, el('th', { text: '質問' }), el('th', { text: '答え' }), el('th', { text: '更新' }))),
@@ -131,7 +131,7 @@
           blocks.map(([d, past]) => dayBlock(d, s.intakes.filter(x => x.date === d).sort(order), s, past)),
           undated.length ? dayBlock('', undated, s, false) : null)
         : el('p', { class: 'empty', text: 'まだ受付がありません。「お客さま」の画面から送れます。' }),
-      el('div', { class: 'card' }, el('h2', { class: 'h2', text: 'お店への質問（リドが答えられなかったもの）' }), questions(s)),
+      el('div', { class: 'card' }, el('h2', { class: 'h2', text: 'お店への質問（答えられなかったもの）' }), questions(s)),
       settings(s),
       faqTable(),
       el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: 'デモの受付を最初の状態に戻す', onclick: () => R.store.reset() })));

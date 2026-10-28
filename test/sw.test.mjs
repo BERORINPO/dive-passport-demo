@@ -92,8 +92,8 @@ test('入れるとき: 骨組みを写す。1 つ取れなくても、ほかは�
   assert.deepEqual([...caches.stores.get(sw.CACHE).keys()].sort(), ['/', '/js/core.js'], '取れた物だけ写す（転送された物と取れなかった物は写さない）');
 });
 
-test('置くときの書き込み: / と js・css・favicon を骨組みにし、字と亀は入れない。中身が変われば版が変わる', () => {
-  const files = [['index.html', 'a'], ['js/app.js', 'b'], ['css/app.css', 'c'], ['fonts/x.woff2', 'd'], ['assets/turtle.glb', 'e'], ['favicon.svg', 'f'], ['sw.js', SRC]];
+test('置くときの書き込み: / と js・css・favicon を骨組みにし、字と絵は入れない。中身が変われば版が変わる', () => {
+  const files = [['index.html', 'a'], ['js/app.js', 'b'], ['css/app.css', 'c'], ['fonts/x.woff2', 'd'], ['assets/chara.png', 'e'], ['favicon.svg', 'f'], ['sw.js', SRC]];
   const out = swFor(files.map(([f, b]) => [f, Buffer.from(b)]), SRC);
   const ctx = { URL, Promise, setTimeout, console };
   ctx.globalThis = ctx;

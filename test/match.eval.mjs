@@ -1,4 +1,4 @@
-// リドの答えの選び方を、質問の一覧（match-cases.mjs）で採点する。
+// 答えの選び方を、質問の一覧（match-cases.mjs）で採点する。
 //   node test/match.eval.mjs         … 前の選び方と今の選び方を並べて出す
 //   node test/match.eval.mjs --check … 確認用（test と blind）の誤答が、下の上限を超えたら失敗にする（悪くなっていないかの見張り）
 // 数え方:

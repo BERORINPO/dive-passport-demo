@@ -6,9 +6,6 @@
   const R = window.REDUX;
   const { el, L } = R;
   const root = document.getElementById('viewer');
-  const TURTLE_SVG = '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">' +
-    '<ellipse cx="32" cy="40" rx="17" ry="14" class="t-shell"/><circle cx="32" cy="20" r="10" class="t-head"/>' +
-    '<circle cx="28" cy="18" r="2" class="t-eye"/><circle cx="36" cy="18" r="2" class="t-eye"/></svg>';
 
   let share = null;
   let status = 'empty';   // 'ok' | 'bad' | 'empty'
@@ -52,7 +49,6 @@
         el('a', { class: 'btn btn--ghost btn--small', href: 'index.html', text: L(tp.viewerCtaLink) })));
   }
 
-  document.getElementById('logo').innerHTML = TURTLE_SVG; // arch-allow: 固定の SVG
   document.getElementById('lang').addEventListener('click', () => R.setLang(R.lang === 'ja' ? 'en' : 'ja'));
   R.onLang(render);
   R.lang = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';

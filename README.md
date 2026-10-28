@@ -26,7 +26,7 @@ Then open http://127.0.0.1:8106. This serves `dist/` with the same headers (CSP)
 
 ## Pages
 
-- `index.html`: four tabs — お客さま (guest: pre-booking check, Lido the FAQ turtle), パスポート (diver passport), 受付 (shop front desk), 予約と名簿 (bookings and the dive roster)
+- `index.html`: four tabs — お客さま (guest: pre-booking check and the FAQ with the shop's guide character), パスポート (diver passport), 受付 (shop front desk), 予約と名簿 (bookings and the dive roster)
 - `pass.html`: read-only page opened from the passport QR code. It loads no images and no fonts (its CSP blocks them), so it draws with the device's own fonts
 
 ## Design (start here if you are changing how it looks)
@@ -34,13 +34,12 @@ Then open http://127.0.0.1:8106. This serves `dist/` with the same headers (CSP)
 - `design.md` is the design system: two layers (staff screens stay light and opaque for use on the beach and the boat; guest screens may follow dark mode and get photos and frosted glass), the colour tokens, and the numeric rules (text at least 14px, text colours at least 7:1 indoors, control borders at least 3:1, 56px bottom buttons). Change `design.md` first, then the screens
 - Colours and fonts come only from the variables in `css/app.css` `:root`. `node test/design.check.mjs` computes the WCAG ratios from those variables and fails on text under 14px or colours written outside them
 - After a visual change, run `test/layout.audit.js` in the browser console at 320 / 375 / 414 / 768px (steps are in the file)
-- Fonts are self-hosted (`fonts/`, SIL OFL). The CSP allows no font hosts and only two script CDNs (three.js on jsDelivr, qrcode-generator on cdnjs), so a design that needs Google Fonts, Tailwind's CDN or inline styles will not load
+- Fonts are self-hosted (`fonts/`, SIL OFL). The CSP allows no font hosts and only one script CDN (qrcode-generator on cdnjs), so a design that needs Google Fonts, Tailwind's CDN or inline styles will not load
 
-## Lido the turtle (3D and voice)
+## Guide character
 
-- The 3D sea turtle (`assets/turtle.glb`) was generated with [Higgsfield](https://higgsfield.ai) on a paid plan. It has no rig; `js/turtle3d.js` moves the head and flippers in the vertex shader. three.js 0.160.0 is loaded from jsDelivr.
-- Lido's voice (`audio/*.mp3`) was generated in advance with [ElevenLabs](https://elevenlabs.io) (Starter plan, commercial licence), using the voice "PiropiroRX" from the ElevenLabs Voice Library. Lido only speaks the shop's fixed answers, so no text or speech is generated at runtime and no API key is in this repo.
-- To regenerate the voice lines: `node tools/make-voice.mjs` (dry run), then `--go` with `ELEVENLABS_API_KEY_REDUX`, `REDUX_VOICE_JA` and `REDUX_VOICE_EN` set.
+- `assets/chara.png` is the shop's guide character, drawn by the team's designer (shell creature, transparent background, 256 px wide). It has no name yet, so the screens show none. It is shown whole (never cropped to a circle) on guest screens only: beside the FAQ heading, as the small mark left of each answer, and in the header. Staff screens (front desk, bookings and roster, `pass.html`) do not show it.
+- Answers are text only. The earlier 3D turtle (three.js, `turtle.glb`) and its voice lines were removed on 2026-10-28; they are in the git history if the owner wants them back.
 
 ## Bookings and the dive roster
 

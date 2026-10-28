@@ -80,7 +80,7 @@ export function tokenSets(text) {
 const TEXT_7 = [['ink', 'bg'], ['ink', 'surface'], ['muted', 'bg'], ['muted', 'surface'], ['accent-ink', 'accent'], ['you-ink', 'you-bg'],
   ['warn', 'bg'], ['warn', 'surface'], ['warn', 'warn-bg'], ['ok', 'bg'], ['ok', 'surface'], ['ok', 'ok-bg'],
   ['info', 'bg'], ['info', 'surface'], ['info', 'info-bg'], ['accent', 'surface'], ['accent', 'bg'], ['accent', 'accent-soft'],
-  ['muted', 'accent-soft'], ['ink', 'accent-soft'], ['ink', 'turtle-bg'], ['ink', 'warn-bg'], ['ink', 'ok-bg'], ['ink', 'info-bg'],
+  ['muted', 'accent-soft'], ['ink', 'accent-soft'], ['ink', 'warn-bg'], ['ink', 'ok-bg'], ['ink', 'info-bg'],
   ['accent-ink', 'warn'], ['ok', 'warn-bg']];   // 中止を知らせるボタン・中止の帯の「確かめた」
 const LINE_3 = [['control', 'surface'], ['control', 'bg']];
 /* 紙（画面にも出す）の薄い字。印刷の紙なので 4.5:1 */
@@ -88,7 +88,7 @@ const PAPER_45 = [['paper-ink', 'paper-bg'], ['paper-faint', 'paper-bg'], ['pape
 const DISABLED_45 = [['disabled-ink', 'disabled-bg'], ['disabled-ink', 'bg'], ['disabled-ink', 'surface']];
 const DARK_45 = [['ink', 'bg'], ['ink', 'surface'], ['muted', 'bg'], ['muted', 'surface'], ['accent-ink', 'accent'], ['you-ink', 'you-bg'],
   ['warn', 'bg'], ['ok', 'bg'], ['info', 'bg'], ['warn', 'warn-bg'], ['ok', 'ok-bg'], ['info', 'info-bg'], ['accent', 'surface'],
-  ['ink', 'turtle-bg'], ['ink', 'warn-bg'], ['disabled-ink', 'disabled-bg'], ['accent-ink', 'warn'], ['ok', 'warn-bg']];
+  ['ink', 'warn-bg'], ['disabled-ink', 'disabled-bg'], ['accent-ink', 'warn'], ['ok', 'warn-bg']];
 const DARK_LINE_3 = [['control', 'surface'], ['control', 'bg']];
 
 export function contrastProblems(set, pairs, min, label, report = []) {
