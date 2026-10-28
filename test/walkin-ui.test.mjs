@@ -369,7 +369,7 @@ test('1 人ずつのリンク: 1 回目の押下では作らず、確かめの�
   assert.equal(buttons(blocks(root)[0], 'SMS で送る').length + buttons(blocks(root)[0], 'LINE で送る').length, 0);
 });
 
-test('1 人ずつのリンク: QR を見せる・SMS で送る・LINE で送る は、その人のリンクだけを本文に入れる（名前・電話は入れない）。電話の無い予約は SMS を出さない', async () => {
+test('1 人ずつのリンク: QR を見せる・SMS で送る・LINE で送る は、その人のリンクだけを本文に入れる（名前・電話は入れない）。SMS は宛先なしで、ご本人に送る注意が出る。予約のリンクは今のまま', async () => {
   const { R, root } = boot();
   const b = seed(R);
   const m = seedMail(R, b.trip);
@@ -379,7 +379,9 @@ test('1 人ずつのリンク: QR を見せる・SMS で送る・LINE で送る 
   await pressTwice(root, 0, 'この人のリンク');
   const [sms] = buttons(blocks(root)[0], 'SMS で送る');
   const [line] = buttons(blocks(root)[0], 'LINE で送る');
-  assert.ok(sms.attrs.href.startsWith('sms:09099990000?&body='), sms.attrs.href);
+  assert.ok(sms.attrs.href.startsWith('sms:?&body='), `宛先を入れない（代表者の電話に届かないように）: ${sms.attrs.href}`);
+  assert.ok(!sms.attrs.href.includes('09099990000'), '代表者の電話は入らない');
+  assert.match(blocks(root)[0].textContent, /この人ご本人に送ってください（代表者に送ると、代表者にこの人の住所などが見えます）/, '送り先の注意が SMS / LINE の横に出る');
   assert.ok(line.attrs.href.startsWith('https://line.me/R/share?text='), line.attrs.href);
   assert.equal(line.attrs.target, '_blank');
   for (const href of [sms.attrs.href, line.attrs.href]) {
@@ -397,8 +399,16 @@ test('1 人ずつのリンク: QR を見せる・SMS で送る・LINE で送る 
   await buttons(root, '予約の一覧に戻る')[0].click();
   await openAsk(root, '見本 次郎');
   await pressTwice(root, 0, 'この人のリンク');
-  assert.equal(buttons(blocks(root)[0], 'SMS で送る').length, 0, '電話番号の無い予約には SMS を出さない');
+  assert.equal(buttons(blocks(root)[0], 'SMS で送る')[0].attrs.href.slice(0, 11), 'sms:?&body=', '代表者の電話が無くても、宛先なしの SMS は出せる');
   assert.equal(buttons(blocks(root)[0], 'LINE で送る').length, 1);
+  /* 予約のリンクは今のまま: 代表者の電話を宛先に入れる */
+  await buttons(root, '予約の一覧に戻る')[0].click();
+  R.rosterSync.askLink = async () => ({ ok: true, url: PERSON_URL('z'), expiresOn: '2026-10-28' });
+  await openAsk(root, '花子 ほか');
+  await buttons(root, 'リンクを作る')[0].click();
+  const lead = buttons(root, 'SMS で送る').filter(x => x.attrs.href.startsWith('sms:0'));
+  assert.equal(lead.length, 1);
+  assert.ok(lead[0].attrs.href.startsWith('sms:09099990000?&body='), '予約のリンクは代表者の電話に送る');
 });
 
 test('1 人ずつのリンク: 作り直すときも 2 回押す。作り直した人のリンクだけが新しくなる。作れなかったときは知らせ、作る前のリンクを残す', async () => {

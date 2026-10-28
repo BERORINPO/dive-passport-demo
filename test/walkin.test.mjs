@@ -492,6 +492,15 @@ test('SMS で送る: sms:<番号>?&body=<文>。番号は半角にそろえ、�
   for (const phone of ['', '   ', '電話なし', '123', '090-1234-5678 内線 12', 'abc', undefined, null]) assert.equal(L.smsHref(phone, 'B', LINK), '', String(phone));
 });
 
+test('宛先なしの SMS（1 人ずつのリンク用）: sms:?&body=<同じ文>。リンクの形が違えば空', () => {
+  const L = R.contactLink;
+  const href = L.smsHrefNoNumber('B マリン', LINK);
+  assert.ok(href.startsWith('sms:?&body='), href);
+  assert.equal(decodeURIComponent(href.split('&body=')[1]), `B マリン：${L.ASK_LINE}
+${LINK}`);
+  assert.equal(L.smsHrefNoNumber('B', 'https://evil.example/ask#k=x'), '');
+});
+
 test('LINE で送る: 公式の URL scheme（https://line.me/R/share?text=<UTF-8 を % にした文>）。同じ文で作る', () => {
   const L = R.contactLink;
   const href = L.lineHref('B マリン', LINK);

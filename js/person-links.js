@@ -2,7 +2,7 @@
    お店が作ったリンクだけが、AI が読んだ値をお客さんに見せ、「合っている」「直す」を受ける（決定ログ 2026-10-28 unconfirmed-marks・staff-person-links）。
    リンクは /api/ask-link に personId をつけて作る（js/roster-sync.js）。出し方は予約のリンクと同じ 3 つ（QR を見せる・SMS で送る・LINE で送る。js/contact-link.js）。
    人ごとの未確認の数は core の unconfirmedByPerson。作り直すと、その人の前のリンクは開けなくなるので、2 回押して作る。
-   お客さんの名前は el() の text で出す（HTML として入れない）。SMS の宛先は予約の代表者の電話で、本文に名前は入れない */
+   お客さんの名前は el() の text で出す（HTML として入れない）。SMS は宛先を入れずに開く（代表者の電話は入れない。ご本人に送る）。本文に名前は入れない */
 (() => {
   'use strict';
 
@@ -10,6 +10,7 @@
   const { el } = R;
 
   const NO_NAME = '名前の分からない人';
+  const SEND_NOTE = 'この人ご本人に送ってください（代表者に送ると、代表者にこの人の住所などが見えます）';
   /* 人の id → { url, expiresOn } か { wait: true } か { error: why }。画面を開き直しても残す（予約のリンクの made と同じ） */
   const made = new Map();
   let armed = '';     // 「もう一度押すと作る」に変わっている人の id
@@ -54,7 +55,8 @@
   /* 作ったリンクの 3 つの出し方 */
   function outputs(x, b, shopName, url, rerender) {
     const L = R.contactLink;
-    const sms = L.smsHref(b.leadPhone, shopName, url);
+    /* この人ご本人に送るリンクなので、代表者の電話は入れない（代表者に届くと、この人の住所などが見える）。宛先はスタッフが選ぶ */
+    const sms = L.smsHrefNoNumber(shopName, url);
     const line = L.lineHref(shopName, url);
     const showQr = qrFor === x.personId;
     return [
@@ -64,7 +66,7 @@
         sms ? el('a', { class: 'btn btn--ghost', href: sms, text: 'SMS で送る' }) : null,
         line ? el('a', { class: 'btn btn--ghost', href: line, target: '_blank', rel: 'noopener noreferrer', text: 'LINE で送る' }) : null),
       showQr ? qrBlock(url) : null,
-      sms ? null : el('p', { class: 'sheet__note', text: '予約に電話番号が入っていないので、SMS では送れません。' })
+      el('p', { class: 'sheet__note', text: SEND_NOTE })
     ];
   }
 
