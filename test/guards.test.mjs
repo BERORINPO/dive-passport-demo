@@ -155,6 +155,14 @@ test('M13 画面の askLink: /ask と # の後ろの鍵（43 字）だけを受�
   assert.deepEqual(plain(await screenWith(async () => { throw new TypeError('Failed to fetch'); }).rosterSync.askLink('b1')), { ok: false, why: 'network' });
 });
 
+test('M13 画面の askLink: personId を渡したときだけ本文に personId を入れる（1 人ずつのリンク。渡さなければ予約のリンクと同じ本文）', async () => {
+  const sent = [];
+  const R = screenWith(async (path, init) => { sent.push([path, JSON.parse(init.body)]); return { status: 404, type: 'basic', json: async () => ({ error: 'booking' }) }; });
+  await R.rosterSync.askLink('b1');
+  await R.rosterSync.askLink('b1', 'p1');
+  assert.deepEqual(sent, [['/api/ask-link', { bookingId: 'b1' }], ['/api/ask-link', { bookingId: 'b1', personId: 'p1' }]]);
+});
+
 /* ---------- M16: 「届いていた」にできるのは、送れたか分からない（maybe-sent）連絡だけ ---------- */
 
 test('M16 serverOwned: 画面が「届いていた」と書いても、maybe-sent の連絡だけが sent になる。送れなかった・送る前・送った物は変わらない', () => {

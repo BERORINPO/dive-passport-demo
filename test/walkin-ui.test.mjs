@@ -55,7 +55,7 @@ const buttons = (root, text) => [...all(root, 'button'), ...all(root, 'a')].filt
 /* ---------- 画面の部品を index.html と同じ順で読む ---------- */
 const SCRIPTS = ['core.js', 'data.js', 'data-sipe.js', 'qr.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'roster-guest.js', 'roster-day.js', 'roster-share.js',
   'roster-auto.js', 'data-samples.js', 'data-big-sample.js', 'photo-mask.js', 'photo-prep.js', 'ai-reader.js', 'roster-sync.js', 'day-roster.js', 'past-trips.js', 'share-roster.js',
-  'partner-photo.js', 'intake-photo.js', 'auto-flow.js', 'contact-link.js', 'walkin-staff.js', 'api-keys-staff.js', 'booking-add.js', 'booking-edit.js', 'booking.js'];
+  'partner-photo.js', 'intake-photo.js', 'auto-flow.js', 'contact-link.js', 'person-links.js', 'walkin-staff.js', 'api-keys-staff.js', 'booking-add.js', 'booking-edit.js', 'booking.js'];
 const memory = () => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), raw: m }; };
 
 function boot({ worker = true } = {}) {
@@ -311,6 +311,120 @@ test('一覧を読めないとき: 描き直すたびに読みに行かない（
   await buttons(root, '読み直す')[0].click();
   await settle();
   assert.equal(reads, 2);
+});
+
+/* ---------- 1 人ずつのリンク（js/person-links.js。決定ログ 2026-10-28 staff-person-links）---------- */
+/* seed の便に、メールから読んだ 2 人の予約（AI が読んだ項目が未確認として残る）を足す。代表者の電話つき */
+function seedMail(R, trip) {
+  const reading = JSON.parse(JSON.stringify(R.SAMPLE_READINGS.e1));
+  const st = R.rosterCore.addBookingToTrip(R.rosterStore.get(), { tripId: trip.id, want: { date: trip.date, start: '08:30', tour: '体験ダイビング', kind: 'dive' },
+    booking: { source: 'mail', leadName: '花子', leadPhone: '090-9999-0000', people: 2 }, reading, src: 'mail', at: AT, newId }).state;
+  R.rosterStore.apply('roster.replace', { state: st });
+  const booking = st.bookings[st.bookings.length - 1];
+  return { booking, people: st.people.filter(p => p.bookingId === booking.id) };
+}
+const PERSON_URL = (c) => `https://ask.reduxdive.com/ask#k=${KEY(c)}`;
+const openAsk = async (root, name) => buttons(all(root, 'li').find(li => li.className === 'bk' && li.textContent.includes(name)), 'QR を見せる')[0].click();
+const blocks = (root) => all(root, '.perlink');
+/* 「この人のリンク」(作り直す) を、確かめの 1 回目と作る 2 回目で押す */
+const pressTwice = async (root, i, label) => { await buttons(blocks(root)[i], label)[0].click(); await buttons(blocks(root)[i], 'もう一度押すと')[0].click(); };
+
+test('1 人ずつのリンク: 予約の人ごとに「この人のリンク」が 1 つずつ出て、未確認の項目の数が見える。未確認のない人は「未確認なし」', async () => {
+  const { R, root } = boot();
+  const b = seed(R);
+  const m = seedMail(R, b.trip);
+  R.rosterSync.askLink = async () => ({ ok: true, url: PERSON_URL('p'), expiresOn: '2026-10-28' });
+  R.renderBooking();
+  await openAsk(root, '花子 ほか');
+  assert.equal(blocks(root).length, 2, '予約の人の数だけ');
+  assert.deepEqual(blocks(root).map(x => buttons(x, 'この人のリンク').length), [1, 1]);
+  const counts = R.rosterCore.unconfirmedByPerson(R.rosterStore.get(), m.booking.id).map(x => x.count);
+  assert.ok(counts.every(n => n > 0), 'メールから読んだ人には未確認がある');
+  blocks(root).forEach((x, i) => assert.match(x.textContent, new RegExp(`未確認 ${counts[i]} 項目`)));
+  assert.match(root.textContent, new RegExp(`未確認 2 人・${counts[0] + counts[1]} 項目`));
+  await buttons(root, '予約の一覧に戻る')[0].click();
+  await openAsk(root, '見本 太郎');
+  assert.equal(blocks(root).length, 1);
+  assert.match(blocks(root)[0].textContent, /未確認なし/);
+  assert.match(root.textContent, /未確認はありません/);
+  assert.equal(R.personLinks.rows(R.rosterStore.get(), 'none').length, 0, '人のいない予約には行が無い');
+});
+
+test('1 人ずつのリンク: 1 回目の押下では作らず、確かめの文に変わる。もう一度押すと、その人の personId をつけて 1 回だけ作る', async () => {
+  const { R, root } = boot();
+  const b = seed(R);
+  const m = seedMail(R, b.trip);
+  const calls = [];
+  R.rosterSync.askLink = async (bookingId, personId) => { calls.push([bookingId, personId]); return { ok: true, url: PERSON_URL('q'), expiresOn: '2026-10-28' }; };
+  R.renderBooking();
+  await openAsk(root, '花子 ほか');
+  await buttons(blocks(root)[1], 'この人のリンク')[0].click();
+  assert.deepEqual(calls, [], '1 回目の押下では作らない（その人の前のリンクを止めないため）');
+  assert.match(blocks(root)[1].textContent, /もう一度押すと、.*前のリンクは開けなくなります/);
+  assert.doesNotMatch(blocks(root)[0].textContent, /もう一度押すと/, '確かめの文に変わるのは押した人だけ');
+  await buttons(blocks(root)[1], 'もう一度押すと')[0].click();
+  assert.deepEqual(calls, [[m.booking.id, m.people[1].id]], '予約の id と、押した人の id');
+  assert.equal(all(blocks(root)[1], '.qr--big').length, 1, '作ったら、その人の QR が大きく出る');
+  assert.equal(all(blocks(root)[0], '.qr--big').length, 0, '別の人には出ない');
+  assert.equal(buttons(blocks(root)[0], 'SMS で送る').length + buttons(blocks(root)[0], 'LINE で送る').length, 0);
+});
+
+test('1 人ずつのリンク: QR を見せる・SMS で送る・LINE で送る は、その人のリンクだけを本文に入れる（名前・電話は入れない）。電話の無い予約は SMS を出さない', async () => {
+  const { R, root } = boot();
+  const b = seed(R);
+  const m = seedMail(R, b.trip);
+  R.rosterSync.askLink = async (bookingId, personId) => ({ ok: true, url: PERSON_URL(personId === m.people[0].id ? 'a' : 'b'), expiresOn: '2026-10-28' });
+  R.renderBooking();
+  await openAsk(root, '花子 ほか');
+  await pressTwice(root, 0, 'この人のリンク');
+  const [sms] = buttons(blocks(root)[0], 'SMS で送る');
+  const [line] = buttons(blocks(root)[0], 'LINE で送る');
+  assert.ok(sms.attrs.href.startsWith('sms:09099990000?&body='), sms.attrs.href);
+  assert.ok(line.attrs.href.startsWith('https://line.me/R/share?text='), line.attrs.href);
+  assert.equal(line.attrs.target, '_blank');
+  for (const href of [sms.attrs.href, line.attrs.href]) {
+    const text = decode(href);
+    assert.equal(text, `B マリン（見本）：ご予約の前にお名前などの入力をお願いします\n${PERSON_URL('a')}`);
+    assert.ok(!text.includes('花子') && !text.includes('090'), 'お客さんの名前・電話番号は入らない');
+  }
+  await buttons(blocks(root)[0], 'QR を見せる')[0].click();
+  assert.equal(all(root, '.qr--big').length, 0, 'QR を閉じられる');
+  await buttons(blocks(root)[0], 'QR を見せる')[0].click();
+  assert.equal(all(root, '.qr--big').length, 1);
+  await pressTwice(root, 1, 'この人のリンク');
+  assert.equal(decode(buttons(blocks(root)[1], 'LINE で送る')[0].attrs.href).split('\n')[1], PERSON_URL('b'), '2 人目は 2 人目のリンク');
+  assert.equal(all(root, '.qr--big').length, 1, '見せる QR は 1 つだけ（今作った人に移る）');
+  await buttons(root, '予約の一覧に戻る')[0].click();
+  await openAsk(root, '見本 次郎');
+  await pressTwice(root, 0, 'この人のリンク');
+  assert.equal(buttons(blocks(root)[0], 'SMS で送る').length, 0, '電話番号の無い予約には SMS を出さない');
+  assert.equal(buttons(blocks(root)[0], 'LINE で送る').length, 1);
+});
+
+test('1 人ずつのリンク: 作り直すときも 2 回押す。作り直した人のリンクだけが新しくなる。作れなかったときは知らせ、作る前のリンクを残す', async () => {
+  const { R, root } = boot();
+  const b = seed(R);
+  const m = seedMail(R, b.trip);
+  const calls = [];
+  const replies = [{ ok: true, url: PERSON_URL('b') }, { ok: true, url: PERSON_URL('c') }, { ok: true, url: PERSON_URL('d') }, { ok: false, why: 404 }];
+  R.rosterSync.askLink = async (bookingId, personId) => { calls.push(personId); return { expiresOn: '2026-10-28', ...replies[calls.length - 1] }; };
+  R.renderBooking();
+  await openAsk(root, '花子 ほか');
+  const lineOf = (i) => decode(buttons(blocks(root)[i], 'LINE で送る')[0].attrs.href).split('\n')[1];
+  await pressTwice(root, 0, 'この人のリンク');
+  await pressTwice(root, 1, 'この人のリンク');
+  assert.deepEqual([lineOf(0), lineOf(1)], [PERSON_URL('b'), PERSON_URL('c')]);
+  await buttons(blocks(root)[0], 'この人のリンクを作り直す')[0].click();
+  assert.equal(calls.length, 2, '作り直しの 1 回目の押下では作らない');
+  assert.match(blocks(root)[0].textContent, /もう一度押すと、.*前のリンクは開けなくなります/);
+  await buttons(blocks(root)[0], 'もう一度押すと')[0].click();
+  assert.deepEqual(calls, [m.people[0].id, m.people[1].id, m.people[0].id]);
+  assert.deepEqual([lineOf(0), lineOf(1)], [PERSON_URL('d'), PERSON_URL('c')], '作り直した人だけが新しいリンク');
+  assert.equal(buttons(blocks(root)[0], 'この人のリンクを作り直す').length, 1, '確かめの文は実行後に元へ戻る');
+  await pressTwice(root, 1, 'この人のリンクを作り直す');
+  assert.equal(calls.length, 4);
+  assert.match(root.textContent, /サーバーにまだこの予約が届いていません/);
+  assert.equal(lineOf(1), PERSON_URL('c'), '作れなかったら、作る前のリンクのまま（サーバーで作り直せていないので、まだ開ける）');
 });
 
 /* ---------- お客さんの画面（walkin.html）---------- */
