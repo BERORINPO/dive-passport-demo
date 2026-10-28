@@ -264,6 +264,81 @@ test('日数を時計なしで数える（うるう年も）', () => {
   assert.equal(G.daysBetween('2025-10-21', '2026-10-21'), 365);
 });
 
+/* ---------- 同伴者の名前（名前が空の人にだけ、お客さんが入れられる） ---------- */
+const nameless = staffEdit(base, taro.id, { name: '' });
+const askOf = (st, id) => G.guestView(st, bookingId).people.find(x => x.person.id === id).ask;
+
+test('同伴者の名前: 聞く項目に name が出るのは名前が空の人だけ', () => {
+  assert.ok(askOf(nameless, taro.id).includes('name'));
+  assert.ok(!askOf(nameless, hanako.id).includes('name'), '名前が入っている人には聞かない');
+});
+
+test('同伴者の名前: { name } だけを送ると名前だけが入り、他の項目は聞いたまま。出どころは guest で記録に残る', () => {
+  const r = G.applyGuest(nameless, { id: taro.id, input: { name: '  見本   次郎 ' }, today: TODAY, at: AT });
+  assert.deepEqual(r.problems, []);
+  const p = personOf(r.state, taro.id);
+  assert.equal(p.name, '見本 次郎', '前後の空白と続く空白は 1 つにそろえる');
+  assert.equal(p.src.name, 'guest');
+  assert.equal(p.address, '');
+  const after = askOf(r.state, taro.id);
+  assert.ok(!after.includes('name') && after.includes('address') && after.includes('birthDate'));
+  const last = r.state.log[r.state.log.length - 1];
+  assert.equal(last.who, 'guest');
+  assert.deepEqual(last.fields, ['name']);
+  assert.ok(S.validateState(r.state).ok);
+});
+
+test('同伴者の名前: 全部の項目と一緒でも入る。名前が無い・空なら personName で断り、state は変えない', () => {
+  const ok = G.applyGuest(nameless, { id: taro.id, input: fullInput({ name: '見本 次郎' }), today: TODAY, at: AT });
+  assert.deepEqual(ok.problems, []);
+  assert.equal(personOf(ok.state, taro.id).name, '見本 次郎');
+  assert.equal(personOf(ok.state, taro.id).address, '沖縄県那覇市見本町 1-2-3');
+  [fullInput(), fullInput({ name: '   ' }), { name: '' }].forEach(input => {
+    const r = G.applyGuest(nameless, { id: taro.id, input, today: TODAY, at: AT });
+    assert.ok(r.problems.includes('personName'), JSON.stringify(input));
+    assert.equal(r.state, nameless);
+  });
+});
+
+test('同伴者の名前: 予約フォームの名前と同じ決まりで断る（URL・ドメイン・制御文字・61 字・文字でない物）', () => {
+  ['見本 http://evil.example', '見本 www.evil', 'evil.example.com', 'a@b.co', '見本\n次郎', '見本\u0000次郎', '見本\u2028次郎', 'あ'.repeat(61), 42, null, ['見本'], { a: 1 }]
+    .forEach(name => {
+      const r = G.applyGuest(nameless, { id: taro.id, input: { name }, today: TODAY, at: AT });
+      assert.deepEqual(r.problems, ['personName'], String(JSON.stringify(name)).slice(0, 30));
+      assert.equal(r.state, nameless);
+    });
+  assert.deepEqual(G.applyGuest(nameless, { id: taro.id, input: { name: 'あ'.repeat(60) }, today: TODAY, at: AT }).problems, [], '60 字はよい');
+  assert.deepEqual(G.applyGuest(nameless, { id: taro.id, input: { name: 'Taro Mihon-Jr' }, today: TODAY, at: AT }).problems, []);
+});
+
+test('同伴者の名前: 入っている名前は書き換えられない（名前だけでも、全部の項目と一緒でも）', () => {
+  const only = G.applyGuest(base, { id: hanako.id, input: { name: '別の人' }, today: TODAY, at: AT });
+  assert.deepEqual(only.problems, ['nothing']);
+  assert.equal(only.state, base);
+  const full = G.applyGuest(base, { id: hanako.id, input: fullInput({ name: '別の人' }), today: TODAY, at: AT });
+  assert.deepEqual(full.problems, []);
+  assert.equal(personOf(full.state, hanako.id).name, personOf(base, hanako.id).name, '他の項目は入るが、名前は変わらない');
+  /* 1 度入れたあとの 2 度目も同じ */
+  const first = G.applyGuest(nameless, { id: taro.id, input: { name: '見本 次郎' }, today: TODAY, at: AT }).state;
+  const again = G.applyGuest(first, { id: taro.id, input: { name: '見本 三郎' }, today: TODAY, at: AT });
+  assert.deepEqual(again.problems, ['nothing']);
+  assert.equal(personOf(again.state, taro.id).name, '見本 次郎');
+});
+
+test('同伴者の名前: 1 人ずつのリンク（only が健康だけ）では入れられない。パスポートからは名前を入れない', () => {
+  const r = G.applyGuest(nameless, { id: taro.id, input: { name: '見本 次郎' }, today: TODAY, at: AT, only: ['history'] });
+  assert.deepEqual(r.problems, ['nothing']);
+  assert.equal(r.state, nameless);
+  const offer = G.passportOffer(passOf({ name: '見本 次郎' }), { today: TODAY, maxDays: 365 });
+  const done = G.applyPassport(nameless, { id: taro.id, offer, keys: ['cert', 'dives', 'history'], otherName: true, consent: true, today: TODAY, at: AT });
+  assert.equal(personOf(done.state, taro.id).name, '', 'パスポートの名前を名簿の名前にはしない');
+});
+
+test('同伴者の名前: 名前の決まりは、予約フォームの名前（worker/auto-core.mjs の NAME_BAD）と同じ式', () => {
+  const lit = (file) => /const NAME_BAD = (\/.+\/[a-z]*);/.exec(readFileSync(new URL(file, import.meta.url), 'utf8'))[1];
+  assert.equal(lit('../js/roster-guest.js'), lit('../worker/auto-core.mjs'));
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

@@ -26,6 +26,10 @@
     known: { ja: 'お店がもう知っていること', en: 'What the shop already has' },
     knownNote: { ja: '中身はここに出しません。直したい所があれば、集合のときにお店に伝えてください。', en: 'The details are not shown here. If something needs fixing, tell the shop when you meet.' },
     filled: { ja: '入力済み', en: 'Provided' },
+    guestName: { ja: 'お名前（名簿に載ります）', en: 'Name (goes on the participant list)' },
+    nameFirst: { ja: 'お名前だけ先に送る', en: 'Send the name first' },
+    nameFirstNote: { ja: 'お店はまだこの方の名前を知りません。ほかの所はあとで入れても大丈夫です。', en: 'The shop does not have this person\'s name yet. You can fill in the rest later.' },
+    personNo: { ja: '人目', en: 'Guest ' },
     birthDate: { ja: '生年月日', en: 'Date of birth' },
     address: { ja: '住所', en: 'Address' },
     emergency: { ja: '緊急時の連絡先（一緒に潜らない人）', en: 'Emergency contact (someone not diving with you)' },
@@ -86,7 +90,9 @@
   const ITEM_EN = { name: 'Name', birthDate: 'Date of birth', address: 'Address', emergency: 'Emergency contact', certDate: 'Certification date',
     courses: 'Courses', dives: 'Experience', lastDive: 'Last dive', history: 'Medical history', today: 'Health today' };
   const COURSE_EN = { OW: 'Open Water', AOW: 'Advanced', RESCUE: 'Rescue', JOW: 'Junior', DM: 'Divemaster', OTHER: 'Other', NONE: 'None (first dive)' };
-  const PROBLEM = { birthDate: T.birthDate, address: T.address, emergency: { ja: '緊急時の連絡先（名前と電話）', en: 'Emergency contact (name and phone)' },
+  const PROBLEM = {
+    personName: { ja: 'お名前（60 字まで。リンクや記号の並びは入れられません）', en: 'Name (up to 60 characters, no links)' },
+    birthDate: T.birthDate, address: T.address, emergency: { ja: '緊急時の連絡先（名前と電話）', en: 'Emergency contact (name and phone)' },
     cert: T.cert, certDate: T.certDate, dives: T.dives, lastDive: { ja: '最後に潜った月', en: 'Last dive month' },
     history: { ja: '健康の質問（全部）', en: 'All health questions' }, consent: { ja: '健康の答えの同意', en: 'Consent for health answers' },
     name: { ja: '名前が違っても入れる、の印', en: 'The box for a different name' }, save: { ja: '保存できませんでした', en: 'Could not save' },
@@ -109,6 +115,12 @@
   let remote = null;            // 本物のリンク: { view(), send(personId, input), today(personId, answer, consent), personLink(personId) }。js/ask-page.js が入れる
   let personUrls = {};          // 1 人ずつのリンク（人の id → { url, copied }）
 
+  /* 名前がまだ空の人は「2 人目」と呼ぶ（名前を入れる前の見分け） */
+  const personLabel = (v, person) => {
+    if (person.name) return person.name;
+    const i = v.people.findIndex(x => x.person.id === person.id) + 1;
+    return R.lang === 'en' ? `${L(T.personNo)}${i}` : `${i}${L(T.personNo)}`;
+  };
   const itemLabel = (items, key) => (R.lang === 'en' ? ITEM_EN[key] : items.find(i => i.key === key).ja);
   /* 「当日として答える」はデモ（見本の読み取り）のときだけ。本物では Worker の時計で当日かを決める（plan/meibo.md） */
   const demoMode = () => !!R.aiReader && R.aiReader.mode() === 'sample';
@@ -119,7 +131,7 @@
 
   function draftOf(p) {
     if (!drafts[p.id]) {
-      drafts[p.id] = { birthDate: '', address: '', emergency: { name: '', relation: '', phone: '' }, cert: { course: '', date: '' },
+      drafts[p.id] = { name: '', birthDate: '', address: '', emergency: { name: '', relation: '', phone: '' }, cert: { course: '', date: '' },
         courses: '', dives: '', lastDive: '', answers: Array(R.roster.HEALTH_QUESTIONS).fill(null), consent: false, today: '' };
     }
     return drafts[p.id];
@@ -132,6 +144,11 @@
   function formFields(entry, d, items) {
     const ask = entry.ask;
     const out = [];
+    if (ask.includes('name')) {
+      out.push(field(T.guestName, input(d, 'name', { type: 'text', maxlength: 60 })),
+        el('p', { class: 'note', text: L(T.nameFirstNote) }),
+        el('button', { class: 'btn btn--small btn--ghost', type: 'button', text: L(T.nameFirst), onclick: () => sendName(entry, d) }));
+    }
     if (ask.includes('birthDate')) out.push(field(T.birthDate, input(d, 'birthDate', { type: 'date', max: R.today(), autocomplete: 'bday' })));
     if (ask.includes('address')) out.push(field(T.address, input(d, 'address', { type: 'text', maxlength: 120, autocomplete: 'street-address' })));
     if (ask.includes('emergency')) {
@@ -236,6 +253,19 @@
     render();
   }
 
+  /* 名前が空の人の名前だけを送る（{ name } だけの入力。他の項目は聞いたまま） */
+  async function sendName(entry, d) {
+    problems = [];
+    if (remote) {
+      const got = await remote.send(entry.person.id, { name: d.name });
+      if (got.problems.length) problems = got.problems; else flash = 'sent';
+      render();
+      return;
+    }
+    if (save('guest.applyGuest', { id: entry.person.id, input: { name: d.name }, today: R.today(), at: new Date().toISOString() })) flash = 'sent';
+    render();
+  }
+
   function send(entry, trip) {
     const d = draftOf(entry.person);
     const at = new Date().toISOString();
@@ -280,7 +310,7 @@
     return [
       el('p', { class: 'note', text: `${v.shop}${L(T.passTo)}` }),
       el('h2', { class: 'page__title', text: L(T.passTitle) }),
-      el('p', { class: 'page__sub', text: `${entry.person.name || '—'}${R.lang === 'en' ? '' : ' '}${L(T.passFor)}` }),
+      el('p', { class: 'page__sub', text: `${personLabel(v, entry.person)}${R.lang === 'en' ? '' : ' '}${L(T.passFor)}` }),
       items.length ? el('div', { class: 'sheet' }, items.map(row)) : el('p', { class: 'empty', text: L(T.passNone) }),
       differs ? el('div', { class: 'band band--warn' }, el('p', { class: 'band__title', text: L(entry.person.name ? T.passNameDiff : T.passNameEmpty) }),
         el('p', { class: 'band__text', text: `${pass.name || '—'} / ${entry.person.name || '—'}${R.lang === 'en' ? '. ' : '。'}${L(T.passNameText)}` })) : null,
@@ -337,7 +367,7 @@
       open.map(x => {
         const made = personUrls[x.person.id];
         return el('div', { class: 'rd' },
-          el('button', { class: 'linkbtn', type: 'button', text: `${x.person.name || '—'}${R.lang === 'en' ? '' : ' '}${L(T.personLink)}`, onclick: () => copy(x) }),
+          el('button', { class: 'linkbtn', type: 'button', text: `${personLabel(v, x.person)}${R.lang === 'en' ? '' : ' '}${L(T.personLink)}`, onclick: () => copy(x) }),
           made ? el('span', { class: 'rd__sub', text: L(made.copied ? T.personCopied : T.personFail) }) : null,
           made && !made.copied ? el('p', { class: 'url', text: made.url }) : null);
       }));
@@ -366,7 +396,7 @@
       v.people.length > 1 ? el('div', { class: 'ptabs', role: 'group' }, v.people.map(x => el('button', {
         class: 'ptab', type: 'button', 'aria-pressed': String(x.person.id === personId),
         onclick: () => { personId = x.person.id; problems = []; flash = null; render(); }
-      }, x.person.name || '—', !x.ask.length && !x.needsToday ? ' ✓' : ''))) : null,
+      }, personLabel(v, x.person), !x.ask.length && !x.needsToday ? ' ✓' : ''))) : null,
       known.length ? el('details', { class: 'sheet known' },
         el('summary', { text: R.lang === 'en' ? `${L(T.known)} (${known.length})` : `${L(T.known)}（${known.length}）` }), known, el('p', { class: 'sheet__note', text: L(T.knownNote) })) : null,
       done ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, `✓ ${L(remote && entry.healthOpen ? T.doneHere : T.doneTitle)}`),
