@@ -41,10 +41,16 @@
     return num && text ? `sms:${num}?&body=${enc(text)}` : '';
   }
 
+  /* 宛先を入れない sms:（1 人ずつのリンク用。代表者の番号を入れると、代表者にその人のリンクが届く）。スタッフが送り先を選ぶ */
+  function smsHrefNoNumber(shopName, url) {
+    const text = messageText(shopName, url);
+    return text ? `sms:?&body=${enc(text)}` : '';
+  }
+
   function lineHref(shopName, url) {
     const text = messageText(shopName, url);
     return text ? `${LINE_SHARE}${enc(text)}` : '';
   }
 
-  R.contactLink = { ASK_LINE, askUrlOk, messageText, smsNumber, smsHref, lineHref };
+  R.contactLink = { ASK_LINE, askUrlOk, messageText, smsNumber, smsHref, smsHrefNoNumber, lineHref };
 })();

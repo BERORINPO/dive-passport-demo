@@ -569,6 +569,13 @@
   }
   const unconfirmed = (state, p, trip) => unconfirmedItems(state, p, trip).map(x => x.key);
   const unconfirmedFields = (state, p, trip) => [...new Set(unconfirmedItems(state, p, trip).map(x => x.field))];
+  /* 予約の人ごとの未確認の数（名簿の並びの順）。お店が 1 人ずつのリンクを誰に送るか決める目安。便が無い予約は 0 */
+  function unconfirmedByPerson(state, bookingId) {
+    const b = state.bookings.find(x => x.id === bookingId);
+    const trip = b && state.trips.find(t => t.id === b.tripId);
+    return state.people.filter(p => p.bookingId === bookingId)
+      .map(person => ({ person, count: trip ? unconfirmed(state, person, trip).length : 0 }));
+  }
   /* お客さんが「合っている」と答えた項目。値は変えず、自信なしの印を外し、した人（guest）・時刻・項目を記録に残す */
   function confirmByGuest(state, { id, fields, at }) {
     if (!state.people.some(p => p.id === id)) throw new Error(`confirmByGuest: 人が見つからない (${id})`);
@@ -791,7 +798,8 @@
     COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, reviewFields, confirmReview, toCheck, scrubLog,
-    mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, unconfirmed, unconfirmedFields, confirmByGuest, logAi, editTrip, logOutput,
+    mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, unconfirmed, unconfirmedFields, unconfirmedByPerson,
+    confirmByGuest, logAi, editTrip, logOutput,
     addPerson, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,
     BOOKING_CANCEL_REASONS, editBooking, moveBooking, cancelBooking,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired,
