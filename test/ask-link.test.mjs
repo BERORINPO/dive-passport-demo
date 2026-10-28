@@ -15,7 +15,7 @@ import { resetAccessCache } from '../worker/access.mjs';
 import { fakeKv, fakeAccess, fakeD1, fakeTurnstile, fakeRateLimit, fakeShopBinding, checkRedirect } from '../worker/fakes.mjs';
 
 const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
-const SITE = 'https://aquagate.example.com';
+const SITE = 'https://site.example.com';
 const TEAM = 'mihon-team.cloudflareaccess.com';
 const AUD = 'aud-0123456789abcdef';
 const EMAIL = 'mihon.member@example.com';
@@ -438,8 +438,8 @@ test('口(2) askApply(hash, req, origin): 答えを入れる・1 人ずつのリ
 test('口(3) siteHosts(origin): お店の一覧にあるサイトならホスト名を返す。無ければ 403、一覧が使えなければ 503（開いた側に倒さない）', async () => {
   const s = setup();
   const shop = new ShopService(s.env, s.io);
-  assert.deepEqual(await shop.siteHosts(SITE), { ok: true, hosts: ['aquagate.example.com'], note: { shop: 'default' } });
-  for (const origin of ['https://evil.example.com', '', undefined, null, 5, {}, `https://${'a'.repeat(200)}.example`, 'ftp://aquagate.example.com', `${SITE}/`]) {
+  assert.deepEqual(await shop.siteHosts(SITE), { ok: true, hosts: ['site.example.com'], note: { shop: 'default' } });
+  for (const origin of ['https://evil.example.com', '', undefined, null, 5, {}, `https://${'a'.repeat(200)}.example`, 'ftp://site.example.com', `${SITE}/`]) {
     const got = await shop.siteHosts(origin);
     assert.equal(got.ok, false, String(origin));
     assert.equal(got.status, 403);
@@ -483,7 +483,7 @@ test('Service Binding の口は 7 つだけ: SHOP_METHODS・fakeShopBinding・Sh
   assert.match(readFileSync(new URL('../worker/index.mjs', import.meta.url), 'utf8'), /export \{ ShopRpc \} from '\.\/shop-rpc\.mjs'/);
   /* RPC は素の値だけを渡す: 答えは structuredClone を通っても同じ */
   const got = await binding.siteHosts(SITE);
-  assert.deepEqual(got, { ok: true, hosts: ['aquagate.example.com'], note: { shop: 'default' } });
+  assert.deepEqual(got, { ok: true, hosts: ['site.example.com'], note: { shop: 'default' } });
   assert.deepEqual(binding.calls, ['siteHosts']);
 });
 
