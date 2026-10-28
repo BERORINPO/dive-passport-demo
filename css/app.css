@@ -550,3 +550,10 @@ a.btn { text-decoration: none; }
   .poster__qr { width: 100mm; margin: 12mm auto; }
   .poster__note { font-size: 16px; }
 }
+
+/* 未確認の印（js/day-roster.js・決定ログ 2026-10-28 unconfirmed-marks）。色だけにせず、字（▲未確認）と太い破線の枠で示す。白黒の印刷・写真でも分かる */
+.unconf { border-color: var(--warn); color: var(--warn); font-weight: 700; }
+.paper__unconf { display: inline-block; margin-left: 4px; padding: 0 3px; border: 1px solid var(--paper-ink); font-size: 0.9em; font-weight: 700; white-space: nowrap; }
+.paper__table td.paper__cell--unconf { border: 2px dashed var(--paper-ink); }
+.paper__legend { margin: 8px 0 0; font-size: 11px; font-weight: 700; }
+@media print { .paper__legend { font-size: 9.5px; } }

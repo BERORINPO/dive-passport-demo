@@ -1,6 +1,6 @@
 /* お客さんが自分で入れる所（純ロジック）。保存・通信・画面・時計は知らない。
    お店が送ったリンクから開いた人が、その予約の人の「まだ」の所だけを入れる。パスポートからも入れられる。
-   お店や AI が入れた所は書き換えない。名前も同じで、空の人（同伴者）にだけ入れられ、入っている名前は書き換えられない
+   お店や AI が入れた所は書き換えない（例外: AI が読んだまま確かめていない値は「合っていますか」で直せる。confirmGuest）。名前も同じで、空の人（同伴者）にだけ入れられ、入っている名前は書き換えられない
    （聞く項目に 'name' が出るのは名前が空の人だけ）。一部だけ入っている欄（緊急時の連絡先・C カード）は、空の所だけを入れる。
    健康の答え（既往症・当日の体調）は、同意のうえで入れ、同意した日と同意の文の版を名簿に残す。AI には渡さない
    （AI に渡す物は roster-schema.js が決める） */
@@ -69,6 +69,16 @@
   /* 組の片方だけを入れたか（もう片方は前から入っていた） */
   const halfCert = (patch, parts) => !!patch.cert && Object.keys(patch.cert).length === 1 && parts.cert.length === 1;
 
+  /* ---------- 「この内容で合っていますか」（決定ログ 2026-10-28 unconfirmed-marks） ----------
+     AI が読んだまま、まだ誰も確かめていない値を、その予約のお客さんに見せて「合っている」か「直す」を聞く。見せるのは名簿に載る AI の項目だけで、
+     健康は入れない。名前は「合っている」だけ（入っている名前は書き換えられない。決定ログ guest-companion-names）。「直す」で変えられるのは AI が入れた値だけ */
+  const CONFIRM_FIELDS = ['name', 'birthDate', 'address', 'emergency', 'cert', 'dives', 'lastDive'];
+  const FIX_ASK = { birthDate: ['birthDate'], address: ['address'], emergency: ['emergency'], cert: ['certDate'], dives: ['dives'], lastDive: ['lastDive'] };
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const allParts = () => ({ emergency: [...S().SUB.emergency], cert: ['course', 'date'], course: '' });
+  const confirmList = (state, person, trip) => (trip ? C().unconfirmedFields(state, person, trip).filter(f => CONFIRM_FIELDS.includes(f))
+    .map(field => ({ field, value: person[field], canFix: has(FIX_ASK, field) })) : []);
+
   /* 予約 1 件と、その人ごとの「まだ」の所。ask は入力の欄で聞く項目、needsToday は当日の体調がまだか */
   function guestView(state, bookingId) {
     const booking = state.bookings.find(b => b.id === bookingId);
@@ -80,7 +90,7 @@
       const missing = C().askGuest(person, trip, opt);
       const known = items.filter(i => !i.trip && !i.health && C().filled(person, trip, i.key, opt)).map(i => i.key);
       return { person, ask: missing.filter(k => k !== TODAY_KEY), needsToday: missing.includes(TODAY_KEY), known,
-        parts: openParts(person), consented: consented(person) };
+        parts: openParts(person), consented: consented(person), confirm: confirmList(state, person, trip) };
     });
     return { booking, trip, people, items };
   }
@@ -186,6 +196,28 @@
     const agree = entry.consented ? {} : { consentAt: DAY.test(today || '') ? today : day, consentVer: CONSENT_VER };
     return { state: C().editPerson(state, { id, patch: { health: { today: answer, todayAt: day, ...agree } }, who: 'guest', src: 'guest', at, demo: demo === true }),
       problems: [] };
+  }
+
+  /* 「合っている」(agree: 項目の名前の並び) と「直す」(fix: { 項目: 新しい値 })。見せた項目（guestView の confirm）だけを受ける。形が合わなければ { problems } を返し、
+     state は変えない。直した項目は editPerson（した人 guest・出どころ guest。前と後が記録に残る）、合っている項目は confirmByGuest（記録に項目つきで残る）。
+     直したのに値が同じだった項目は「合っている」として数える。名前は直せない（'name'）。健康など見せていない項目は 'field' */
+  function confirmGuest(state, { id, agree, fix, at }) {
+    const entry = entryOf(state, id);
+    const agreeList = Array.isArray(agree) ? agree : [];
+    const fixIn = fix && typeof fix === 'object' && !Array.isArray(fix) ? fix : {};
+    const fixList = Object.keys(fixIn);
+    const shown = entry.confirm.map(c => c.field);
+    if (!agreeList.length && !fixList.length) return { state, problems: ['nothing'] };
+    if (fixList.includes('name')) return { state, problems: ['name'] };
+    if (![...agreeList, ...fixList].every(f => shown.includes(f)) || agreeList.some(f => fixList.includes(f))) return { state, problems: ['field'] };
+    const ask = fixList.flatMap(f => FIX_ASK[f]);
+    const problems = guestProblems(fixIn, ask, allParts());
+    if (problems.length) return { state, problems };
+    const edited = fixList.length ? C().editPerson(state, { id, patch: guestPatch(fixIn, ask, '', allParts()), who: 'guest', src: 'guest', at }) : state;
+    const left = confirmList(edited, edited.people.find(p => p.id === id), C().tripOf(edited, entry.person)).map(c => c.field);
+    const same = fixList.filter(f => left.includes(f));
+    const fields = [...new Set([...agreeList, ...same])];
+    return { state: fields.length ? C().confirmByGuest(edited, { id, fields, at }) : edited, problems: [] };
   }
 
   /* ---------- パスポートから ---------- */
@@ -337,6 +369,6 @@
     return { ...out, bookingId };
   }
 
-  R.rosterGuest = { CONSENT_VER, VALID_CONSENT, TODAY_KEY, guestView, openParts, guestProblems, guestPatch, applyGuest, answerToday, courseOf,
+  R.rosterGuest = { CONSENT_VER, VALID_CONSENT, TODAY_KEY, guestView, openParts, guestProblems, guestPatch, applyGuest, confirmGuest, answerToday, courseOf,
     passportOffer, passportChoices, passportSameName, applyPassport, daysBetween, walkinMatches, addWalkin, mergeWalkin };
 })();

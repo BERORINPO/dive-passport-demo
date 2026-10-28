@@ -45,6 +45,7 @@
   const source = {
     view: () => view,
     send: async (personId, input) => ({ problems: problemsOf(await post({ action: 'send', personId, input })) }),
+    confirm: async (personId, agree, fix) => ({ problems: problemsOf(await post({ action: 'confirm', personId, agree, ...(fix ? { fix } : {}) })) }),
     today: async (personId, answer, consent) => ({ problems: problemsOf(await post({ action: 'today', personId, answer, consent: consent === true })) }),
     async personLink(personId) {
       const r = await post({ action: 'person-link', personId });

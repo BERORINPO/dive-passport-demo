@@ -356,14 +356,18 @@
       : e.fields.length ? `${e.fields.map(label).join('・')}をそのまま認めた` : '読み取りを確かめた');
     /* いま「名簿に入れる」を押したときの記録だけ（直した・認めた）。前からの記録は名簿の記録の画面で見る */
     const rows = s.log.filter(e => e.kind === 'person' && e.id === p.id && e.at === review.doneAt && ['edit', 'check'].includes(e.act)).reverse();
-    const leave = () => { review = { personId: '', edits: {}, open: false, error: '', done: '' }; ui.go('intake', {}); };
+    const reset = () => { review = { personId: '', edits: {}, open: false, error: '', done: '' }; };
+    const leave = () => { reset(); ui.go('intake', {}); };
+    const toDay = () => { reset(); ui.go('day', { tripId: trip.id }); };
     return [
       ...ui.head(`${p.name || '名前の分からない人'}さん`),
       el('p', { class: 'flag flag--ok', text: '✓ 名簿に入れました（確かめる所 0 件）' }),
       el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, '記録', el('small', { text: '新しい順' })),
         rows.map(e => el('div', { class: 'rd' }, el('span', { class: 'rd__k', text: hm(e.at) }),
           el('span', { class: 'rd__v' }, text(e), el('span', { class: 'rd__sub', text: 'お店' }))))),
-      ui.dock(el('button', { class: 'btn btn--ghost', type: 'button', text: '名簿の取り込みに戻る', onclick: leave }))
+      ui.dock(
+        trip ? el('button', { class: 'btn', type: 'button', text: '今日の名簿に戻る', onclick: toDay }) : null,
+        el('button', { class: 'btn btn--ghost', type: 'button', text: '名簿の取り込みに戻る', onclick: leave }))
     ];
   }
   /* 記録の時刻（日本の時刻の 時:分） */
@@ -378,6 +382,7 @@
     if (review.done === personId) return renderDone(p, ui);
     const from = [...new Set(Object.values(p.src).filter(src => ['mail', 'paper', 'ccard'].includes(src)))].map(src => SRC_JA[src]);
     const { unsure, others } = C().reviewFields(p, trip);
+    const unconfirmed = C().unconfirmed(s, p, trip).length;
     const patch = patchFrom(p);
     const fixed = Object.keys(patch).length;
     const accepted = unsure.filter(r => !Object.prototype.hasOwnProperty.call(patch, r.field)).length;
@@ -385,6 +390,8 @@
     return [
       ...ui.head(`${p.name || '名前の分からない人'}さん`, `${from.length ? `${from.join('と')}から読み取りました。` : ''}${ui.md(trip.date)} ${ui.tripLabel(trip)}`),
       el('p', { class: `flag ${unsure.length ? 'flag--warn' : 'flag--ok'}`, text: `${unsure.length ? '!' : '✓'} 確かめる所 ${unsure.length} 件` }),
+      /* AI が読んだまま、まだ誰も確かめていない項目（名簿の紙の「▲未確認」と同じ数え方）。「この内容で名簿に入れる」で確かめ済みになる */
+      unconfirmed ? el('p', { class: 'note', text: `まだ確かめていない項目 ${unconfirmed}（名簿の紙には「▲未確認」と出ます）。下で見比べて、直す所がなければ「この内容で名簿に入れる」を押してください。` }) : null,
       unsure.length ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, '確かめる所', el('small', { text: `${unsure.length} 項目` })),
         unsure.map(r => fieldBlock(r, p, patch, ui))) : null,
       review.open

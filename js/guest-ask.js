@@ -58,6 +58,15 @@
     symNote: { ja: 'お店は海に入る前と後に、指先の機器で血中の酸素を測ることがあります。測った数値は、このお店だけが名簿と一緒に 1 年残し、他のお店や AI には渡しません。',
       en: 'The shop may check your blood oxygen with a fingertip sensor before and after each dive. Only this shop keeps the readings, for one year with the participant list; they are not passed to other shops or to an AI.' },
     symSource: { ja: '沖縄県警察「ダイビング・スノーケリング前後の体調チェック表」（暫定版・多言語版）より', en: 'From the Okinawa Prefectural Police health check sheet for diving and snorkelling (provisional, multilingual).' },
+    confirmTitle: { ja: 'この内容で合っていますか', en: 'Is this correct?' },
+    confirmLead: { ja: 'お店がメールや書類から読み取った内容です。違う所は「直す」を押してください。', en: 'The shop read this from your booking or documents. Press "Fix" if something is wrong.' },
+    confirmYes: { ja: '合っている', en: 'Correct' },
+    confirmAll: { ja: '全部合っている', en: 'All correct' },
+    confirmFix: { ja: '直す', en: 'Fix' },
+    confirmSend: { ja: '直した内容を送る', en: 'Send the fix' },
+    confirmName: { ja: '名前が違うときは、集合のときにお店に伝えてください。', en: 'If the name is wrong, tell the shop when you meet.' },
+    confirmed: { ja: 'ありがとうございます。確かめた内容をお店に伝えました', en: 'Thank you. The shop has been told.' },
+    confName: { ja: 'お名前', en: 'Name' },
     send: { ja: '送る', en: 'Send' },
     sent: { ja: '送りました', en: 'Sent' },
     fix: { ja: '確かめてください', en: 'Please check' },
@@ -112,8 +121,9 @@
   let todayDemo = false;
   let passKeys = null;          // パスポートから入れる物の印。null = まだ選んでいない（最初は入れられる物に全部付ける）
   let otherName = false;        // 名前が違っても、この人に入れる
-  let remote = null;            // 本物のリンク: { view(), send(personId, input), today(personId, answer, consent), personLink(personId) }。js/ask-page.js が入れる
+  let remote = null;            // 本物のリンク: { view(), send, confirm(personId, agree, fix), today, personLink }（人ごとの呼び出し）。js/ask-page.js が入れる
   let personUrls = {};          // 1 人ずつのリンク（人の id → { url, copied }）
+  let fixing = null;            // 「直す」を開いている項目: { personId, field, draft }
 
   /* 名前がまだ空の人は「2 人目」と呼ぶ（名前を入れる前の見分け） */
   const personLabel = (v, person) => {
@@ -190,6 +200,83 @@
         el('input', { type: 'radio', name: `ask-h${i}`, checked: d.answers[i] === a, disabled: !d.consent,
           onchange: () => { d.answers = d.answers.map((x, j) => (j === i ? a : x)); } }),
         el('span', { text: L(T[a]) }))))));
+  }
+
+  /* ---------- この内容で合っていますか（決定ログ 2026-10-28 unconfirmed-marks）----------
+     AI が読んだまま、まだ誰も確かめていない値（entry.confirm）を、その人の分だけ見せる。健康は出さない。名前は「合っている」だけ */
+  const CONF_LABEL = { name: T.confName, birthDate: T.birthDate, address: T.address, emergency: T.emergency, cert: T.cert, dives: T.dives, lastDive: T.lastDive };
+  function confirmText(c) {
+    const v = c.value;
+    if (c.field === 'emergency') return [v.name, v.relation ? `(${v.relation})` : '', v.phone].filter(Boolean).join(' ');
+    if (c.field === 'cert') return `${courseLabel(v.course) || ''} ${v.date}`.trim();
+    return String(v);
+  }
+
+  /* 送る。本物のリンクは Worker に、試作はこの端末の名簿に。問題があれば画面に出し、入れた値は消さない */
+  async function sendConfirm(entry, agree, fix) {
+    problems = [];
+    flash = null;
+    if (remote) {
+      const got = await remote.confirm(entry.person.id, agree, fix);
+      problems = got.problems;
+    } else {
+      save('guest.confirmGuest', { id: entry.person.id, agree, ...(fix ? { fix } : {}), at: new Date().toISOString() });
+    }
+    if (!problems.length) { flash = 'confirmed'; fixing = null; }
+    render();
+  }
+
+  /* 「直す」の入力欄（直す値の形は名簿のとおり。送る前に Worker が同じ検査をかける） */
+  function fixControls(d, field) {
+    const bind = (key) => (e) => { d[key] = e.target.value; };
+    if (field === 'emergency') {
+      const sub = (key, label, type) => el('input', { class: 'input', type, value: d[key], placeholder: L(label), 'aria-label': L(label), oninput: bind(key) });
+      return el('div', { class: 'row' }, sub('name', T.eName, 'text'), sub('relation', T.eRelation, 'text'), sub('phone', T.ePhone, 'tel'));
+    }
+    if (field === 'cert') {
+      return el('div', { class: 'row' }, el('select', { class: 'input', onchange: bind('course') },
+        R.roster.COURSES.filter(Boolean).map(c => el('option', { value: c, selected: d.course === c, text: courseLabel(c) }))),
+      el('input', { class: 'input input--short', type: 'month', value: d.date, oninput: bind('date') }));
+    }
+    const type = { birthDate: 'date', dives: 'number', lastDive: 'month' }[field] || 'text';
+    const extra = field === 'dives' ? { min: 0, max: 100000, inputmode: 'numeric' } : {};
+    return el('input', { class: 'input', type, value: d.v, maxlength: 120, ...extra, oninput: bind('v') });
+  }
+  const fixDraft = (c) => (typeof c.value === 'object' ? JSON.parse(JSON.stringify(c.value)) : { v: String(c.value) });
+  function fixValue(d, field) {
+    if (field === 'emergency') return { name: d.name.trim(), relation: d.relation.trim(), phone: d.phone.trim() };
+    if (field === 'cert') return { course: d.course, date: d.course === 'NONE' ? '' : d.date };
+    return field === 'dives' ? (d.v === '' ? '' : Number(d.v)) : d.v.trim();
+  }
+
+  function confirmRow(entry, c) {
+    const label = L(CONF_LABEL[c.field]);
+    const mine = fixing && fixing.personId === entry.person.id && fixing.field === c.field;
+    if (mine) {
+      const send = () => sendConfirm(entry, [], { [c.field]: fixValue(fixing.draft, c.field) });
+      return el('div', { class: 'cf' }, el('p', { class: 'cf__head', text: label }), fixControls(fixing.draft, c.field),
+        el('div', { class: 'actions actions--two' },
+          el('button', { class: 'btn btn--small', type: 'button', text: L(T.confirmSend), onclick: send }),
+          el('button', { class: 'btn btn--small btn--ghost', type: 'button', text: L(T.cancel), onclick: () => { fixing = null; problems = []; render(); } })));
+    }
+    const open = () => { fixing = { personId: entry.person.id, field: c.field, draft: fixDraft(c) }; problems = []; render(); };
+    return el('div', { class: 'cf' }, el('p', { class: 'cf__head', text: label }), el('p', { class: 'rd__v', text: confirmText(c) }),
+      el('div', { class: c.canFix ? 'actions actions--two' : 'actions' },
+        el('button', { class: 'btn btn--small', type: 'button', text: L(T.confirmYes), onclick: () => sendConfirm(entry, [c.field]) }),
+        c.canFix ? el('button', { class: 'btn btn--small btn--ghost', type: 'button', text: L(T.confirmFix), onclick: open }) : null));
+  }
+
+  function confirmPart(entry) {
+    const list = entry.confirm || [];
+    if (!list.length) return null;
+    const editing = fixing && fixing.personId === entry.person.id;
+    return el('section', { class: 'sheet confirm' },
+      el('p', { class: 'sheet__title' }, L(T.confirmTitle), el('small', { text: String(list.length) })),
+      el('p', { class: 'sheet__note', text: L(T.confirmLead) }),
+      list.map(c => confirmRow(entry, c)),
+      list.some(c => c.field === 'name') ? el('p', { class: 'sheet__note', text: L(T.confirmName) }) : null,
+      list.length > 1 && !editing ? el('button', { class: 'btn', type: 'button', text: L(T.confirmAll), onclick: () => sendConfirm(entry, list.map(c => c.field)) }) : null,
+      el('p', { class: 'errors', role: 'alert', text: problemText() }));
   }
 
   /* 水に入ってからの症状（県警の体調チェック表の「注意」）。症状と注意の文は data-sipe.js（表のまま）。見出しと測ることの知らせは、この画面の言葉。
@@ -397,6 +484,7 @@
         class: 'ptab', type: 'button', 'aria-pressed': String(x.person.id === personId),
         onclick: () => { personId = x.person.id; problems = []; flash = null; render(); }
       }, personLabel(v, x.person), !x.ask.length && !x.needsToday ? ' ✓' : ''))) : null,
+      confirmPart(entry),
       known.length ? el('details', { class: 'sheet known' },
         el('summary', { text: R.lang === 'en' ? `${L(T.known)} (${known.length})` : `${L(T.known)}（${known.length}）` }), known, el('p', { class: 'sheet__note', text: L(T.knownNote) })) : null,
       done ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, `✓ ${L(remote && entry.healthOpen ? T.doneHere : T.doneTitle)}`),
