@@ -173,7 +173,7 @@ async function roster(request, env, io, note, who) {
         if (now.version === given.base) base = now.state;
       }
     } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
-    given = { ...given, state: serverOwned(base, given.state) };
+    given = { ...given, state: serverOwned(base, given.state, { fresh: given.base === 0 }) };
   }
   const checked = checkPut(given, { today, at });
   if (!checked.ok) {

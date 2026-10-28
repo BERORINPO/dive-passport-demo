@@ -245,6 +245,8 @@ test('Cron: 時刻が来た予定（2 日前・前日の夜・当日の朝）が
   assert.deepEqual(s.mail.sent.map(m => m.to), ['hanako@mail.example']);
   await scheduled(s.env, s.io);
   assert.equal(s.mail.sent.length, 1, '同じ時刻にもう一度動いても、二度は送らない');
+  s.io.clock = Date.parse('2026-11-02T11:00:00Z');   // 日本で 11/2 の 20:00（前日の夜）
+  await scheduled(s.env, s.io);
   s.io.clock = Date.parse('2026-11-02T21:00:00Z');   // 日本で 11/3 の 6:00（当日の朝）
   await scheduled(s.env, s.io);
   st = stored(s.db);
@@ -435,7 +437,7 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   await receiveMail(spoofed, s.env, s.io);
   assert.ok(spoofed.rejected, '封筒の From だけで SPF も DKIM も通らないメールは断る（ザクのレビュー M-5）');
   assert.equal(s.api.calls.length, 0);
-  const ok = message(MAIL_RAW('予約サイトからのお知らせ\r\n11/5 体験ダイビング 1 名\r\n見本 次郎 様'));
+  const ok = message(MAIL_RAW('予約サイトからのお知らせ\r\n11/5 体験ダイビング 1 名\r\n見本 次郎 様\r\n連絡先: jiro@mail.example'));
   await receiveMail(ok, s.env, s.io);
   assert.equal(ok.rejected, '');
   assert.equal(s.api.calls.length, 1);
@@ -446,9 +448,12 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   assert.equal(st.bookings[0].leadEmail, 'jiro@mail.example');
   assert.equal(st.trips[0].date, '2026-11-05');
   assert.deepEqual(s.mail.sent.map(m => m.to), ['jiro@mail.example']);
+  s.api.answer = JSON.stringify({ participants: [{ name: '見本 四郎' }], booking: { site: '予約サイト', date: '2026-11-06', people: 1, lead_name: '見本 四郎', lead_email: 'other@evil.example' }, health_info_visible: false });
+  await receiveMail(message(MAIL_RAW('11/6 体験ダイビング 1 名 見本 四郎 様')), s.env, s.io);
+  assert.equal(stored(s.db).bookings[1].leadEmail, '', '本文に無い宛先を AI が読んでも使わない（設計 2）');
   s.api.answer = JSON.stringify({ participants: [{ name: '見本 三郎' }], booking: { people: 1 }, health_info_visible: false });
   await receiveMail(message(MAIL_RAW('日付の無いメール')), s.env, s.io);
-  assert.equal(stored(s.db).bookings.length, 1, '日付が読めないメールは自動では入れない（お店が画面で入れる）');
+  assert.equal(stored(s.db).bookings.length, 2, '日付が読めないメールは自動では入れない（お店が画面で入れる）');
   s.db.setCount('mail', 'default', '2026-10-27', 30);
   const calls = s.api.calls.length;
   await receiveMail(message(MAIL_RAW('31 通目')), s.env, s.io);

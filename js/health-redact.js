@@ -23,11 +23,13 @@
     '既往', '持病', '病気', '病院', '入院', '通院', '治療', '服薬', '服用', '発作', '発熱', '外傷', '医師', '医者', '主治医', 'かかりつけ', '障害',
     '心臓', '糖尿', '血圧', '体調', '健康', '怪我', '手術', '妊娠', '妊婦', '生理', '月経', '喘息', 'ぜんそく', 'ぜん息', 'てんかん',
     'あれるぎ', 'へるにあ', 'いんすりん', 'すてろいど', '透析', '吸入', '降圧', '風邪', '鬱', 'ぱにっく', 'ぺーすめーかー', 'めまい',
-    '骨折', '捻挫', 'ねんざ', '耳抜き', '中耳', '耳鳴', '減圧',
+    '骨折', '捻挫', 'ねんざ', '耳抜き', '中耳', '耳鳴', '減圧', '梗塞', '脳卒中', 'わーふぁりん', 'わるふぁりん', '抗凝固',
     '哮喘', '氣喘', '气喘', '高血压', '高血壓', '心脏', '心臟', '懷孕', '怀孕', '过敏', '過敏',
     '천식', '임신', '임산', '질병', '병원', '병력', '수술', '심장', '알레르기', '당뇨', '혈압', '건강', '약물', '복용',
     '\\b(?:asthma|pregnan|injur|allerg|diabet|epilep|depress|disab|medic|surg|seizure|prescription|disease|illness|pacemaker|sinus|cancer|health|insulin|inhaler|chemo|decompress|seasick|dialysis|steroid|anxi)',
     '\\b(?:heart|hospital|pills?|drugs?|meds?|sick|lungs?|fever|blood|doctors?|panic|ears?|pains?|painful)\\b',
+    /* 点検 2026-10-28 SEC-03 で漏れた言葉（薬の名前・脳・妊娠の言い方・スペイン語など）。外しすぎは構わない */
+    '\\b(?:warfarin|anticoag|thinners?|strokes?|expecting|asma|embaraz|enferm|medicament|schwanger|krank)',
     '\\b(?:have|has|had|caught) a cold\\b'
   ]);
   const WEAK = words(['病', '症', '患', '薬', '藥', '药', '痛', '炎', '妊', '孕', '術', '障', '疾', '傷', '血', '耳', '肺', '喘', '医', '醫', '熱',

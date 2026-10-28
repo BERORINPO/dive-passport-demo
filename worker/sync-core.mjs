@@ -56,7 +56,7 @@ export function shrinkProblem(prev, next) {
 }
 
 /* 画面から届いた名簿の、送る連絡と予定の動きを、サーバーが持つ名簿に合わせる（無ければ空の名簿）。決まりは js/roster-auto.js の serverOwned */
-export const serverOwned = (stored, incoming) => R.rosterAuto.serverOwned(stored || R.roster.blankState(''), incoming);
+export const serverOwned = (stored, incoming, opts) => R.rosterAuto.serverOwned(stored || R.roster.blankState(''), incoming, opts);
 
 /* PUT の本文 { base, state, allowShrink? } を確かめる。返すのは { ok, base, state, text, parts, allowShrink } か { ok: false, error }。
    state と text は名簿の本体、parts は分けた済んだ便（past-core.mjs の splitPast。roster-db.mjs の putRoster が一緒に書く） */

@@ -207,7 +207,9 @@ async function takeMail(message, env, io, note) {
   /* 画面の「メールを貼る」と同じく、日付が読めた予約だけを自動で入れる（日付が無いものはお店が画面で入れる） */
   if (!got.reading.booking || !got.reading.booking.date) { note.why = 'no-date'; return; }
   const { at, nowJst } = clockOf(io);
-  const added = await changeRoster(env, io, s => R.rosterAuto.addFromReading(s, { reading: got.reading, lang: '', at, nowJst, newId }),
+  const reading = R.rosterAuto.trustMailEmail(got.reading, mail.text);
+  if (reading !== got.reading) note.email = 'dropped';
+  const added = await changeRoster(env, io, s => R.rosterAuto.addFromReading(s, { reading, lang: '', at, nowJst, newId }),
     { fromOutside: true, shop, name: nameOf(shops, shop, '') });
   if (!added.ok) { note.why = `add-${added.why}`; return; }
   note.added = 1;   // お願いの連絡は次の Cron で送る

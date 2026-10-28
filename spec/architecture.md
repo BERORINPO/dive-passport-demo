@@ -21,10 +21,10 @@
 ## 2. 外部境界表
 | adapter | 相手 | Fake | fixture | credential | 書き込み |
 |---|---|---|---|---|---|
-| 2026-10-28 confirm-edit-all | 確かめる画面で、AI が読む項目を全部その場で直せる（v12）。自信なしの項目を先頭に開いて出し、ほかは「ほかの項目も直す」で開く。健康の 2 項目は出さない。「この内容で名簿に入れる」は core の confirmReview（直した項目は前と後を記録、自信なしの印を外す） | Yosuke「バクラクみたいに全部編集できるほうがよくね」。AI の自信はあてにならないので、自信ありの読み違いも直せる必要がある。却下: 最初から全部開く（片手のスマホで長すぎる）・写真の読んだ所を横に出す（AI に座標を返させる作り直しが要るので発表の後） | test/roster.test.mjs（confirmReview は AI が読む項目のほかを受け取らない） |
 | js/ai-reader.js | 同じ場所の Worker `/api/read` → Claude API（Haiku） | `readSample`（同じファイル）+ js/data-samples.js | AI の読み取り試験 2026-10-21 の Haiku の答え（tools/make-samples.mjs が作る） | Cloudflare Access の cookie（合言葉は 2026-10-22 に外した）。API キーは Worker の secret だけ（この Worker 専用の 1 本） | なし |
 | js/core.js | localStorage | 無し（ブラウザの中だけ） | — | なし | このブラウザだけ |
 | js/roster-sync.js | 同じ場所の Worker `/api/roster`（お店の名簿の正本、D1）と `/api/roster/past`（済んだ便、読むだけ） | 無し（test/sync-client.test.mjs は本物の worker/handler.mjs と fakeD1 につなぐ） | — | Access のログイン（Cookie） | お店の名簿。版の番号つきで、ぶつかったら最新を返す |
+| js/ask-api.js | redux-ask の `/api/ask`（ask.reduxdive.com の同じ場所。お客さんのリンクの鍵は本文で送る） | 無し（test/ask-link.test.mjs は本物の handlePublic と fakeD1 につなぐ） | — | お客さんのリンクの鍵（Access なし） | お客さんが答えた項目だけ（名簿は読まない） |
 | worker/anthropic.mjs | Claude API（claude-haiku-5-5、/v1/messages） | `fakeAnthropic`（worker/fakes.mjs） | AI の読み取り試験 2026-10-21 の答え（予約の項目は試験していない。置いたあとに確かめる） | `ANTHROPIC_API_KEY`（この Worker 専用の 1 本、並行 1 本。Anthropic のこの Worker 専用ワークスペースで発行し、そこで月の上限） | なし |
 | worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS` は secret） | なし |
 | worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | AI を呼ぶ 1 日の回数と今月の費用（目安）だけ。キーはお店ごと（`day:<お店>:<日>`） |
@@ -32,12 +32,17 @@
 | worker/roster-db.mjs | Cloudflare D1（`DB`、表は worker/migrations/） | `fakeD1`（使う文だけを読む）。済んだ便の SQL は test/past.test.mjs が node:sqlite でも流す | — | Worker の binding | お店の名簿の正本（1 お店 1 行、版の番号つき）と、済んで 7 日を過ぎた便（roster_past、便ごとに 1 行。本体と同じ batch で書く）。plan/server.md |
 | worker/backup.mjs（KV `BACKUP`） | Workers KV（名簿の毎日の控え・警報の記録） | `fakeKv` | — | Worker の binding | お店ごと 1 日 1 つの名簿の控え（1 年）、済んだ便の行の写し、警報。plan/server.md |
 | worker/unread-db.mjs | Cloudflare D1（`DB`、表 mail_unread） | `fakeD1` | — | Worker の binding | 読めなかった予約メールの届いた時刻と理由だけ（件名・本文・送り主は残さない。30 日）。plan/auto.md |
-| worker/mail.mjs | Cloudflare Email Service（Workers binding `EMAIL`） | `fakeMail` | — | binding（鍵なし）。送り元 `MAIL_FROM` はお店のドメインを Email Service に載せてから | お客さんへの連絡（お願い・もう一度・当日の質問）。設定がそろうまでは送らず unsent |
+| worker/ask-db.mjs | Cloudflare D1（`DB`、表 ask_links） | `fakeD1` | — | Worker の binding（お店の Worker と redux-ask が同じ D1） | お客さんのリンクの鍵の SHA-256 と、そのお店・予約（鍵そのものは置かない）。plan/meibo.md |
+| worker/shop-db.mjs | Cloudflare D1（`DB`、表 shops） | `fakeD1` | — | Worker の binding | 読むだけ（足すのは D1 のコンソールか tools/shop.mjs）。表が無い・空なら 1 店（default）。形の合わない行があれば例外 |
+| Email Routing → worker/index.mjs の `email()`（worker/auto.mjs の receiveMail） | `inbox@reduxdive.com` に届いた予約メール（Email Routing の rule → お店の Worker） | `receiveMail` に渡す見本のメッセージ（test/auto-worker.test.mjs） | — | rule は Cloudflare 側。送り主は secret `MAIL_SENDERS`（shops があればそのお店の senders）と SPF / DKIM で確かめる | 名簿に入れて予定を作る。読めなかったメールは mail_unread に理由だけ |
+| Cron Triggers → worker/index.mjs の `scheduled()`（worker/auto.mjs） | `*/15 * * * *`（wrangler.jsonc。Workers Paid） | `scheduled(env, io)` に見本の env を渡す（test/auto-worker.test.mjs・test/backup.test.mjs） | — | binding（鍵なし） | 予定を動かして連絡を送る（送る前に印）。毎日の控えと警報。Cron が止まると何も動かない |
+| worker/mail.mjs | Cloudflare Email Service（Workers binding `EMAIL`） | `fakeMail` | — | binding（鍵なし）。送り元 `MAIL_FROM`（yoyaku@reduxdive.com）はお店のドメインを Email Service に載せてから | お客さんへの連絡（お願い・もう一度・当日の質問）。設定がそろうまでは送らず unsent |
 | worker/site-guard.mjs | Turnstile（`https://challenges.cloudflare.com/turnstile/v0/siteverify`）と Workers Rate Limiting（`BOOKING_LIMIT`） | `fakeTurnstile`・`fakeRateLimit` | — | `TURNSTILE_SECRET`（secret） | なし（答えの成否と回数だけ） |
 
 ## 3. Origin・監視
 - 画面のファイルと `/api` は同じ Worker から配る（同じ origin）。CORS と cross-site の Cookie は使わない
-- 入口は Cloudflare Access（Worker 全体）だけ。Worker は `Cf-Access-Jwt-Assertion` を自分で確かめ（署名・iss・aud・期限・許したメール）、通らない呼び出しを 403 で断る。`ctx.access` には頼らない。Access の鍵が取れないとき（Cloudflare 側の障害）は 503
+- お客さんのリンクと予約フォームは、Access の無い別の Worker（redux-ask、ask.reduxdive.com）が受ける（決定ログ 2026-10-27 two-workers）。そこは鍵・Turnstile・IP の回数と 1 日の件数の上限で守り、お店の画面と /api/roster は置かない。メールは Email Routing（inbox@reduxdive.com）→ お店の Worker の email()、Cron はお店の Worker が受ける
+- お店の Worker の入口は Cloudflare Access（Worker 全体）だけ。Worker は `Cf-Access-Jwt-Assertion` を自分で確かめ（署名・iss・aud・期限・許したメール）、通らない呼び出しを 403 で断る。`ctx.access` には頼らない。Access の鍵が取れないとき（Cloudflare 側の障害）は 503
 - 画面の「本物」は、同じ場所の `/api/healthz` が通ったときだけ選べる（js/ai-reader.js の probe。GitHub Pages 版から本文を外に送らない）。確かめるのは置く物の index.html に `redux-worker` の meta があるときだけ（GitHub Pages では github.io の一番上が同じ場所になるため）。開くたびに見本から始める
 - Worker の外への通信の先は、arch.check の 9 番がファイルごとに完全一致で見る。検査で追えない形（`io.fetch(env.X)`・文字を足して作った URL）は、テストの io.fetch が知らない先で例外を出すことで止める
 - Worker が画面を信じる所: 申込書の写真を塗ったか（`masked: true` は画面の photo-prep.js の申告で、Worker は確かめられない）。spec/meibo.md の「本物の前に」21
@@ -111,3 +116,10 @@
 | 2026-10-22 pass-place | pass.html は GitHub Pages に置いたまま。Worker 版の QR は公開版を指す | Access を Worker 全体にかけると他のお店が開けない。Access に例外の道（Bypass）を足す案は、pass.html が読む 9 ファイル分の設定が要り、外す道を増やすので次点 | なし |
 | 2026-10-21 leave-one-tap | （2026-10-27 photo-shopcheck で置き換え）ポイントを離れる前は札ボードで数え、スマホは 1 回押すだけ | 店へのアンケート（2 人のスマホ記録は 8 店中 4 店が難しい、和船はしぶきで触れない）。札を選ぶボタンを並べる案は Yosuke の判断で外した | なし |
 | 2026-10-21 outside-reads | HTML と CSS から外を読むのは、3. の表「外から読む先」にファイルごとに書いた先だけ。外のスクリプトと読み込む link には integrity を付ける。js の通信の道具と外の URL の文字は禁止 | ザクのレビュー（CDN の中身が差し替えられると、画面と同じ権限で localStorage の健康の答えを読める。2024 年の polyfill.io の件）。cdnjs が spec から漏れていたのを検査で捕まえるため。許可は表「外から読む先」だけから読み、ファイルごとに分ける（散文のサイト名を拾うと、書いただけで許可になる） | test/arch.check.mjs（test/outside.mjs） |
+| 2026-10-28 confirm-edit-all | 確かめる画面で、AI が読む項目を全部その場で直せる（v12）。自信なしの項目を先頭に開いて出し、ほかは「ほかの項目も直す」で開く。健康の 2 項目は出さない。「この内容で名簿に入れる」は core の confirmReview（直した項目は前と後を記録、自信なしの印を外す） | Yosuke「バクラクみたいに全部編集できるほうがよくね」。AI の自信はあてにならないので、自信ありの読み違いも直せる必要がある。却下: 最初から全部開く（片手のスマホで長すぎる）・写真の読んだ所を横に出す（AI に座標を返させる作り直しが要るので発表の後） | test/roster.test.mjs（confirmReview は AI が読む項目のほかを受け取らない） |
+| 2026-10-27 two-workers | Worker を 2 つに分ける。お店の Worker（dive-passport-demo、Access あり）と、お客さんの Worker（redux-ask、Access なし、ask.reduxdive.com）。redux-ask は ask.html・/api/ask・/api/bookings だけを置く | Access に例外の道（Bypass）を足す案は、道の書き方を 1 つ間違えると別の道まで外に出る（`/ask*` が `/askadmin` まで）ので却下（2026-10-22 pass-place と同じ理由）。分ければお店の Access の設定に触らない。2 つ目の Worker の置き直しと、2 つの設定（wrangler.jsonc・wrangler.ask.jsonc）が増える | test/ask-link.test.mjs（redux-ask に /api/roster などが無い） |
+| 2026-10-27 shops | お店の一覧を D1 の shops に置き、スタッフのメール・予約フォームのサイト・メールの宛先・リンクの鍵からお店を決める。shops が空のあいだは 1 店（default）で動く。1 行でも形が合わなければ止める（503） | 形の合わない行を捨てると一覧が空に見え、全員が 1 つの名簿を共有してしまう（ザクのレビュー）。1 店目を足すと default の見本は見えなくなる（plan/server.md「お店ごと」） | test/shops.test.mjs |
+| 2026-10-27 one-d1-all-shops | D1 は redux-rosters の 1 つで、全部のお店が使う。お店の Worker と redux-ask が同じ物を読む。お店は行の shop 列で分ける（rosters・ask_links） | 店ごとに D1 を作ると、binding・migration・置き直しが店の数だけ増える。他店の行が見えないことは shop の判定で守る。店ごとの Worker・D1 は、本物のお客さんの情報を入れる前に決め直す（spec/meibo.md） | test/shops.test.mjs（お店の振り分け） |
+| 2026-10-28 cron-15 | Cron は `*/15 * * * *`。書類の自動化（予定を動かして連絡を送る）と毎日の控えは、Cron だけが動かす。Cron が止まると何も動かない | 予定は 9:00・20:00・6:00 なので、遅れても 15 分で足りる。却下: 5 分ごと（最初の案。回数が増えるだけ）・画面が予定を動かす（重なると同じ連絡を 2 回送る。ザクのレビュー 2026-10-27 M-1） | なし |
+| 2026-10-28 workers-paid | Workers Paid（月 5 ドル）にする。Cron とメールの送信に要る | 無料の Cron の枠（5 本）はほかの Worker が使い切っていた。メールの送信（Email Service）も有料。お金の境界なので切り替えは Yosuke（docs/deploy.md の 9） | なし |
+| 2026-10-28 ci | GitHub Actions で typecheck・offline_smoke・arch を毎回回す（.github/workflows/ci.yml。コマンドは harness.yaml を読んで実行、Node 24 に固定）。arch は phase_gate_required に上げた | 手で叩いたときしか回らなかった。Node 24 に固定するのは、テストが node:sqlite を使い、無い Node では黙って飛ばすため。required check（マージの条件）にするかは株主の判断で、この変更では設定しない | .github/workflows/ci.yml |
