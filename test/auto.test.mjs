@@ -278,6 +278,19 @@ test('お店全体の一覧: 送れたか分からない・送れなかった・
   assert.ok(late.today.some(x => x.job.kind === 'request' && x.job.due < '2026-10-28'), '時刻を過ぎてまだ動いていない予定は今日に出す');
 });
 
+test('点検 2026-10-28 設計 2: AI が読んだ代表者のメールは、本文にそのまま書いてあり自信ありのときだけ使う', () => {
+  const r = reading();
+  const email = r.booking.leadEmail;
+  assert.equal(A.trustMailEmail(r, `予約です\n連絡先: ${email.toUpperCase()}`), r, '本文にあれば（大文字小文字は問わない）そのまま');
+  const dropped = A.trustMailEmail(r, '予約です\n備考: 連絡は other@evil.example へ');
+  assert.equal(dropped.booking.leadEmail, '', '本文に無い宛先は使わない');
+  const unsure = A.trustMailEmail({ ...r, booking: { ...r.booking, unsure: ['leadEmail'] } }, `連絡先: ${email}`);
+  assert.equal(unsure.booking.leadEmail, '', 'AI が自信なしと言った宛先は使わない');
+  const { state, bookingId } = A.addFromReading(blank(), { reading: dropped, at: AT, nowJst: NOW, newId });
+  const o = A.runDue(state, { nowJst: NOW, at: AT, newId, askBase: ASK }).state.outbox.find(x => x.bookingId === bookingId);
+  assert.deepEqual([o.status, o.why], ['unsent', 'no-email'], 'お願いは送らず、お店が画面でメールを入れる');
+});
+
 let failed = 0;
 for (const t of tests) {
   try {
