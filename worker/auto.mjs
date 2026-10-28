@@ -216,6 +216,10 @@ async function takeMail(message, env, io, note) {
   note.shop = shop;
   if (!senderAllowed(message.from, sendersOf(shops, shop))) { note.why = 'sender'; message.setReject('Sender not accepted'); return; }
   const results = message.headers.get('authentication-results') || message.headers.get('arc-authentication-results') || '';
+  /* 一時的: 確かめの見出しを誰が付けたか（authserv-id。最初の ; の手前だけで、アドレスは入らない）をログに出す。
+     MAIL_AUTHSERV_ID を本物の 1 通で決めるため（点検 2026-10-28 SEC-01）。決めたら消す */
+  note.arId = String(message.headers.get('authentication-results') || '').split(';')[0].trim().slice(0, 60);
+  note.arcId = String(message.headers.get('arc-authentication-results') || '').split(';')[0].replace(/i=\d+\s*/, '').trim().slice(0, 60);
   if (!authPassed(results, message.from)) { note.why = 'auth'; message.setReject('Sender not authenticated'); return; }
   if (Number(message.rawSize) > MAX_MAIL_BYTES) { note.why = 'size'; return; }
   /* メールからの予約の 1 日の上限（全店あわせてと、お店ごと）。AI を呼ぶ前に数える（お店の読み取り /api/read の上限を食い尽くさせない） */
