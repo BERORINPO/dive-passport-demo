@@ -36,6 +36,9 @@ function split(entry, link, isDay) {
 
 /* お客さんに見せる物。名簿の中身は出さない（名前・聞く項目の名前・入っている項目の名前・C カードの講習の名前だけ）。
    例外は confirm だけ: AI が読んだまま確かめていない値を、予約のリンクでは代表者の分だけ、1 人ずつのリンクではその人の分だけ出す（決定ログ 2026-10-28 unconfirmed-marks） */
+/* AI が読んだ値を見せる・直せるのは、お店（か Cron）が作った鍵だけ。予約のリンクを持つお客さんが作った 1 人ずつのリンクは、空の項目（健康の答えなど）を入れるだけ */
+const showsValues = (link) => link.mintedBy === 'staff';
+
 export function linkView(state, link, today) {
   const t = target(state, link, today);
   if (!t) return null;
@@ -54,7 +57,7 @@ export function linkView(state, link, today) {
         ask: s.ask, needsToday: s.needsToday, todayOpen: s.todayOpen, healthOpen: s.healthOpen, known: e.known, consented: e.consented,
         /* 「この内容で合っていますか」: AI が読んだまま確かめていない値。値が見えるのは、予約のリンクでは代表者だけ、1 人ずつのリンクではその人だけ。
            ほかの人は未確認の項目の名前（confirmLeft）だけ。確かめるとこの一覧から消える */
-        confirm: e.confirm, confirmLeft: e.confirmLeft,
+        confirm: showsValues(link) ? e.confirm : [], confirmLeft: showsValues(link) ? e.confirmLeft : [],
         parts: { emergency: e.parts.emergency, cert: e.parts.cert, course: e.parts.course, date: '', hasDate: !!e.parts.date }
       };
     })
@@ -69,6 +72,7 @@ export function applyLink(state, link, req, { today, at }) {
   if (!entry) return { state, problems: ['gone'] };
   if (t.v.trip.cancel) return { state, problems: ['cancelled'] };
   if (req.action === 'confirm') {
+    if (!showsValues(link)) return { state, problems: ['not-allowed'] };
     return G().confirmGuest(state, { id: entry.person.id, agree: req.agree, fix: req.fix, at, viewer: link.personId });
   }
   if (req.action === 'send') {
@@ -93,10 +97,11 @@ export function personLinkTarget(state, link, personId, today) {
 }
 
 /* お店が作る予約のリンク（/api/ask-link）。予約があり、便がまだ終わっていないときだけ */
-export function bookingLinkTarget(state, bookingId, today) {
+export function bookingLinkTarget(state, bookingId, today, personId = '') {
   const b = state.bookings.find(x => x.id === bookingId);
   const trip = b ? state.trips.find(x => x.id === b.tripId) : null;
   if (!b || !trip) return { ok: false };
+  if (personId && !state.people.some(p => p.id === personId && p.bookingId === bookingId)) return { ok: false };
   const expiresOn = linkExpiry(trip, today);
   return expiresOn < today ? { ok: false } : { ok: true, trip, expiresOn };
 }

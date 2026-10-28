@@ -60,7 +60,7 @@ export async function askApply(env, io, note, hash, req, origin) {
       note.why = 'person-links';
       return { status: 429, body: { error: 'links' } };
     }
-    const url = await mintLink(env.DB, { shop, bookingId: t.bookingId, personId: t.personId, expiresOn: link.expiresOn, at, base: origin });
+    const url = await mintLink(env.DB, { shop, bookingId: t.bookingId, personId: t.personId, expiresOn: link.expiresOn, at, base: origin, mintedBy: 'booking' });
     return { status: 200, body: { url } };
   }
 
@@ -76,14 +76,18 @@ export async function askApply(env, io, note, hash, req, origin) {
   return { status: 200, body: { problems, view: linkView(saved.state, link, today) } };
 }
 
-/* お店が予約のリンクを作る（Access の内）。作り直したら前のリンクは開けない。shop はログインしたスタッフのお店 */
+/* お店が予約のリンクを作る（Access の内）。作り直したら前のリンクは開けない。shop はログインしたスタッフのお店。
+   personId を渡すと、その予約の 1 人ずつのリンクを作る（お店が作った鍵だけが、AI が読んだ値を見せる・直せる。決定ログ unconfirmed-marks） */
 export async function makeAskLink(given, env, io, note, origin, shop = SHOP_DEFAULT) {
-  const bookingId = given && typeof given.bookingId === 'string' && /^[\w-]{1,64}$/.test(given.bookingId) ? given.bookingId : '';
-  if (!bookingId) { note.why = 'input'; return { status: 400, body: { error: 'input' } }; }
+  const idOf = (v) => (typeof v === 'string' && /^[\w-]{1,64}$/.test(v) ? v : '');
+  const g = given !== null && typeof given === 'object' ? given : {};
+  const bookingId = idOf(g.bookingId);
+  const personId = g.personId !== undefined ? idOf(g.personId) : '';
+  if (!bookingId || (g.personId !== undefined && !personId)) { note.why = 'input'; return { status: 400, body: { error: 'input' } }; }
   const { today, at } = clockOf(io);
   const state = await currentState(env, io, shop);
-  const t = state && bookingLinkTarget(state, bookingId, today);
+  const t = state && bookingLinkTarget(state, bookingId, today, personId);
   if (!t || !t.ok) { note.why = 'no-booking'; return { status: 404, body: { error: 'booking' } }; }
-  const url = await mintLink(env.DB, { shop, bookingId, personId: '', expiresOn: t.expiresOn, at, base: origin });
+  const url = await mintLink(env.DB, { shop, bookingId, personId, expiresOn: t.expiresOn, at, base: origin, mintedBy: 'staff' });
   return { status: 200, body: { url, expiresOn: t.expiresOn } };
 }

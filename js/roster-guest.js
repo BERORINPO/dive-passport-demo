@@ -72,13 +72,13 @@
   /* ---------- 「この内容で合っていますか」（決定ログ 2026-10-28 unconfirmed-marks） ----------
      AI が読んだまま、まだ誰も確かめていない値を、その予約のお客さんに見せて「合っている」か「直す」を聞く。見せるのは名簿に載る AI の項目だけで、
      健康は入れない。名前は「合っている」だけ（入っている名前は書き換えられない。決定ログ guest-companion-names）。「直す」で変えられるのは AI が入れた値だけ。
-     値を見せる相手は、予約のリンクでは代表者（予約の代表者名と同じ名前の人、いなければ最初の人）だけ。同行者の値は出さず、名前と未確認の項目の名前（confirmLeft）だけで、
-     その人の 1 人ずつのリンク（viewer が personId）で本人が確かめる。1 人ずつのリンクでは、その人の値だけ */
+     値を見せる相手は、予約のリンクでは代表者（予約の最初の人。名前では選ばない。同行者に代表者と同じ名前を付けても代表者は変わらない）だけ。同行者の値は出さず、
+     名前と未確認の項目の名前（confirmLeft）だけ。1 人ずつのリンク（viewer が personId）では、その人の値だけ。どちらもお店が作った鍵のときだけ（worker/ask-core.mjs の showsValues） */
   const CONFIRM_FIELDS = ['name', 'birthDate', 'address', 'emergency', 'cert', 'dives', 'lastDive'];
   const FIX_ASK = { birthDate: ['birthDate'], address: ['address'], emergency: ['emergency'], cert: ['certDate'], dives: ['dives'], lastDive: ['lastDive'] };
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
   const allParts = () => ({ emergency: [...S().SUB.emergency], cert: ['course', 'date'], course: '' });
-  const leadOf = (booking, people) => people.find(p => C().sameName(p.name, booking.leadName)) || people[0] || null;
+  const leadOf = (people) => people[0] || null;
   const confirmList = (state, person, trip) => (trip ? C().unconfirmedFields(state, person, trip).filter(f => CONFIRM_FIELDS.includes(f))
     .map(field => ({ field, value: person[field], canFix: has(FIX_ASK, field) })) : []);
 
@@ -95,7 +95,7 @@
     const trip = state.trips.find(t => t.id === booking.tripId) || null;
     const items = S().ITEMS[trip ? trip.kind : 'dive'];
     const mine = state.people.filter(p => p.bookingId === bookingId);
-    const lead = leadOf(booking, mine);
+    const lead = leadOf(mine);
     const viewer = opts.personId || (lead ? lead.id : '');   // 値を見せていい人（1 人だけ）
     const people = mine.map(person => {
       const opt = { paper: C().paperOf(state) };   // 健康を紙で聞くお店では、健康の質問も当日の体調も聞かない

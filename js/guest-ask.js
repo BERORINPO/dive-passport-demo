@@ -67,7 +67,7 @@
     confirmName: { ja: '名前が違うときは、集合のときにお店に伝えてください。', en: 'If the name is wrong, tell the shop when you meet.' },
     confirmed: { ja: 'ありがとうございます。確かめた内容をお店に伝えました', en: 'Thank you. The shop has been told.' },
     confName: { ja: 'お名前', en: 'Name' },
-    confirmOther: { ja: 'まだ確かめていない項目があります。この方の内容は、この方のリンクで本人が確かめます:', en: 'Items still to be checked. This person checks them on their own link:' },
+    confirmOther: { ja: 'まだ確かめていない項目があります。この方の分は、お店が確かめます:', en: 'Items still to be checked. The shop will check them with this person:' },
     send: { ja: '送る', en: 'Send' },
     sent: { ja: '送りました', en: 'Sent' },
     fix: { ja: '確かめてください', en: 'Please check' },
@@ -444,7 +444,7 @@
 
   /* 本物の予約のリンク: 健康は 1 人ずつのリンクで本人が答える。人ごとにリンクを作って写す */
   function healthLinks(v) {
-    const open = v.people.filter(x => x.healthOpen || (x.confirmLeft || []).length);
+    const open = v.people.filter(x => x.healthOpen);
     if (!open.length) return null;
     const copy = async (x) => {
       const got = personUrls[x.person.id] || await remote.personLink(x.person.id);

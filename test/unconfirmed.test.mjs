@@ -113,11 +113,18 @@ test('お客さんの確認: 予約のリンクで値が見えるのは代表者
   const [hanako, taro] = peopleOf(st);
   const view = G.guestView(st, hanako.bookingId);
   const [lead, mate] = view.people;
-  assert.equal(lead.person.id, hanako.id, '代表者の名前が無ければ最初の人');
+  assert.equal(lead.person.id, hanako.id, '代表者は予約の最初の人');
   assert.deepEqual(lead.confirm.map(c => c.field), ['name', 'cert', 'dives']);
   assert.deepEqual([mate.confirm, mate.confirmLeft], [[], ['name', 'cert', 'dives']]);
+  /* 代表者は名前で選ばない: 代表者名を同行者の名前にしても、代表者の名前を空にして同行者に代表者と同じ名前を付けても、値が見える人は変わらない */
+  const withValues = (state) => G.guestView(state, hanako.bookingId).people.filter(e => e.confirm.length).map(e => e.person.id);
   const named = C.editBooking(st, { bookingId: hanako.bookingId, patch: { leadName: taro.name }, at: AT });
-  assert.equal(G.guestView(named, hanako.bookingId).people.find(e => e.confirm.length).person.id, taro.id, '代表者名と同じ名前の人が代表者');
+  assert.deepEqual(clone(withValues(named)), [hanako.id]);
+  const spoof = C.editPerson(C.editBooking(st, { bookingId: hanako.bookingId, patch: { leadName: '代表 名前' }, at: AT }),
+    { id: hanako.id, patch: { name: '' }, who: 'staff', at: AT });
+  const spoofed = C.editPerson(spoof, { id: taro.id, patch: { name: '代表 名前' }, who: 'guest', src: 'guest', at: AT });
+  assert.deepEqual(clone(withValues(spoofed)), [hanako.id], '同行者に代表者と同じ名前を付けても、代表者は変わらない');
+  assert.deepEqual(clone(G.guestView(spoofed, hanako.bookingId).people.find(e => e.person.id === taro.id).confirm), [], '同行者の値は出ない');
   const own = G.guestView(st, hanako.bookingId, { personId: taro.id });
   assert.deepEqual(own.people.map(e => [e.person.id, e.confirm.length > 0, e.confirmLeft.length > 0]), [[hanako.id, false, true], [taro.id, true, false]]);
   assert.deepEqual(G.confirmGuest(st, { id: taro.id, agree: ['dives'], at: guestAt }).problems, ['field'], '予約のリンクでは同行者の分は答えられない');
@@ -398,7 +405,7 @@ test('お客さんのリンクの画面: 「直す」で入力欄を開き、直
   assert.equal(buttons(root, '直した内容を送る').length, 1);
 });
 
-test('お客さんのリンクの画面: 同行者の欄には値を出さず、未確認の項目の名前と「その方のリンクで本人が確かめる」だけを出す', async () => {
+test('お客さんのリンクの画面: 同行者の欄には値を出さず、未確認の項目の名前と「お店が確かめる」だけを出す', async () => {
   const { R, nodes } = boot();
   const part = (id, name, extra) => ({ person: { id, name }, ask: [], needsToday: false, todayOpen: false, healthOpen: false, known: [], consented: false,
     parts: { emergency: [], cert: [], course: '', date: '', hasDate: false }, confirm: [], confirmLeft: [], ...extra });
@@ -413,10 +420,10 @@ test('お客さんのリンクの画面: 同行者の欄には値を出さず、
   const root = nodes.ask;
   assert.match(root.textContent, /1990-04-01/);
   await buttons(root, '見本 一美')[0].click();
-  assert.match(root.textContent, /この方のリンクで本人が確かめます: 生年月日・住所/);
+  assert.match(root.textContent, /この方の分は、お店が確かめます: 生年月日・住所/);
   assert.ok(!/1990-04-01/.test(root.textContent), '代表者の値は同行者の欄に出ない');
   assert.equal(buttons(root, '合っている').length, 0);
-  assert.equal(buttons(root, 'さんのリンクを写す').length, 1, '本人に送るリンクを作れる');
+  assert.equal(buttons(root, 'さんのリンクを写す').length, 0, '予約のリンクからは、同行者の値を見せるリンクを作らせない');
 });
 
 /* ---------- Worker（お客さんのリンク） ---------- */
@@ -464,30 +471,89 @@ test('Worker: 予約のリンクの中身には、代表者の未確認の値だ
   assert.ok(!/history|today|answers/.test(JSON.stringify(v.body.people.map(p => [p.confirm, p.confirmLeft]))), '健康は出さない');
 });
 
-test('Worker: 1 人ずつのリンクの中身には、その人の値だけがある（代表者の値は無い）。健康は出さない', async () => {
+/* お店（Access の内）が作る 1 人ずつのリンク。鍵が staff の物だけが、AI が読んだ値を見せる・直せる */
+async function staffPersonLink(x, personId, booking = x.booking) {
+  const made = await staffCall(x.s, 'POST', '/api/ask-link', { bookingId: booking.id, personId });
+  assert.equal(made.status, 200);
+  return (await made.json()).url.split('#k=')[1];
+}
+const keyCall = async (x, key, body) => {
+  const res = await guestCall(x.s, { k: key, ...body });
+  return { status: res.status, body: await res.json() };
+};
+
+test('Worker: 予約のリンクから作った 1 人ずつのリンク（booking の鍵）には、AI が読んだ値が無く、確かめも直しもできない。空の項目（健康）は入れられる', async () => {
   const x = await linked();
-  const link = async (personId) => {
-    const own = await ask(x, { action: 'person-link', personId });
-    assert.equal(own.status, 200);
-    return own.body.url.split('#k=')[1];
-  };
-  const view = async (key) => (await guestCall(x.s, { k: key, action: 'view' })).json();
-  const mateKey = await link(x.mate.id);
-  const mv = await view(mateKey);
-  assert.deepEqual(mv.people.map(p => p.person.id), [x.mate.id]);
-  assert.equal(mv.people[0].confirm.find(c => c.field === 'birthDate').value, MATE.birthDate);
-  const leadText = [SAMPLE_READINGS.f1.people[0].address, SAMPLE_READINGS.f1.people[0].birthDate];
-  leadText.forEach(val => assert.ok(!JSON.stringify(mv).includes(val), `同行者のリンクに代表者の値が混ざっている: ${val}`));
-  const leadView = await view(await link(x.lead.id));
-  MATE_VALUES.forEach(val => assert.ok(!JSON.stringify(leadView).includes(val), `代表者のリンクに同行者の値が混ざっている: ${val}`));
-  /* 同行者のリンクで、本人が「合っている」と答えられる。健康は答えられない。ほかの人の分は 404 */
-  const mc = async (key, body) => guestCall(x.s, { k: key, action: 'confirm', ...body });
-  const ok = await mc(mateKey, { personId: x.mate.id, agree: ['birthDate'] });
-  assert.deepEqual((await ok.json()).problems, []);
+  const own = await ask(x, { action: 'person-link', personId: x.mate.id });
+  assert.equal(own.status, 200);
+  const key = own.body.url.split('#k=')[1];
+  assert.equal([...x.s.db.links.values()].filter(l => l.person_id === x.mate.id).map(l => l.minted_by).join(), 'booking');
+  const v = await keyCall(x, key, { action: 'view' });
+  assert.deepEqual(v.body.people.map(p => [p.person.id, p.confirm, p.confirmLeft]), [[x.mate.id, [], []]]);
+  const text = JSON.stringify(v.body);
+  [...MATE_VALUES, SAMPLE_READINGS.f1.people[0].address, SAMPLE_READINGS.f1.people[0].birthDate, SAMPLE_READINGS.f1.people[0].emergency.name, SAMPLE_READINGS.f1.people[0].emergency.phone].forEach(val => assert.ok(!text.includes(val), `booking の鍵の中身に値が混ざっている: ${val}`));
+  const logLen = stored(x.s).log.length;
+  for (const body of [{ agree: ['birthDate'] }, { agree: [], fix: { address: '書き換え' } }, { agree: ['history'] }]) {
+    const r = await keyCall(x, key, { action: 'confirm', personId: x.mate.id, ...body });
+    assert.deepEqual(r.body.problems, ['not-allowed'], JSON.stringify(body));
+  }
+  assert.equal(stored(x.s).log.length, logLen, '名簿は変わらない');
+  assert.equal(stored(x.s).people.find(p => p.id === x.mate.id).address, MATE.address, '住所は書き換わっていない');
+  /* 健康の答え（空の項目）は、これまでどおり入れられる */
+  const sent = await keyCall(x, key, { action: 'send', personId: x.mate.id, input: { answers: ['no', 'no', 'no', 'no', 'no'], consent: true } });
+  assert.deepEqual(sent.body.problems, []);
+  assert.ok(stored(x.s).people.find(p => p.id === x.mate.id).health.historyAt !== '');
+});
+
+test('Worker: お店が作った 1 人ずつのリンク（staff の鍵）には、その人の値だけがある。本人が「合っている」と答えられる。健康・ほかの人は受けない', async () => {
+  const x = await linked();
+  const mateKey = await staffPersonLink(x, x.mate.id);
+  assert.equal([...x.s.db.links.values()].filter(l => l.person_id === x.mate.id).map(l => l.minted_by).join(), 'staff');
+  const mv = await keyCall(x, mateKey, { action: 'view' });
+  assert.deepEqual(mv.body.people.map(p => p.person.id), [x.mate.id]);
+  assert.equal(mv.body.people[0].confirm.find(c => c.field === 'birthDate').value, MATE.birthDate);
+  const leadValues = [SAMPLE_READINGS.f1.people[0].address, SAMPLE_READINGS.f1.people[0].birthDate];
+  leadValues.forEach(val => assert.ok(!JSON.stringify(mv.body).includes(val), `同行者のリンクに代表者の値が混ざっている: ${val}`));
+  const leadKey = await staffPersonLink(x, x.lead.id);
+  const lv = await keyCall(x, leadKey, { action: 'view' });
+  MATE_VALUES.forEach(val => assert.ok(!JSON.stringify(lv.body).includes(val), `代表者のリンクに同行者の値が混ざっている: ${val}`));
+  const ok = await keyCall(x, mateKey, { action: 'confirm', personId: x.mate.id, agree: ['birthDate'] });
+  assert.deepEqual(ok.body.problems, []);
   const e = stored(x.s).log.pop();
   assert.deepEqual([e.who, e.act, e.id, e.fields], ['guest', 'check', x.mate.id, ['birthDate']]);
-  assert.deepEqual((await (await mc(mateKey, { personId: x.mate.id, agree: ['history'] })).json()).problems, ['field']);
-  assert.equal((await mc(mateKey, { personId: x.lead.id, agree: ['dives'] })).status, 404, '別の人の分は受けない');
+  const fixed = await keyCall(x, mateKey, { action: 'confirm', personId: x.mate.id, agree: [], fix: { address: '那覇市 直した住所 1-1' } });
+  assert.deepEqual(fixed.body.problems, []);
+  assert.equal(stored(x.s).people.find(p => p.id === x.mate.id).address, '那覇市 直した住所 1-1');
+  assert.deepEqual((await keyCall(x, mateKey, { action: 'confirm', personId: x.mate.id, agree: ['history'] })).body.problems, ['field']);
+  assert.equal((await keyCall(x, mateKey, { action: 'confirm', personId: x.lead.id, agree: ['dives'] })).status, 404, '別の人の分は受けない');
+});
+
+test('Worker: お店が 1 人ずつのリンクを作るときの入口: 予約の人だけ。ほかの予約の人・形の違う id・人の無い予約は断る。予約のリンクの鍵は staff', async () => {
+  const x = await linked();
+  const other = await siteBooking(x.s, { tour: 'dive', date: TRIP_DAY, people: 1, name: '別の 予約', email: 'other@mail.example', exp: 'first' }, { ip: '203.0.113.88' });
+  assert.equal(other.status, 202);
+  const outsider = stored(x.s).people.find(p => p.bookingId !== x.booking.id);
+  const call = (body) => staffCall(x.s, 'POST', '/api/ask-link', body);
+  assert.equal((await call({ bookingId: x.booking.id, personId: outsider.id })).status, 404, 'ほかの予約の人');
+  assert.equal((await call({ bookingId: x.booking.id, personId: 'no such person' })).status, 400);
+  assert.equal((await call({ bookingId: x.booking.id, personId: 'nobody' })).status, 404);
+  assert.equal((await call({ bookingId: x.booking.id, personId: 5 })).status, 400);
+  assert.equal([...x.s.db.links.values()].filter(l => l.person_id === '').every(l => l.minted_by === 'staff'), true, '予約のリンク（お店か Cron が作る）は staff');
+});
+
+test('Worker: 同行者に代表者と同じ名前を付けても、予約のリンクで値が見える人は変わらない', async () => {
+  const x = await linked();
+  const st = stored(x.s);
+  const blanked = { ...st, people: st.people.map(p => (p.id === x.lead.id ? { ...p, name: '' } : p.id === x.mate.id ? { ...p, name: st.bookings[0].leadName } : p)) };
+  putState(x.s, blanked, { version: x.s.db.rows.get('default').version + 1 });
+  const v = await ask(x, { action: 'view' });
+  assert.equal(v.status, 200);
+  assert.deepEqual(v.body.people.filter(p => p.confirm.length).map(p => p.person.id), [x.lead.id]);
+  const mate = v.body.people.find(p => p.person.id === x.mate.id);
+  assert.deepEqual(mate.confirm, []);
+  MATE_VALUES.slice(0, 4).forEach(val => assert.ok(!JSON.stringify(v.body).includes(val), `同行者の値が出ている: ${val}`));
+  const r = await ask(x, { action: 'confirm', personId: x.mate.id, agree: ['birthDate'] });
+  assert.deepEqual(r.body.problems, ['field']);
 });
 
 test('Worker: 「合っている」は した人 guest と時刻を名簿の記録に残し、店員の画面の数が減る', async () => {
