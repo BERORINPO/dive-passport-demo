@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { scheduled } from '../worker/auto.mjs';
+import { handlePublic } from '../worker/handler.mjs';
+import { cronFresh } from '../worker/auto-core.mjs';
 import { dropAlert, snapshotOf, baseOf, dayKey } from '../worker/backup-core.mjs';
 import { checkPut } from '../worker/sync-core.mjs';
 import { fakeKv, fakeD1, fakeMail } from '../worker/fakes.mjs';
@@ -159,6 +161,41 @@ test('控えの置き場所（BACKUP）が無ければ何もしない。メー�
   await scheduled(s.env, s.io);
   assert.ok(s.kv.peek('alert:default:2026-10-29'));
   assert.equal(s.mail.sent.filter(m => m.subject.includes('REDUX')).length, 0);
+});
+
+test('点検 2026-10-28 運用 C3: 警報のメールが送れなかったら、次の Cron でもう一度送る。送れたら二度は送らない', async () => {
+  const s = setup();
+  const st = store(s, big('2026-11-05'));
+  await scheduled(s.env, s.io);
+  s.io.clock = T0 + DAY;
+  store(s, { ...st, people: st.people.slice(0, 5) }, { version: 2, today: '2026-10-29' });
+  s.mail.fail = 'E_DELIVERY_FAILED';
+  await scheduled(s.env, s.io);
+  assert.equal(JSON.parse(s.kv.peek('alert:default:2026-10-29')).mailed, 'pending');
+  s.mail.fail = '';
+  s.io.clock += 15 * 60000;
+  await scheduled(s.env, s.io);
+  const toOps = () => s.mail.sent.filter(m => m.to === 'ops@shop.example').length;
+  assert.equal(toOps(), 1, '次の回に送れた');
+  assert.equal(JSON.parse(s.kv.peek('alert:default:2026-10-29')).mailed, 'sent');
+  s.io.clock += 15 * 60000;
+  await scheduled(s.env, s.io);
+  assert.equal(toOps(), 1, '送れた後は鳴らし直さない');
+});
+
+test('点検 2026-10-28 運用 C2: Cron は最後に動いた時刻を残し、お客さん用の Worker の /api/health が 45 分より古ければ 503 を返す', async () => {
+  const s = setup();
+  store(s, big('2026-11-05'));
+  const health = async () => handlePublic(new Request('https://ask.example/api/health'), { BUDGET: s.env.BUDGET }, s.io);
+  assert.equal((await health()).status, 503, 'まだ一度も動いていない');
+  await scheduled(s.env, s.io);
+  const ok = await health();
+  assert.equal(ok.status, 200);
+  const body = await ok.json();
+  assert.deepEqual(Object.keys(body).sort(), ['cronAt', 'ok'], '返すのは時刻だけ');
+  s.io.clock += 46 * 60000;
+  assert.equal((await health()).status, 503, '45 分を過ぎたら止まっていると返す');
+  assert.equal(cronFresh('{"at":"x"}', '2026-01-01T00:00:00.000Z').ok, false, '壊れた値は止まっている扱い');
 });
 
 test('控えから戻す（tools/restore.mjs）: お店が違えば止め、今の版でだけ書き、戻すと消える数を出す。本物の SQLite で流すと版が進んで名簿が戻る', async () => {

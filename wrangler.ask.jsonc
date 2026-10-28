@@ -31,5 +31,5 @@
     // サイトの予約の 1 日の件数を数える（お店の Worker と同じ KV。id は鍵ではない）
     { "binding": "BUDGET", "id": "6ea53ad88d164c9fad6b855db449d453" }
   ],
-  "observability": { "enabled": false }
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } }
 }
