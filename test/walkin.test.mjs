@@ -417,11 +417,11 @@ test('入れない・入れたあとの消し方: 入れない物は名簿を変
 });
 
 /* ---------- 6. RPC の口 ---------- */
-test('RPC の口: walkinView・walkinSubmit は SHOP_METHODS の 6 つに入り、fakeShopBinding も ShopRpc も同じ。形の違う引数は 400、D1 が無ければ 503', async () => {
+test('RPC の口: walkinView・walkinSubmit は SHOP_METHODS の 7 つに入り、fakeShopBinding も ShopRpc も同じ。形の違う引数は 400、D1 が無ければ 503', async () => {
   const s = setup();
   const { key } = await withKey(s);
   const binding = fakeShopBinding(new ShopService(s.env, s.io));
-  assert.deepEqual(SHOP_METHODS.slice(4), ['walkinView', 'walkinSubmit']);
+  assert.deepEqual(SHOP_METHODS.slice(4, 6), ['walkinView', 'walkinSubmit']);
   assert.deepEqual(Object.keys(binding).filter(k => typeof binding[k] === 'function').sort(), [...SHOP_METHODS].sort());
   const rpc = readFileSync(new URL('../worker/shop-rpc.mjs', import.meta.url), 'utf8');
   assert.deepEqual([...rpc.matchAll(/^ {2}(\w+)\(/gm)].map(m => m[1]).sort(), [...SHOP_METHODS].sort());

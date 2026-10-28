@@ -8,6 +8,7 @@
    /api/roster/past は済んで 7 日を過ぎた便（読むだけ）。分ける決まりは past-core.mjs。
    /api/ask-link はお店がリンクを作る道で、/api/roster と同じく Access の内。中身は ask-route.mjs、計画は plan/meibo.md。
    /api/walkin-key・/api/walkins・/api/walkin-drop は店頭の QR のスタッフの道（Access の内。中身は walkin-route.mjs）。
+   /api/api-keys は予約の受け口 API（POST /api/v1/bookings。redux-ask が受ける）の API キーを、スタッフが作る・作り直す・止める道（Access の内。中身は intake-route.mjs）。
    お客さんのリンク（/api/ask）とサイトの予約フォーム（/api/bookings）は Access の外で、置いた形では redux-ask（worker/ask-index.mjs）が受ける。その道は
    public-handler.mjs にあり、この Worker の束にも入るのは手元の確かめ（tools/serve-dist.mjs）で同じ場所から呼べるように残しているだけ
    （ここでは SHOP を同じ Worker の ShopService にする。置いた形では Access の中なので外からは届かない）。redux-ask の束にはこのファイルは入らない */
@@ -22,6 +23,7 @@ import { listUnread, dropUnread } from './unread-db.mjs';
 import { UNREAD_KEEP_DAYS, UNREAD_SHOW_MAX } from './auto-core.mjs';
 import { makeAskLink } from './ask-route.mjs';
 import { makeWalkinKey, listWalkinsFor, dropWalkinFor } from './walkin-route.mjs';
+import { listKeysFor, changeKeysFor } from './intake-route.mjs';
 import { json, readCapped } from './api-http.mjs';
 import { ask, bookings } from './public-handler.mjs';
 import { ShopService } from './shop-service.mjs';
@@ -32,10 +34,10 @@ import { shopForEmail, nameOf, withShopName } from './shop-core.mjs';
 const REQUIRED_SECRETS = ['ANTHROPIC_API_KEY', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS'];
 const REQUIRED_VARS = ['DAILY_LIMIT', 'MONTHLY_USD'];
 const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': ['GET', 'PUT'], '/api/roster/past': ['GET'], '/api/mail-unread': ['GET', 'POST'], '/api/bookings': ['POST', 'OPTIONS'],
-  '/api/ask': ['POST'], '/api/ask-link': ['POST'], '/api/walkin-key': ['POST'], '/api/walkins': ['GET'], '/api/walkin-drop': ['POST'] };
+  '/api/ask': ['POST'], '/api/ask-link': ['POST'], '/api/walkin-key': ['POST'], '/api/walkins': ['GET'], '/api/walkin-drop': ['POST'], '/api/api-keys': ['GET', 'POST'] };
 
 const WALKIN_ROUTES = ['/api/walkin-key', '/api/walkins', '/api/walkin-drop'];
-const NEEDS_DB = ['/api/roster', '/api/roster/past', '/api/mail-unread', '/api/ask-link', '/api/read', '/api/healthz', ...WALKIN_ROUTES];
+const NEEDS_DB = ['/api/roster', '/api/roster/past', '/api/mail-unread', '/api/ask-link', '/api/read', '/api/healthz', '/api/api-keys', ...WALKIN_ROUTES];
 
 function missingConfig(env) {
   const miss = [...REQUIRED_SECRETS, ...REQUIRED_VARS].filter(k => typeof env[k] !== 'string' || env[k].trim() === '');
@@ -252,6 +254,26 @@ async function walkinStaff(request, env, io, url, note, who) {
   return json(got.status, got.body);
 }
 
+/* 予約の受け口 API の鍵（Access の内）。GET は一覧（止めた鍵も。鍵そのものは出ない）、POST { action: 'create' | 'rotate' | 'revoke', … } は作る・作り直す・止める。
+   鍵は作った返事に 1 回だけ出る（D1 には SHA-256 だけ）。お店はログインしたメールで決める */
+async function apiKeysStaff(request, env, io, url, note, who) {
+  const mine = await staffShop(env, note, who);
+  if (mine.res) return mine.res;
+  const { shop } = mine;
+  const origin = env.ASK_ORIGIN || url.origin;
+  if (request.method === 'GET') {
+    const got = await listKeysFor(env, io, note, shop, origin);
+    return json(got.status, got.body);
+  }
+  if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
+  const raw = await readCapped(request, 512);
+  if (raw === null) return json(413, { error: 'size' });
+  let given;
+  try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
+  const got = await changeKeysFor(env, io, note, shop, given, origin);
+  return json(got.status, got.body);
+}
+
 /* /api/ask と /api/bookings 用の env。SHOP はこの Worker の ShopService（D1 が無ければ SHOP も無く、503 config） */
 const withShop = (env, io) => (env.DB && typeof env.DB.prepare === 'function' ? { ...env, SHOP: new ShopService(env, io) } : env);
 
@@ -281,6 +303,7 @@ async function route(request, env, io, url, note) {
   if (url.pathname === '/api/mail-unread') return mailUnread(request, env, io, note, who);
   if (url.pathname === '/api/ask-link') return askLink(request, env, io, url, note, who);
   if (WALKIN_ROUTES.includes(url.pathname)) return walkinStaff(request, env, io, url, note, who);
+  if (url.pathname === '/api/api-keys') return apiKeysStaff(request, env, io, url, note, who);
   const mine = await staffShop(env, note, who);
   if (mine.res) return mine.res;
   return url.pathname === '/api/healthz' ? healthz(env, io, mine.shop) : read(request, env, io, note, mine.shop);

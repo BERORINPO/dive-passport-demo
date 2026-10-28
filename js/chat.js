@@ -68,7 +68,7 @@
         ...s,
         questions: [{ id: R.newId(), text: question, lang: R.lang, at: new Date().toISOString() }, ...s.questions]
       }));
-      say(L(R.T.sent));
+      say(L(R.isWorkerBuild() ? R.T.sentReal : R.T.sent));
     });
     return btn;
   }

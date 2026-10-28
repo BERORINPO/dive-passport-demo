@@ -126,6 +126,10 @@
     tabBooking: { ja: '予約と名簿', en: 'Bookings' },
     langBtn: { ja: 'English', en: '日本語' },
     demoSwitch: { ja: 'デモの画面', en: 'Demo screens' },
+    /* 本物（Worker 版）の札。やることは同じ（4 つの画面を行き来する）だが、「デモ」とは呼ばない */
+    screenSwitch: { ja: '画面の切り替え', en: 'Switch screen' },
+    aiLiveNote: { ja: '本物の AI にしています。予約メールの文面と写真（健康の所は外して・塗って）を AI に送ります。',
+                  en: 'The real AI is on. Booking emails and photos (health parts removed or blacked out) are sent to the AI.' },
     demoNote: { ja: 'デモです。入力した内容はこのブラウザの中だけに残り、どこにも送りません。答えはお店が書いた文だけで、AI は文章を作りません。',
                 en: 'Demo. What you enter stays in this browser and is not sent anywhere. Answers are written by the shop; no AI-written text.' },
     demoNoteReal: { ja: 'デモです。中身はすべて架空の見本です。本物の AI にしているので、予約メールの文面と写真（健康の所は外して・塗って）を AI に送ります。',
@@ -144,6 +148,8 @@
     didYouMean: { ja: 'もしかして、このどれかのこと？', en: 'Did you mean one of these?' },
     noneOfThese: { ja: 'どれでもない（お店に聞く）', en: 'None of these (ask the shop)' },
     sent: { ja: 'お店に送ったよ。返事はお店の人から届くね。（デモなので「お店の画面」に入ります）', en: "Sent to the shop. A person will reply. (In this demo it shows up in the shop view.)" },
+    /* 本物（Worker 版）では「デモなので」とは言わない。聞いたことは、受付の「お店への質問」に入る */
+    sentReal: { ja: '受付の「お店への質問」に入れたよ。', en: "Added to the shop's questions." },
     intakeTitle: { ja: '予約の前に', en: 'Before you book' },
     factTime: { ja: '時間', en: 'Time' },
     factPrice: { ja: '料金', en: 'Price' },

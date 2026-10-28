@@ -15,7 +15,7 @@ const R = globalThis.REDUX;
 export const MAX_BOOKING_BODY = 4096;
 export const MAX_MAIL_BYTES = 256 * 1024;
 /* 予約を受ける先の日: 今日から 1 年と少し先まで */
-const MAX_DAYS_AHEAD = 400;
+export const MAX_DAYS_AHEAD = 400;
 /* 外から入る予約（サイトのフォーム・届いたメール）の守り（ザクのレビュー 2026-10-27 H-1・M-5）:
    1 件の人数、1 日の件数、名簿がこの割合を超えたら外からは入れない（お店自身の書き込みの分を残す） */
 export const SITE_MAX_PEOPLE = 10;
@@ -42,9 +42,9 @@ export const WORRIES = Object.keys(WORRY_JA);
 const BOOKING_KEYS = ['tour', 'date', 'people', 'name', 'email', 'lang', 'swim', 'exp', 'dives', 'worries', 'phone', 'note'];
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const str = (v, max) => typeof v === 'string' && v.length <= max;
-const PHONE = /^[0-9+()\- ]{0,30}$/;
+export const PHONE = /^[0-9+()\- ]{0,30}$/;
 /* 名前はお客さんへのメールの 1 行目に入る。改行・制御文字・URL やドメインらしい字は断る（お店の名前で釣りのメールを出させない。ザクのレビュー 2026-10-27 M-2） */
-const NAME_BAD = /[\u0000-\u001f\u007f\u2028\u2029]|:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}/i;
+export const NAME_BAD = /[\u0000-\u001f\u007f\u2028\u2029]|:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}/i;
 
 /* 予約フォームの本文を確かめる。返すのは { ok, booking } か { ok: false, error }（error はログに出す短い名前だけ） */
 export function checkBooking(given, { today }) {

@@ -278,6 +278,7 @@
       !R.rosterStore.synced() && (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
       healthModeRow(s),
       R.walkinStaff.listRow({ ui }),
+      R.apiKeysStaff.listRow({ ui }),
       R.rosterStore.kept().length ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button',
         text: `端末に残した名簿（${R.rosterStore.kept().length}）`, onclick: () => go('kept') })) : null,
       /* 済んで 7 日を過ぎた便は、サーバーが便ごとに分けて置く（読むだけ）。サーバーを使わない版には無い */
@@ -451,6 +452,7 @@
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
             : mode === 'walkin' ? R.walkinStaff.render({ ui })
+            : mode === 'apikeys' ? R.apiKeysStaff.render({ ui })
             : mode === 'flow' ? R.autoFlow.render({ bookingId: askBooking, ui })
             : mode === 'board' ? (loadUnread(), R.autoFlow.renderBoard({ ui, unread: unreadView() }))
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })

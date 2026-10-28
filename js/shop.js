@@ -105,12 +105,16 @@
   function faqTable() {
     return el('div', { class: 'card' },
       el('h2', { class: 'h2', text: 'よく聞かれることの答えの一覧' }),
-      el('p', { class: 'note', text: 'お店が書いた文です。書き換えると、お客さまに出る答えも変わります（デモでは書き換えできません）。' }),
+      el('p', { class: 'note', text: 'お店が書いた文です。書き換えると、お客さまに出る答えも変わります（この画面からは書き換えできません）。' }),
       el('div', { class: 'table-wrap' },
         el('table', { class: 'table' },
           el('thead', {}, el('tr', {}, el('th', { text: '質問' }), el('th', { text: '答え' }), el('th', { text: '更新' }))),
           el('tbody', {}, R.FAQ.map(f => el('tr', {}, el('td', { text: f.q.ja }), el('td', { text: f.a.ja }), el('td', { text: f.updated })))))));
   }
+
+  /* 見本の受付に戻すボタンは見本の画面だけ（本物では、押すと入れた受付が消えてしまう） */
+  const resetButton = () => (R.isWorkerBuild() ? null : el('p', { class: 'reset' },
+    el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: 'デモの受付を最初の状態に戻す', onclick: () => R.store.reset() })));
 
   function render() {
     const s = R.store.get();
@@ -134,7 +138,7 @@
       el('div', { class: 'card' }, el('h2', { class: 'h2', text: 'お店への質問（答えられなかったもの）' }), questions(s)),
       settings(s),
       faqTable(),
-      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: 'デモの受付を最初の状態に戻す', onclick: () => R.store.reset() })));
+      resetButton());
   }
 
   R.renderShop = render;
