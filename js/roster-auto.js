@@ -69,11 +69,26 @@
     ja: ['健康の質問の答えは、このお店だけが見ます。AI には送りません。', '健康の質問は、当日の受付で紙の申込書にお願いします。'],
     en: ['Only this shop sees your health answers. They are not sent to AI.', 'Health questions are answered on the paper form at check-in on the day.']
   };
-  function message(kind, { shop, booking, trip, people, link, paper = false }) {
+  /* 文面に入る、人が書ける文字（名前・ツアー・お店の名前）を 1 行の短い文字にする。改行と、リンクになりそうな物
+     （://、www.、ドメインやメールアドレスらしい並び）を外す。決まった文面に偽のリンクや別の案内を書き込ませない（ザクのレビュー 2026-10-28 MEDIUM-1） */
+  const NAME_MAX = 30;
+  const TOUR_MAX = 40;
+  const SHOP_MAX = 40;
+  function plain(text, max) {
+    const one = String(text ?? '')
+      .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
+      .replace(/\S*(?::\/\/|www\.)\S*/gi, ' ')
+      .replace(/\S*[a-z0-9-][.．][a-z]{2,}\b\S*/gi, ' ')
+      .replace(/\s+/g, ' ').trim();
+    return Array.from(one).slice(0, max).join('').trim();
+  }
+  function message(kind, { shop: shopName, booking, trip: tripIn, people, link, paper = false }) {
     const L = textLang(booking.lang || 'ja');
-    const when = `${md(trip.date, L)}${trip.start ? ` ${trip.start}` : ''}`;
-    const names = people.map(p => p.name || (L === 'ja' ? '（お名前未定の方）' : '(name not given)'));
-    const lead = booking.leadName || names[0] || '';
+    const shop = plain(shopName, SHOP_MAX);
+    const trip = { ...tripIn, tour: plain(tripIn.tour, TOUR_MAX) };
+    const when = `${md(trip.date, L)}${trip.start ? ` ${plain(trip.start, 5)}` : ''}`;
+    const names = people.map(p => plain(p.name, NAME_MAX) || (L === 'ja' ? '（お名前未定の方）' : '(name not given)'));
+    const lead = plain(booking.leadName, NAME_MAX) || names[0] || '';
     if (L === 'ja') {
       const hello = `${lead} 様\n\n${when} ${trip.tour} のご予約、ありがとうございます。\n`;
       const sign = `\n\n${shop}`;
@@ -174,13 +189,17 @@
   }
 
   /* nowJst までに時刻が来た予定を、時刻の順に動かす。{ state, queued: 送る連絡の id } */
-  function runDue(state, { nowJst, at, newId, askBase }) {
+  function runDue(state0, { nowJst, at, newId, askBase }) {
     if (!S().isJst(nowJst)) throw new Error(`runDue: nowJst は YYYY-MM-DDTHH:MM (${nowJst})`);
+    /* お店が画面で頼んだ送り直し（requestResend）を、送る側（Worker の Cron、試作では画面）が連絡に作り直す */
+    const state = takeResendAsks(state0, { nowJst, at, newId, askBase });
+    const before = new Set((state0.outbox || []).map(o => o.id));
+    const fromAsks = (state.outbox || []).filter(o => o.status === 'queued' && !before.has(o.id)).map(o => o.id);
     const due = (state.jobs || []).filter(j => j.status === 'waiting' && j.due <= nowJst).sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0));
-    if (!due.length) return { state, queued: [] };
+    if (!due.length) return { state, queued: fromAsks };
     let trips = state.trips;
     const outbox = [...(state.outbox || [])];
-    const queued = [];
+    const queued = [...fromAsks];
     const finished = new Map();   // job id → 'done' / 'skipped'
     for (const j of due) {
       const booking = bookingOf(state, j.bookingId);
@@ -245,12 +264,15 @@
      届いていた物は sent にする（sentAt は確かめた時刻） */
   const RESENT = 'resent';
   const CONFIRMED = 'confirmed';
+  /* お店が画面で送り直しを頼んだ印。連絡を作るのは送る側（Worker）だけ（画面は連絡を作らない。ジンのレビュー 2026-10-28 H1・H2） */
+  const RESEND_ASKED = 'resend';
   const liveTrip = (trip, today) => !!trip && !trip.cancel && !(trip.date && trip.date < today);
   /* 送り直せない理由の短い名前。送り直せるなら '' */
   function resendProblem(state, o, today) {
     if (!o) return 'not-found';
     if (o.kind === 'staff' || !['failed', 'unsent'].includes(o.status)) return 'not-failed';
     if (o.why === RESENT) return 'resent';
+    if (o.why === RESEND_ASKED) return 'asked';
     const booking = bookingOf(state, o.bookingId);
     const trip = tripOfBooking(state, booking);
     if (!booking || !trip) return 'not-found';
@@ -271,6 +293,74 @@
     const copy = outItem(state, { kind: o.kind, booking, trip: tripOfBooking(state, booking), people, at, newId, askBase });
     return { state: { ...state, outbox: [...state.outbox.map(x => (x.id === id ? { ...x, why: RESENT } : x)), copy] }, problem: '', id: copy.id };
   }
+  /* 画面の「送り直す」: 送り直しを頼む印だけを付ける。次の Cron（Worker）が今の予約から連絡を作り直して送る。{ state, problem } */
+  function requestResend(state, { id, nowJst }) {
+    if (!S().isJst(nowJst)) throw new Error(`requestResend: nowJst は YYYY-MM-DDTHH:MM (${nowJst})`);
+    const o = (state.outbox || []).find(x => x.id === id);
+    const problem = resendProblem(state, o, nowJst.slice(0, 10));
+    if (problem) return { state, problem };
+    return { state: { ...state, outbox: state.outbox.map(x => (x.id === id ? { ...x, why: RESEND_ASKED } : x)) }, problem: '' };
+  }
+  /* 頼まれた送り直しを連絡に作り直す。作れない（便が済んだ・メールが無い・もうそろった）ときは印を外して、送れなかった連絡に戻す */
+  function takeResendAsks(state, { nowJst, at, newId, askBase }) {
+    const asks = (state.outbox || []).filter(o => o.why === RESEND_ASKED);
+    return asks.reduce((st, o) => {
+      const cleared = { ...st, outbox: st.outbox.map(x => (x.id === o.id ? { ...x, why: '' } : x)) };
+      const r = resend(cleared, { id: o.id, nowJst, at, newId, askBase });
+      return r.problem ? cleared : r.state;
+    }, state);
+  }
+
+  /* 画面から届いた名簿（incoming）の、送る連絡と予定の動きを、サーバーが持つ名簿（stored）に合わせる（Worker の PUT で使う）。
+     - 送る連絡（outbox）はサーバーの物。画面が足した・書き換えた連絡は捨てる。画面に許すのは 2 つだけ:
+       送れたか分からない連絡を「届いていた」にする（confirmSent）、送れなかった連絡に送り直しを頼む（requestResend）
+     - 予定（jobs）は、今ある予定ならサーバーの物をそのまま使う（id・種類・時刻・状態）。画面が足す新しい予定は、予約を入れたときの物だけ:
+       サーバーの名簿に同じ予約・同じ種類の予定が無いときに限り、状態は「待つ」から受ける。済んだ予定を消して足し直しても受けない
+       （画面から何度でもお願いを送らせない。ザクのレビュー 2026-10-28 MEDIUM-2）。画面が予定を消すのはよい（送らない向き）
+     - 予約が消えた連絡は残さない（名簿の形を保つ） */
+  function serverOwned(stored, incoming) {
+    const before = new Map((stored.outbox || []).map(o => [o.id, o]));
+    const seen = new Map((incoming.outbox || []).map(o => [o.id, o]));
+    const bookings = new Set((incoming.bookings || []).map(b => b.id));
+    const outbox = (stored.outbox || []).filter(o => bookings.has(o.bookingId)).map(o => {
+      const n = seen.get(o.id);
+      if (!n) return o;
+      const confirm = o.status === 'failed' && o.why === 'maybe-sent' && n.status === 'sent' && n.why === CONFIRMED;
+      if (confirm) return { ...o, status: 'sent', why: CONFIRMED, sentAt: String(n.sentAt || '').slice(0, 40) };
+      const ask = ['failed', 'unsent'].includes(o.status) && ![RESENT, RESEND_ASKED].includes(o.why) && o.kind !== 'staff' && n.status === o.status && n.why === RESEND_ASKED;
+      return ask ? { ...o, why: RESEND_ASKED } : o;
+    });
+    const jobsBefore = new Map((stored.jobs || []).map(j => [j.id, j]));
+    const planned = new Set((stored.jobs || []).map(j => `${j.bookingId}\n${j.kind}`));
+    const jobs = (incoming.jobs || []).flatMap(j => {
+      const old = jobsBefore.get(j.id);
+      if (old) return [old];
+      const key = `${j.bookingId}\n${j.kind}`;
+      if (planned.has(key)) return [];
+      planned.add(key);
+      return [{ ...j, status: 'waiting', doneAt: '' }];
+    });
+    return {
+      ...incoming,
+      ...(incoming.jobs || stored.jobs ? { jobs } : {}),
+      ...(incoming.outbox || stored.outbox ? { outbox } : {})
+    };
+  }
+
+  /* 送る直前に、連絡の宛先と本文を今の名簿から作り直す（名簿に書いてある宛先と本文は信じない。Worker の Cron）。
+     宛先は予約の leadEmail、本文は決まった文面（リンクの所は印）。作れなければ null（予約が消えた・メールが無い・お願いする人がもういない） */
+  function rebuildOut(state, item) {
+    if (!['request', 'remind', 'today'].includes(item.kind)) return null;
+    const booking = bookingOf(state, item.bookingId);
+    const trip = tripOfBooking(state, booking);
+    if (!booking || !trip || trip.cancel || !booking.leadEmail) return null;
+    const ids = new Set(item.people || []);
+    const people = state.people.filter(p => p.bookingId === booking.id && ids.has(p.id));
+    if (!people.length) return null;
+    const fresh = outItem(state, { kind: item.kind, booking, trip, people, at: item.at, newId: () => item.id, askBase: '' });
+    return { ...item, tripId: trip.id, to: fresh.to, lang: fresh.lang, subject: fresh.subject, body: fresh.body, people: fresh.people };
+  }
+
   /* 送れたか分からない連絡が、お客さんに届いていた（お店が確かめた）。{ state, problem } */
   function confirmSent(state, { id, at }) {
     const o = (state.outbox || []).find(x => x.id === id);
@@ -296,8 +386,9 @@
     const day = (r) => r.job.due.slice(0, 10);
     return {
       maybe: outs.filter(r => r.out.status === 'failed' && r.out.why === 'maybe-sent'),
-      failed: outs.filter(r => ['failed', 'unsent'].includes(r.out.status) && !['maybe-sent', RESENT].includes(r.out.why)),
-      ready: outs.filter(r => r.out.status === 'queued').map(r => ({ ...r, sending: r.out.why.startsWith('sending:') })),
+      failed: outs.filter(r => ['failed', 'unsent'].includes(r.out.status) && !['maybe-sent', RESENT, RESEND_ASKED].includes(r.out.why)),
+      ready: outs.filter(r => r.out.status === 'queued' || r.out.why === RESEND_ASKED)
+        .map(r => ({ ...r, sending: r.out.why.startsWith('sending:'), asked: r.out.why === RESEND_ASKED })),
       today: jobs.filter(r => day(r) === today || (r.job.status === 'waiting' && day(r) < today)),
       later: jobs.filter(r => r.job.status === 'waiting' && day(r) > today)
     };
@@ -323,5 +414,5 @@
   }
 
   R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS,
-    RESENT, CONFIRMED, resendProblem, resend, confirmSent, board };
+    RESENT, CONFIRMED, RESEND_ASKED, resendProblem, resend, requestResend, serverOwned, rebuildOut, confirmSent, board };
 })();

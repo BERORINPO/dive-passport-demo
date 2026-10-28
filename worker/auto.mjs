@@ -77,7 +77,11 @@ export async function runAutomation(env, io, note, shop = SHOP_DEFAULT) {
   note.queued = queued.length;
   if (!queued.length) return;
   const results = [];
-  for (const item of queued) results.push(await sendOne(env, await withLink(env, io, moved.state, item, shop), moved.state.shop.name));
+  for (const item of queued) {
+    /* 宛先と本文は、名簿に書いてある物でなく、今の予約から作り直す（ジンのレビュー 2026-10-28 H2。js/roster-auto.js の rebuildOut） */
+    const fresh = R.rosterAuto.rebuildOut(moved.state, item);
+    results.push(fresh ? await sendOne(env, await withLink(env, io, moved.state, fresh, shop), moved.state.shop.name) : { id: item.id, result: 'failed', why: 'gone' });
+  }
   note.sent = results.filter(r => r.result === 'sent').length;
   const marked = await changeRoster(env, io, s => ({ state: markResults(s, { results, at }) }), { shop });
   if (!marked.ok) note.why = `mark-${marked.why}`;
