@@ -144,22 +144,27 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 - 名簿の行が消えたまま 7 日たつと、比べる控えが無くなり警報は止まる。メールが送れるようになるまで（KV にだけ残るあいだ）は、`alert:` を週に 1 度見る
 - お客さんから「消して」と頼まれたときは、名簿から消したうえで、控え（`day:` と `past:`）にも残っていることを伝え、要るなら控えも消す（控えは最長 1 年残る）
 
-## 9. ドメイン reduxdive.com とメール（2026-10-28 から。Workers Paid とドメインがそろってから置く）
-1. ★ Yosuke: reduxdive.com を Cloudflare Registrar で買う（1 年 10.46 ドル、自動更新オフ）。買うと Cloudflare に zone ができる
-2. ★ Yosuke: Workers & Pages → Plans で Workers Paid（月 5 ドル）に切り替える（メールの送信と Cron に要る）
-3. Email Sending を有効にする: `npx wrangler@4.151.0 email sending enable reduxdive.com`（SPF・DKIM の DNS は自動で足される）
-4. Email Routing を有効にする: reduxdive.com で有効にし、受け口のアドレス（お店ごとの inbox、例 a@reduxdive.com）をお店の Worker（dive-passport-demo）へ送る rule を作る。お店の一覧（shops）の inbox と senders を埋める
-5. お店の Worker の secret: ASK_ORIGIN を https://ask.reduxdive.com に変える。ALERT_TO（運営の警報の宛先）を入れる
-6. 置く（このブランチを merge したあと）:
-   ```bash
-   node tools/build-site.mjs
-   npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc
-   npx wrangler@4.151.0 deploy
-   ```
-   - custom_domain の route で ask.reduxdive.com の DNS は Worker が足す
-7. 確かめ: ask.reduxdive.com/ask が開く／予約メールを inbox に転送 → 名簿に入る → 次の Cron でお願いのメールが届く（自分の受け取れるアドレスで）／次の日に `day:` の控えができる
-- お店の画面は workers.dev のまま（APP_URL も workers.dev）。app.reduxdive.com に移すには、その住所にも Access の application を作る必要があり、権限の設定を足すことになるので、別に決める（2026-10-28）
+## 9. ドメイン reduxdive.com とメール（2026-10-28 に置いた）
+
+いまの形:
+| 物 | 中身 | どこで |
+|---|---|---|
+| ドメイン | reduxdive.com（Cloudflare Registrar、自動更新オフ、期限 2027-10-28。.com は 2026-11-01 から 11.17 ドル） | Domains → Registrations |
+| Workers | Paid（月 5 ドル）。Cron と Email Sending に要る | Workers plans |
+| 受信 | Email Routing を有効にし（MX・SPF・DKIM は自動）、`inbox@reduxdive.com` → お店の Worker（dive-passport-demo）の rule | API `/zones/{zone}/email/routing/rules`（rule の名前 REDUX booking inbox） |
+| 受ける送り主 | secret `MAIL_SENDERS`（「,」区切り。お店が予約メールを転送する元）。お店の一覧（shops）が空の間は 1 店で、これを使う | `wrangler secret put MAIL_SENDERS` |
+| 送信 | Email Sending を reduxdive.com で有効（送り元 `yoyaku@reduxdive.com`、Return-Path は `cf-bounce.reduxdive.com`。DKIM・SPF・DMARC p=reject は自動） | API `/zones/{zone}/email/sending/subdomains`（wrangler の `email sending enable` は 4.151.0 で認証の誤りになった） |
+| お客さんのリンク | `ask.reduxdive.com`（redux-ask の custom domain）。お店の Worker の secret `ASK_ORIGIN` もこの住所 | wrangler.ask.jsonc |
+| 警報の宛先 | secret `ALERT_TO` | `wrangler secret put ALERT_TO` |
+| Cron | `*/15 * * * *`（書類の自動化と毎日の控え） | wrangler.jsonc |
+
+- お店の画面は workers.dev のまま（APP_URL も workers.dev）。app.reduxdive.com に移すには、その住所にも Access の application を作る必要があり、権限の設定を足すことになるので、別に決める
 - サイト（AquaGate）は見本のまま workers.dev に置いておく（Turnstile の widget の hostname もそのまま）
+- メールのアドレスは公開の repo に書かない（送り主・警報の宛先は secret）
+
+置き直し: `node tools/build-site.mjs` のあと `npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc` と `npx wrangler@4.151.0 deploy`
+
+確かめ方（2026-10-28 に通した）: `ask.reduxdive.com/ask` が 200／MAIL_SENDERS のアドレスから `inbox@reduxdive.com` に予約メールを送る → 名簿に入り予定が 4 つできる → 次の Cron でお願いのメールが届く／Cron のあとに BACKUP の KV に `day:<お店>:<日付>` ができる。届いた記録は GraphQL の `emailRoutingAdaptive` で見られる
 
 ## 置き直したら（2 回目から）
 - 開いているタブを全部読み込み直す（スマホ・PC とも）。古い版の画面が残ったまま保存すると、古い形の名簿を書く
