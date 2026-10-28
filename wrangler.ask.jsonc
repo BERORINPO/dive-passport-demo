@@ -9,6 +9,8 @@
   "main": "worker/ask-index.mjs",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
+  // お客さんのリンクの住所（reduxdive.com、2026-10-28 に置く）。お店の Worker の secret ASK_ORIGIN もこの住所に変える
+  "routes": [{ "pattern": "ask.reduxdive.com", "custom_domain": true }],
   "preview_urls": false,
   "assets": {
     "directory": "./dist-ask",
