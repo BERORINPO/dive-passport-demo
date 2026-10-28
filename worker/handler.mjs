@@ -18,7 +18,7 @@ import { remaining } from './budget.mjs';
 import { askModel } from './ask.mjs';
 import { takeSiteBooking } from './auto.mjs';
 import { verifyTurnstile, underLimit } from './site-guard.mjs';
-import { MAX_BOOKING_BODY } from './auto-core.mjs';
+import { MAX_BOOKING_BODY, cronFresh, CRON_STALE_MS } from './auto-core.mjs';
 import { getRoster, putRoster, getPast } from './roster-db.mjs';
 import { listUnread, dropUnread } from './unread-db.mjs';
 import { UNREAD_KEEP_DAYS, UNREAD_SHOW_MAX } from './auto-core.mjs';
@@ -80,6 +80,18 @@ async function readBytes(stream, max) {
   let at = 0;
   for (const c of chunks) { all.set(c, at); at += c.byteLength; }
   return all;
+}
+
+/* 外の死活監視（Cloudflare と別の系統）が 5 分ごとに見る口。返すのは Cron が最後に動いた時刻だけ。止まっていれば 503 */
+async function cronHealth(env, io, note) {
+  try {
+    const got = cronFresh(env.BUDGET ? await env.BUDGET.get('cron:last') : null, new Date(io.now() - CRON_STALE_MS).toISOString());
+    if (!got.ok) note.why = 'cron-stale';
+    return json(got.ok ? 200 : 503, { ok: got.ok, cronAt: got.at });
+  } catch (e) {
+    note.why = 'kv';
+    return json(503, { ok: false, cronAt: '' });
+  }
 }
 
 /* お店の一覧が読めない・使えないときの 503（2026-10-28 shops-fail-closed）。理由の名前はログだけに出す（中身は出さない）。
@@ -355,7 +367,7 @@ async function route(request, env, io, url, note) {
 /* Access を付けない Worker（worker/ask-index.mjs）の入口。お客さんのリンク（/api/ask の POST）と、お店のサイトの予約フォーム（/api/bookings。
    守りは bookings と同じ: 許した origin・回数・Turnstile）だけを受け、ほかの /api は 404。
    お店の画面・名簿の道（/api/roster）・リンクを作る道（/api/ask-link）・AI の読み取りは、この Worker には無い */
-const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/bookings': ['POST', 'OPTIONS'] };
+const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/bookings': ['POST', 'OPTIONS'], '/api/health': ['GET'] };
 export async function handlePublic(request, env, io) {
   const started = io.now();
   const url = new URL(request.url);
@@ -366,6 +378,7 @@ export async function handlePublic(request, env, io) {
     if (!methods) res = json(404, { error: 'path' });
     else if (!methods.includes(request.method)) res = json(405, { error: 'method' }, { allow: methods.join(', ') });
     else if (url.pathname === '/api/bookings') res = await bookings(request, env, io, note);
+    else if (url.pathname === '/api/health') res = await cronHealth(env, io, note);
     else if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; res = json(403, { error: 'site' }); }
     else res = await ask(request, env, io, url, note);
   } catch (e) {

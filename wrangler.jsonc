@@ -49,5 +49,5 @@
     "SINGLE_SHOP": "default"
   },
   // Cloudflare の画面のログに要求を残さない（Worker のログは console.log の 1 行だけで、中身は出さない）
-  "observability": { "enabled": false }
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } }
 }

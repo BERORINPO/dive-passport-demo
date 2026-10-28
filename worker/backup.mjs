@@ -38,8 +38,12 @@ export async function dailyBackup(env, io, shop, note) {
   const now = io.now();
   const today = periods(now).day;
   /* 控えと警報を先に（済んだ便の写しが重くても、こちらは止めない）。写しは毎回、続きから少しずつ */
-  if ((await env.BACKUP.get(dayKey(shop, today))) === null && (await env.BACKUP.get(alertKey(shop, today))) === null) {
+  const alert = await readJson(env.BACKUP, alertKey(shop, today));
+  if ((await env.BACKUP.get(dayKey(shop, today))) === null && alert === null) {
     await snapshotAndAlert(env, shop, now, today, note);
+  } else if (alert && alert.mailed === 'pending') {
+    /* 警報のメールが送れていなければ、次の Cron でもう一度送る（1 回の失敗でその日の警報が消えない。点検 2026-10-28 運用 C3） */
+    await mailAlert(env, shop, today, alert, note);
   }
   note.pastCopied = await copyPast(env, shop, now);
 }
@@ -61,9 +65,16 @@ async function snapshotAndAlert(env, shop, now, today, note) {
   const alert = dropAlert(base, snap, moved);
   if (!alert) return;
   note.alert = alert.kind;
-  await env.BACKUP.put(alertKey(shop, today), JSON.stringify({ at, ...alert }), { expirationTtl: KEEP_S });
+  const record = { at, ...alert, mailed: 'pending' };
+  await env.BACKUP.put(alertKey(shop, today), JSON.stringify(record), { expirationTtl: KEEP_S });
+  await mailAlert(env, shop, today, record, note);
+}
+
+/* 警報をメールで送り、送れたら印を付ける（送れなければ pending のまま。メールの設定が無いときも pending で残し、入れたら届く） */
+async function mailAlert(env, shop, today, record, note) {
   if (!mailReady(env) || !env.ALERT_TO) { note.alertMail = 'no-config'; return; }
-  const mail = alertMail(shop, today, alert);
+  const mail = alertMail(shop, today, record);
   const sent = await sendOne(env, { id: 'alert', to: env.ALERT_TO, subject: mail.subject, body: mail.text }, 'REDUX');
   note.alertMail = sent.result;
+  if (sent.result === 'sent') await env.BACKUP.put(alertKey(shop, today), JSON.stringify({ ...record, mailed: 'sent' }), { expirationTtl: KEEP_S });
 }

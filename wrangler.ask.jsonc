@@ -34,5 +34,5 @@
   ],
   // お店の Worker（wrangler.jsonc）と同じ SINGLE_SHOP: D1 の shops が空のとき、これを書いた場合だけ 1 店で動く。無くて空なら 503
   "vars": { "SINGLE_SHOP": "default" },
-  "observability": { "enabled": false }
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } }
 }

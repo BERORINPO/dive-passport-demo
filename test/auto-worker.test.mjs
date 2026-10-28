@@ -262,7 +262,7 @@ test('ジンのレビュー MEDIUM 10: 送ったあとに結果を書けなく�
   /* 送った直後に D1 が止まり、結果を書けない */
   const send = s.mail.send;
   s.mail.send = async (msg) => { const r = await send(msg); s.db.failing = true; return r; };
-  await scheduled(s.env, s.io);
+  await assert.rejects(scheduled(s.env, s.io), /cron failed/, '全部のお店で失敗した回は Cron の履歴にも失敗と残す');
   s.db.failing = false;
   s.mail.send = send;
   assert.equal(s.mail.sent.length, 1);
@@ -285,7 +285,7 @@ test('送り直し: 送れたか分からない連絡をお店が送り直すと
   await handle(booking(GOOD), s.env, s.io);
   const send = s.mail.send;
   s.mail.send = async (msg) => { const r = await send(msg); s.db.failing = true; return r; };
-  await scheduled(s.env, s.io);
+  await assert.rejects(scheduled(s.env, s.io), /cron failed/, '全部のお店で失敗した回は Cron の履歴にも失敗と残す');
   s.db.failing = false;
   s.mail.send = send;
   s.io.clock = NOW + 31 * 60000;
@@ -353,7 +353,7 @@ test('ジンのレビュー 2026-10-28 H1: 画面は送り直しを頼むだけ�
   await handle(booking(GOOD), s.env, s.io);
   const send = s.mail.send;
   s.mail.send = async (msg) => { const r = await send(msg); s.db.failing = true; return r; };
-  await scheduled(s.env, s.io);
+  await assert.rejects(scheduled(s.env, s.io), /cron failed/, '全部のお店で失敗した回は Cron の履歴にも失敗と残す');
   s.db.failing = false;
   s.mail.send = send;
   s.io.clock = NOW + 31 * 60000;
@@ -458,6 +458,15 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   const calls = s.api.calls.length;
   await receiveMail(message(MAIL_RAW('31 通目')), s.env, s.io);
   assert.equal(s.api.calls.length, calls, 'メールからの予約は 1 日 30 件まで。超えたら AI を呼ばない');
+});
+
+test('点検 2026-10-28 運用 C4: 設定が欠けていて読めない予約メールは、黙って捨てずに断る（送り元に返る）', async () => {
+  const s = setup();
+  delete s.env.ANTHROPIC_API_KEY;
+  const m = message(MAIL_RAW('予約です'));
+  await receiveMail(m, s.env, s.io);
+  assert.ok(m.rejected, '断る');
+  assert.equal(s.api.calls.length, 0);
 });
 
 let failed = 0;

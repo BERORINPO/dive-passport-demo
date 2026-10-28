@@ -223,7 +223,7 @@ test('一覧が空・表が無いとき、SINGLE_SHOP が無ければ 503（開�
     assert.equal(s.db.rows.size, 0, `${label}: 名簿は書かれない`);
     assert.equal(s.db.daily.size, 0, `${label}: 件数も数えない`);
     logs.length = 0;
-    await scheduled(s.env, s.io);
+    await assert.rejects(scheduled(s.env, s.io), /cron failed/, `${label}: Cron は Cloudflare の履歴にも失敗と残す`);
     assert.equal(JSON.parse(logs[0]).why, why, `${label}: Cron も理由を残して何もしない`);
   }
 });

@@ -104,7 +104,8 @@ export async function scheduled(env, io) {
       note.sent = 0;
       for (const shop of shops) {
         const one = {};
-        try { await runAutomation(env, io, one, shop); } catch (e) { one.why = 'crash'; }
+        try { await runAutomation(env, io, one, shop); } catch (e) { one.why = 'crash'; note.err = errName(e); }
+        if (one.why) note.failed = (note.failed || 0) + 1;
         note.queued += one.queued || 0;
         note.sent += one.sent || 0;
         if (one.why) note.why = `${note.why ? `${note.why},` : ''}${shop}:${one.why}`.slice(0, 120);
@@ -113,7 +114,7 @@ export async function scheduled(env, io) {
       const listed = directory.map(s => s.id);
       for (const shop of [...new Set([...shops, ...listed])]) {
         const one = {};
-        try { await dailyBackup(env, io, shop, one); } catch (e) { one.backup = 'crash'; }
+        try { await dailyBackup(env, io, shop, one); } catch (e) { one.backup = 'crash'; note.err = errName(e); }
         if (one.alert) note.alerts = (note.alerts || 0) + 1;
         if (one.backup === 'crash') note.backupFailed = (note.backupFailed || 0) + 1;
       }
@@ -122,8 +123,29 @@ export async function scheduled(env, io) {
     }
   } catch (e) {
     note.why = shopsWhy(e, 'crash');
+    note.err = errName(e);
+    note.down = 1;
   }
+  await markCron(env, io, note);
   logLine(note, io, started);
+  /* 全部のお店で失敗した回・Cron そのものが落ちた回は、Cloudflare の Cron の履歴にも「失敗」と残す */
+  if (note.down || (note.shops && note.failed === note.shops)) throw new Error(`cron failed: ${note.why}`);
+}
+
+/* 例外の種類だけを残す（message には名前や本文が入りうるので残さない。点検 2026-10-28 運用 M15） */
+const errName = (e) => String((e && e.name) || 'Error').slice(0, 30);
+
+/* Cron が最後に動いた時刻（redux-ask の /api/health が見る）。数だけで、中身は書かない。書けなくても Cron は止めない。
+   落ちた回・全部のお店で失敗した回は書かない（時刻が古くなり、外の死活監視が鳴る） */
+async function markCron(env, io, note) {
+  if (!env.BUDGET || typeof env.BUDGET.put !== 'function' || note.why === 'config:DB') return;
+  if (note.down || (note.shops && note.failed === note.shops)) return;
+  try {
+    const at = new Date(io.now()).toISOString();
+    await env.BUDGET.put('cron:last', JSON.stringify({ at, shops: note.shops || 0, failed: note.failed || 0 }), { expirationTtl: 7 * 86400 });
+  } catch (e) {
+    note.cronMark = 'kv';
+  }
 }
 
 /* 届いたメールの生の中身を、上限まで読む。バイトは 1 文字ずつ（latin1）にする。超えたら null */
@@ -151,7 +173,10 @@ export async function receiveMail(message, env, io) {
     await takeMail(message, env, io, note);
   } catch (e) {
     note.why = shopsWhy(e, 'crash');
+    note.err = errName(e);
   }
+  /* お店が決まる前に止まった（設定が欠けた・落ちた）メールは、黙って捨てずに断る。送り元に返り、どこにも残らないまま消えない（点検 2026-10-28 運用 C4） */
+  if (!note.shop && (note.why === 'config' || note.why === 'crash' || String(note.why).startsWith('shops'))) message.setReject('Temporarily unavailable, please try again later');
   await rememberUnread(env, io, note);
   logLine(note, io, started);
 }
