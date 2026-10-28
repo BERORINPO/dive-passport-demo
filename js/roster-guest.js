@@ -71,34 +71,46 @@
 
   /* ---------- 「この内容で合っていますか」（決定ログ 2026-10-28 unconfirmed-marks） ----------
      AI が読んだまま、まだ誰も確かめていない値を、その予約のお客さんに見せて「合っている」か「直す」を聞く。見せるのは名簿に載る AI の項目だけで、
-     健康は入れない。名前は「合っている」だけ（入っている名前は書き換えられない。決定ログ guest-companion-names）。「直す」で変えられるのは AI が入れた値だけ */
+     健康は入れない。名前は「合っている」だけ（入っている名前は書き換えられない。決定ログ guest-companion-names）。「直す」で変えられるのは AI が入れた値だけ。
+     値を見せる相手は、予約のリンクでは代表者（予約の代表者名と同じ名前の人、いなければ最初の人）だけ。同行者の値は出さず、名前と未確認の項目の名前（confirmLeft）だけで、
+     その人の 1 人ずつのリンク（viewer が personId）で本人が確かめる。1 人ずつのリンクでは、その人の値だけ */
   const CONFIRM_FIELDS = ['name', 'birthDate', 'address', 'emergency', 'cert', 'dives', 'lastDive'];
   const FIX_ASK = { birthDate: ['birthDate'], address: ['address'], emergency: ['emergency'], cert: ['certDate'], dives: ['dives'], lastDive: ['lastDive'] };
   const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
   const allParts = () => ({ emergency: [...S().SUB.emergency], cert: ['course', 'date'], course: '' });
+  const leadOf = (booking, people) => people.find(p => C().sameName(p.name, booking.leadName)) || people[0] || null;
   const confirmList = (state, person, trip) => (trip ? C().unconfirmedFields(state, person, trip).filter(f => CONFIRM_FIELDS.includes(f))
     .map(field => ({ field, value: person[field], canFix: has(FIX_ASK, field) })) : []);
 
+  /* 見せていい人には値つきの confirm、ほかの人には未確認の項目の名前だけ（confirmLeft。値は出さない） */
+  function confirmFor(state, person, trip, seen) {
+    const list = confirmList(state, person, trip);
+    return seen ? { confirm: list, confirmLeft: [] } : { confirm: [], confirmLeft: list.map(c => c.field) };
+  }
+
   /* 予約 1 件と、その人ごとの「まだ」の所。ask は入力の欄で聞く項目、needsToday は当日の体調がまだか */
-  function guestView(state, bookingId) {
+  function guestView(state, bookingId, opts = {}) {
     const booking = state.bookings.find(b => b.id === bookingId);
     if (!booking) return null;
     const trip = state.trips.find(t => t.id === booking.tripId) || null;
     const items = S().ITEMS[trip ? trip.kind : 'dive'];
-    const people = state.people.filter(p => p.bookingId === bookingId).map(person => {
+    const mine = state.people.filter(p => p.bookingId === bookingId);
+    const lead = leadOf(booking, mine);
+    const viewer = opts.personId || (lead ? lead.id : '');   // 値を見せていい人（1 人だけ）
+    const people = mine.map(person => {
       const opt = { paper: C().paperOf(state) };   // 健康を紙で聞くお店では、健康の質問も当日の体調も聞かない
       const missing = C().askGuest(person, trip, opt);
       const known = items.filter(i => !i.trip && !i.health && C().filled(person, trip, i.key, opt)).map(i => i.key);
       return { person, ask: missing.filter(k => k !== TODAY_KEY), needsToday: missing.includes(TODAY_KEY), known,
-        parts: openParts(person), consented: consented(person), confirm: confirmList(state, person, trip) };
+        parts: openParts(person), consented: consented(person), ...confirmFor(state, person, trip, person.id === viewer) };
     });
     return { booking, trip, people, items };
   }
 
-  const entryOf = (state, id) => {
+  const entryOf = (state, id, opts) => {
     const person = state.people.find(p => p.id === id);
     if (!person) throw new Error(`お客さんの入力: 人が見つからない (${id})`);
-    return guestView(state, person.bookingId).people.find(v => v.person.id === id);
+    return guestView(state, person.bookingId, opts).people.find(v => v.person.id === id);
   };
   /* 乗り合いの他のお店が健康の答えを持つ人。この店では健康の答えを入れない。
      applyGuest・applyPassport では、askGuest が健康を聞かないので今は届かない（後から入口が増えたときの守り） */
@@ -201,8 +213,8 @@
   /* 「合っている」(agree: 項目の名前の並び) と「直す」(fix: { 項目: 新しい値 })。見せた項目（guestView の confirm）だけを受ける。形が合わなければ { problems } を返し、
      state は変えない。直した項目は editPerson（した人 guest・出どころ guest。前と後が記録に残る）、合っている項目は confirmByGuest（記録に項目つきで残る）。
      直したのに値が同じだった項目は「合っている」として数える。名前は直せない（'name'）。健康など見せていない項目は 'field' */
-  function confirmGuest(state, { id, agree, fix, at }) {
-    const entry = entryOf(state, id);
+  function confirmGuest(state, { id, agree, fix, at, viewer }) {
+    const entry = entryOf(state, id, { personId: viewer });
     const agreeList = Array.isArray(agree) ? agree : [];
     const fixIn = fix && typeof fix === 'object' && !Array.isArray(fix) ? fix : {};
     const fixList = Object.keys(fixIn);

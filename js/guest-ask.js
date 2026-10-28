@@ -67,6 +67,7 @@
     confirmName: { ja: '名前が違うときは、集合のときにお店に伝えてください。', en: 'If the name is wrong, tell the shop when you meet.' },
     confirmed: { ja: 'ありがとうございます。確かめた内容をお店に伝えました', en: 'Thank you. The shop has been told.' },
     confName: { ja: 'お名前', en: 'Name' },
+    confirmOther: { ja: 'まだ確かめていない項目があります。この方の内容は、この方のリンクで本人が確かめます:', en: 'Items still to be checked. This person checks them on their own link:' },
     send: { ja: '送る', en: 'Send' },
     sent: { ja: '送りました', en: 'Sent' },
     fix: { ja: '確かめてください', en: 'Please check' },
@@ -268,6 +269,10 @@
 
   function confirmPart(entry) {
     const list = entry.confirm || [];
+    const left = entry.confirmLeft || [];
+    if (!list.length && left.length) {
+      return el('p', { class: 'sheet__note', text: `${L(T.confirmOther)} ${left.map(f => L(CONF_LABEL[f])).join(R.lang === 'en' ? ', ' : '・')}` });
+    }
     if (!list.length) return null;
     const editing = fixing && fixing.personId === entry.person.id;
     return el('section', { class: 'sheet confirm' },
@@ -439,7 +444,7 @@
 
   /* 本物の予約のリンク: 健康は 1 人ずつのリンクで本人が答える。人ごとにリンクを作って写す */
   function healthLinks(v) {
-    const open = v.people.filter(x => x.healthOpen);
+    const open = v.people.filter(x => x.healthOpen || (x.confirmLeft || []).length);
     if (!open.length) return null;
     const copy = async (x) => {
       const got = personUrls[x.person.id] || await remote.personLink(x.person.id);
