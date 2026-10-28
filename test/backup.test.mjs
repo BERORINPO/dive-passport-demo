@@ -8,7 +8,7 @@ import vm from 'node:vm';
 import { scheduled } from '../worker/auto.mjs';
 import { dropAlert, snapshotOf, baseOf, dayKey, sizeAlert, alertMail, missingMigrations, REQUIRED_TABLES } from '../worker/backup-core.mjs';
 import { readdirSync } from 'node:fs';
-import { handlePublic } from '../worker/handler.mjs';
+import { handlePublic } from '../worker/public-handler.mjs';
 import { cronFresh } from '../worker/auto-core.mjs';
 import { checkPut } from '../worker/sync-core.mjs';
 import { fakeKv, fakeD1, fakeMail } from '../worker/fakes.mjs';

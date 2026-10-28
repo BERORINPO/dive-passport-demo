@@ -9,29 +9,12 @@ import '../js/roster-auto.js';
 const R = globalThis.REDUX;
 const G = () => R.rosterGuest;
 
-/* 鍵は 32 バイトの base64url（43 字）。本文の上限と、鍵 1 つあたり 1 日に受ける回数 */
-export const KEY_RE = /^[A-Za-z0-9_-]{43}$/;
-export const MAX_ASK_BODY = 8192;
+/* 鍵 1 つあたり 1 日に受ける回数（鍵と本文の形は ask-input.mjs）。聞く項目の名前で、健康は 'history' だけ */
 export const USES_PER_DAY = 30;
 const HEALTH = ['history'];
-const ACTIONS = ['view', 'send', 'today', 'person-link'];
-const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-const ID = /^[\w-]{1,64}$/;
 
 /* リンクの期限: 便の翌日まで。日付の無い便は作った日から 14 日 */
 export const linkExpiry = (trip, today) => R.rosterAuto.dayAdd(trip && trip.date ? trip.date : today, trip && trip.date ? 1 : 14);
-
-/* /api/ask の本文を確かめる。{ ok, k, action, personId, input, answer, consent } か { ok: false, error } */
-export function checkAsk(given) {
-  if (!isObj(given)) return { ok: false, error: 'shape' };
-  if (!Object.keys(given).every(k => ['k', 'action', 'personId', 'input', 'answer', 'consent'].includes(k))) return { ok: false, error: 'keys' };
-  if (typeof given.k !== 'string' || !KEY_RE.test(given.k)) return { ok: false, error: 'key' };
-  if (!ACTIONS.includes(given.action)) return { ok: false, error: 'action' };
-  if (given.action !== 'view' && !(typeof given.personId === 'string' && ID.test(given.personId))) return { ok: false, error: 'person' };
-  if (given.action === 'send' && !isObj(given.input)) return { ok: false, error: 'input' };
-  if (given.action === 'today' && !['ok', 'unwell'].includes(given.answer)) return { ok: false, error: 'answer' };
-  return { ok: true, ...given };
-}
 
 /* リンクで開ける予約と人。期限切れ・予約が無い・人が別の予約、はどれも null（呼ぶ側は同じ 404 を返す） */
 function target(state, link, today) {

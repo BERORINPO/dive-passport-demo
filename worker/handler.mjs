@@ -1,4 +1,4 @@
-/* Worker の入口（entry）。/api の道を分け、守りの順番どおりに部品をつなぐだけ。決まりは read-core.mjs、外との境目は access・budget・anthropic。
+/* お店の Worker の道（entry。入口は worker/index.mjs）。/api の道を分け、守りの順番どおりに部品をつなぐだけ。決まりは read-core.mjs、外との境目は access・budget・anthropic。
    入口は Cloudflare Access だけ（合言葉は 2026-10-22 に外した。spec/architecture.md の access-only）。
    画面のファイルは Static Assets が配る（wrangler.jsonc の run_worker_first で、ここに来るのは /api/* だけ）。
    守る順番: 道と method → 同じ場所からの呼び出し（Sec-Fetch-Site）→ 設定がそろっている → Access の JWT → 種類と大きさと形 → 上限（呼ぶ前）→ AI → 答えの形。
@@ -6,26 +6,25 @@
    （中身・メールアドレス・JWT は出さない）。
    /api/roster はお店の名簿の正本（D1）。決まりは sync-core.mjs、D1 との境目は roster-db.mjs、計画は plan/server.md。
    /api/roster/past は済んで 7 日を過ぎた便（読むだけ）。分ける決まりは past-core.mjs。
-   /api/bookings は Access の外（お店のサイトの予約フォームから）。守りの順番: 許した origin（CORS）→ method → 設定 → 種類 → 1 つの IP の回数 → 大きさ
-   → Turnstile → 形。中身は auto.mjs、計画は plan/auto.md。
-   /api/ask もお客さんのリンク（ask.html）から Access の外で呼ぶ。守りの順番: 道と method → Sec-Fetch-Site → 設定 → 種類 → 1 つの IP の回数 → 大きさ → 形 → 鍵
-   （鍵の回数は ask-route.mjs）。/api/ask-link はお店がリンクを作る道で、/api/roster と同じく Access の内。中身は ask-route.mjs、計画は plan/meibo.md */
+   /api/ask-link はお店がリンクを作る道で、/api/roster と同じく Access の内。中身は ask-route.mjs、計画は plan/meibo.md。
+   お客さんのリンク（/api/ask）とサイトの予約フォーム（/api/bookings）は Access の外で、置いた形では redux-ask（worker/ask-index.mjs）が受ける。その道は
+   public-handler.mjs にあり、この Worker の束にも入るのは手元の確かめ（tools/serve-dist.mjs）で同じ場所から呼べるように残しているだけ
+   （ここでは SHOP を同じ Worker の ShopService にする。置いた形では Access の中なので外からは届かない）。redux-ask の束にはこのファイルは入らない */
 import { checkRequest, periods, limitsFrom, MAX_BODY, MODEL } from './read-core.mjs';
 import { checkPut, readStored, shrinkProblem, serverOwned, MAX_PUT_BODY } from './sync-core.mjs';
 import { liveOf, checkPastRange, readPast, MAX_PAST_ROWS } from './past-core.mjs';
 import { verifyAccess } from './access.mjs';
 import { remaining } from './budget.mjs';
 import { askModel } from './ask.mjs';
-import { takeSiteBooking } from './auto.mjs';
-import { verifyTurnstile, underLimit } from './site-guard.mjs';
-import { MAX_BOOKING_BODY, cronFresh, CRON_STALE_MS } from './auto-core.mjs';
 import { getRoster, putRoster, getPast } from './roster-db.mjs';
 import { listUnread, dropUnread } from './unread-db.mjs';
 import { UNREAD_KEEP_DAYS, UNREAD_SHOW_MAX } from './auto-core.mjs';
-import { takeAsk, makeAskLink } from './ask-route.mjs';
-import { MAX_ASK_BODY } from './ask-core.mjs';
+import { makeAskLink } from './ask-route.mjs';
+import { json, readCapped } from './api-http.mjs';
+import { ask, bookings } from './public-handler.mjs';
+import { ShopService } from './shop-service.mjs';
 import { listShops, shopsWhy } from './shop-db.mjs';
-import { shopForEmail, shopForOrigin, sitesOf, nameOf, withShopName } from './shop-core.mjs';
+import { shopForEmail, nameOf, withShopName } from './shop-core.mjs';
 
 /* どれか欠けたら置き方の誤り。欠けた名前はログにだけ出す。直し方は docs/deploy.md */
 const REQUIRED_SECRETS = ['ANTHROPIC_API_KEY', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS'];
@@ -35,63 +34,10 @@ const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': 
 
 const NEEDS_DB = ['/api/roster', '/api/roster/past', '/api/mail-unread', '/api/ask-link', '/api/read', '/api/healthz'];
 
-const API_HEADERS = {
-  'content-type': 'application/json; charset=utf-8',
-  'cache-control': 'no-store',
-  'x-content-type-options': 'nosniff',
-  'referrer-policy': 'no-referrer',
-  'x-robots-tag': 'noindex',
-  'cross-origin-resource-policy': 'same-origin'
-};
-const json = (status, data, extra) => new Response(JSON.stringify(data), { status, headers: { ...API_HEADERS, ...(extra || {}) } });
-
 function missingConfig(env) {
   const miss = [...REQUIRED_SECRETS, ...REQUIRED_VARS].filter(k => typeof env[k] !== 'string' || env[k].trim() === '');
   if (!env.BUDGET || typeof env.BUDGET.get !== 'function' || typeof env.BUDGET.put !== 'function') miss.push('BUDGET');
   return miss;
-}
-
-/* 本文を上限まで読む。超えたら null（全部は読まない）。
-   gzip が true の道（名簿の PUT）は、画面が大きな名簿を gzip で送る（content-encoding: gzip。ジンのレビュー 2026-10-27 MEDIUM 10）。
-   中身が本当に gzip の形のときだけほどき、ほどいた後も max までしか読まない（小さく縮めた大きな本文で止めを抜けさせない）。壊れた gzip は例外 */
-async function readCapped(request, max, { gzip = false } = {}) {
-  const len = Number(request.headers.get('content-length'));
-  if (Number.isFinite(len) && len > max) return null;
-  if (!request.body) return '';
-  let bytes = await readBytes(request.body, max);
-  if (bytes && gzip && bytes[0] === 0x1f && bytes[1] === 0x8b && /^gzip$/i.test((request.headers.get('content-encoding') || '').trim())) {
-    bytes = await readBytes(new Response(bytes).body.pipeThrough(new DecompressionStream('gzip')), max);
-  }
-  return bytes === null ? null : new TextDecoder().decode(bytes);
-}
-
-async function readBytes(stream, max) {
-  const reader = stream.getReader();
-  const chunks = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > max) { await reader.cancel(); return null; }
-    chunks.push(value);
-  }
-  const all = new Uint8Array(total);
-  let at = 0;
-  for (const c of chunks) { all.set(c, at); at += c.byteLength; }
-  return all;
-}
-
-/* 外の死活監視（Cloudflare と別の系統）が 5 分ごとに見る口。返すのは Cron が最後に動いた時刻だけ。止まっていれば 503 */
-async function cronHealth(env, io, note) {
-  try {
-    const got = cronFresh(env.BUDGET ? await env.BUDGET.get('cron:last') : null, new Date(io.now() - CRON_STALE_MS).toISOString());
-    if (!got.ok) note.why = 'cron-stale';
-    return json(got.ok ? 200 : 503, { ok: got.ok, cronAt: got.at });
-  } catch (e) {
-    note.why = 'kv';
-    return json(503, { ok: false, cronAt: '' });
-  }
 }
 
 /* お店の一覧が読めない・使えないときの 503（2026-10-28 shops-fail-closed）。理由の名前はログだけに出す（中身は出さない）。
@@ -268,58 +214,6 @@ async function mailUnread(request, env, io, note, who) {
   }
 }
 
-/* サイトの予約フォーム（Access の外）。許すのは SITE_ORIGINS に書いた origin だけで、その origin にだけ CORS のヘッダを返す */
-const BOOKING_NEEDS = ['TURNSTILE_SECRET'];
-function corsFor(origin) {
-  return { 'access-control-allow-origin': origin, vary: 'Origin', 'cross-origin-resource-policy': 'cross-origin' };
-}
-/* どのお店の予約かは、送ってきたサイト（origin）をお店の一覧で引いて決める（一覧が空なら、SINGLE_SHOP を明示したときだけ SITE_ORIGINS のサイトを 1 店へ） */
-async function bookings(request, env, io, note) {
-  const origin = request.headers.get('origin') || '';
-  if (!(env.DB && typeof env.DB.prepare === 'function')) { note.why = 'config:DB'; return json(503, { error: 'config' }); }
-  let shops;
-  try { shops = await listShops(env.DB, env); } catch (e) { return shopsDown(e, note); }
-  const shop = shopForOrigin(shops, origin);
-  if (!shop) { note.why = 'origin'; return json(403, { error: 'origin' }); }
-  note.shop = shop;
-  const cors = corsFor(origin);
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: { ...cors, 'access-control-allow-methods': 'POST', 'access-control-allow-headers': 'content-type, cf-turnstile-response',
-      'access-control-max-age': '600', 'cache-control': 'no-store' } });
-  }
-  const miss = BOOKING_NEEDS.filter(k => typeof env[k] !== 'string' || env[k].trim() === '');
-  if (!(env.BOOKING_LIMIT && typeof env.BOOKING_LIMIT.limit === 'function')) miss.push('BOOKING_LIMIT');
-  if (miss.length) { note.why = `config:${miss.join('+')}`; return json(503, { error: 'config' }, cors); }
-  if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' }, cors);
-  const ip = request.headers.get('cf-connecting-ip') || '';
-  if (!(await underLimit(env.BOOKING_LIMIT, ip))) { note.why = 'rate'; return json(429, { error: 'limit' }, cors); }
-  const raw = await readCapped(request, MAX_BOOKING_BODY);
-  if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }, cors); }
-  let given;
-  try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }, cors); }
-  const hosts = sitesOf(shops, shop).map(o => { try { return new URL(o).hostname.toLowerCase(); } catch (e) { return ''; } }).filter(Boolean);
-  const human = await verifyTurnstile(env, request.headers.get('cf-turnstile-response'), ip, io, hosts);
-  if (!human.ok) { note.why = human.why; return json(403, { error: 'turnstile' }, cors); }
-  const got = await takeSiteBooking(given, env, io, note, shop, nameOf(shops, shop, ''));
-  return json(got.status, got.body, cors);
-}
-
-/* お客さんのリンク（Access の外）。同じ場所（ask.html）からの呼び出しだけ */
-async function ask(request, env, io, url, note) {
-  if (!(env.DB && typeof env.DB.prepare === 'function') || !(env.ASK_LIMIT && typeof env.ASK_LIMIT.limit === 'function')) {
-    note.why = 'config:ask';
-    return json(503, { error: 'config' });
-  }
-  if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
-  if (!(await underLimit(env.ASK_LIMIT, request.headers.get('cf-connecting-ip') || ''))) { note.why = 'rate'; return json(429, { error: 'limit' }); }
-  const raw = await readCapped(request, MAX_ASK_BODY);
-  if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }); }
-  let given;
-  try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
-  const got = await takeAsk(given, env, io, note, url.origin);
-  return json(got.status, got.body);
-}
-
 /* お店が予約のリンクを作る（Access の後）。作れるのは、ログインしたスタッフのお店の予約だけ */
 async function askLink(request, env, io, url, note, who) {
   const mine = await staffShop(env, note, who);
@@ -335,15 +229,19 @@ async function askLink(request, env, io, url, note, who) {
   return json(got.status, got.body);
 }
 
+/* /api/ask と /api/bookings 用の env。SHOP はこの Worker の ShopService（D1 が無ければ SHOP も無く、503 config） */
+const withShop = (env, io) => (env.DB && typeof env.DB.prepare === 'function' ? { ...env, SHOP: new ShopService(env, io) } : env);
+
 async function route(request, env, io, url, note) {
   /* ここに来た /api 以外は、Static Assets に無いファイル */
   if (!url.pathname.startsWith('/api/')) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   const methods = ROUTES[url.pathname];
   if (!methods) return json(404, { error: 'path' });
-  if (url.pathname === '/api/bookings') return methods.includes(request.method) ? bookings(request, env, io, note) : json(405, { error: 'method' }, { allow: methods.join(', ') });
-  if (!methods.includes(request.method)) return json(405, { error: 'method' }, { allow: methods.join(', ') });   // OPTIONS も断る（CORS のヘッダは出さない）
+  const wrongMethod = !methods.includes(request.method);
+  if (url.pathname === '/api/bookings') return wrongMethod ? json(405, { error: 'method' }, { allow: methods.join(', ') }) : bookings(request, withShop(env, io), io, note);
+  if (wrongMethod) return json(405, { error: 'method' }, { allow: methods.join(', ') });   // OPTIONS も断る（CORS のヘッダは出さない）
   if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; return json(403, { error: 'site' }); }
-  if (url.pathname === '/api/ask') return ask(request, env, io, url, note);
+  if (url.pathname === '/api/ask') return ask(request, withShop(env, io), io, url, note);
 
   const miss = missingConfig(env);
   /* お店ごとの名簿・上限の道は D1（お店の一覧）が要る。AI の読み取りと /api/healthz も、上限をお店ごとに数えるので同じ */
@@ -362,31 +260,6 @@ async function route(request, env, io, url, note) {
   const mine = await staffShop(env, note, who);
   if (mine.res) return mine.res;
   return url.pathname === '/api/healthz' ? healthz(env, io, mine.shop) : read(request, env, io, note, mine.shop);
-}
-
-/* Access を付けない Worker（worker/ask-index.mjs）の入口。お客さんのリンク（/api/ask の POST）と、お店のサイトの予約フォーム（/api/bookings。
-   守りは bookings と同じ: 許した origin・回数・Turnstile）だけを受け、ほかの /api は 404。
-   お店の画面・名簿の道（/api/roster）・リンクを作る道（/api/ask-link）・AI の読み取りは、この Worker には無い */
-const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/bookings': ['POST', 'OPTIONS'], '/api/health': ['GET'] };
-export async function handlePublic(request, env, io) {
-  const started = io.now();
-  const url = new URL(request.url);
-  const methods = PUBLIC_ROUTES[url.pathname];
-  const note = { worker: 'public', route: methods ? url.pathname : url.pathname.startsWith('/api/') ? '/api/other' : 'other' };
-  let res;
-  try {
-    if (!methods) res = json(404, { error: 'path' });
-    else if (!methods.includes(request.method)) res = json(405, { error: 'method' }, { allow: methods.join(', ') });
-    else if (url.pathname === '/api/bookings') res = await bookings(request, env, io, note);
-    else if (url.pathname === '/api/health') res = await cronHealth(env, io, note);
-    else if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; res = json(403, { error: 'site' }); }
-    else res = await ask(request, env, io, url, note);
-  } catch (e) {
-    note.why = 'crash';
-    res = json(500, { error: 'server' });
-  }
-  console.log(JSON.stringify({ ...note, status: res.status, ms: io.now() - started }));
-  return res;
 }
 
 export async function handle(request, env, io) {

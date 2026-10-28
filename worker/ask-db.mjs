@@ -1,19 +1,8 @@
-/* お客さんのリンクの鍵（adapter）。鍵は 32 バイトの乱数を base64url にし、D1 には鍵の SHA-256 だけを置く（表は worker/migrations/0002_ask_links.sql）。
+/* お客さんのリンクの鍵の行（adapter。D1）。D1 には鍵の SHA-256 だけを置く（表は worker/migrations/0002_ask_links.sql。鍵と SHA-256 は ask-key.mjs）。
+   お店の Worker だけが読み書きする（redux-ask は D1 を持たない。2026-10-28 ask-service-binding）。
    決まりは plan/meibo.md「お客さんのリンク」。見本は worker/fakes.mjs の fakeD1（同じ文を読む） */
 
-const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
-/* 新しい鍵（43 字）。crypto.randomUUID は 122 bit で足りないので使わない */
-export function newKey() {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return b64url(bytes);
-}
-
-export async function keyHash(key) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
-  return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, '0')).join('');
-}
+import { newKey, keyHash } from './ask-key.mjs';
 
 /* 鍵を置く。予約のリンク（personId が空）は前の鍵を消す（作り直したら古いリンクは開けない）。
    1 人ずつのリンクは前の鍵を残す（同行者に送ったリンクを、写し直しで止めない。本数は countLinks で絞る。ザクのレビュー 2026-10-27 M-3） */
