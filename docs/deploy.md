@@ -1,6 +1,6 @@
 # Worker を置く手順（P6）
 
-本物の AI で読む版を Cloudflare Worker に置く。画面と `/api` は同じ Worker から配り、入口は Cloudflare Access（チームのメールだけ。合言葉は 2026-10-22 に外した）。
+本物の AI で読む版を Cloudflare Worker に置く。画面と `/api` は同じ Worker から配り、入口は Cloudflare Access（チームのメールだけ。合言葉は 2026-10-22 に外した）。お客さんのリンクと予約フォームを受ける Worker（redux-ask）だけは Access が無い（7 節）。
 中身は架空の見本だけ。本物のお客さんの情報は入れない（spec/meibo.md の「本物のお客さんの情報を入れる前に」）。
 
 - Yosuke の作業: 約 25 分（下の ★）。鍵の値は Yosuke だけが打ち、こちらは見ない
@@ -26,7 +26,7 @@ npx wrangler@4.151.0 login --scopes account:read user:read workers:write workers
 ```bash
 npx wrangler@4.151.0 kv namespace create BUDGET
 ```
-出た `id` を wrangler.jsonc の `REPLACE_WITH_KV_ID` に入れる（こちらで直して push する）。そのあと:
+出た `id` を wrangler.jsonc の BUDGET の `id` に入れる（こちらで直して push する。今の本番の値は入れてある）。そのあと:
 ```bash
 node tools/build-site.mjs && npx wrangler@4.151.0 deploy
 ```
@@ -84,7 +84,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 login --scopes account:read user:read workers:write workers_kv:write workers_scripts:write workers_routes:write workers_tail:read d1:write
    ```
-2. D1 を作る（無料の枠）。出た `database_id` を wrangler.jsonc と wrangler.ask.jsonc の `REPLACE_WITH_D1_ID` に入れて push する
+2. D1 を作る（1 つだけ。全部のお店がこの 1 つを使う）。出た `database_id` を wrangler.jsonc と wrangler.ask.jsonc の d1_databases に入れて push する（今の本番の値は入れてある）
    ```bash
    npx wrangler@4.151.0 d1 create redux-rosters
    ```
@@ -99,22 +99,22 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    npx wrangler@4.151.0 secret put ASK_ORIGIN
    npx wrangler@4.151.0 deploy
    ```
-   - ASK_ORIGIN は `https://redux-ask.<アカウントの名前>.workers.dev`（最後の / は付けない）
+   - ASK_ORIGIN は今は `https://ask.reduxdive.com`（最後の / は付けない。9 節）。ドメインを持たないときは `https://redux-ask.<アカウントの名前>.workers.dev`
 5. 確かめ（ログインしていない端末か curl で）
    - お店の Worker: `/` は Access のログインへ、`/api/roster` も止まる
    - お客さんの Worker: `/ask` は開ける。`/api/roster`・`/api/ask-link` は 404。`/api/ask` に間違った鍵を送ると 404
    - 2 台の端末で同じ名簿がそろう。「お客さんに聞くリンク」で作ったリンクを、ログインしていないスマホで開いて入れると、お店の画面に出る
-- Cron（15 分ごとの予定）はまだ入れていない。アカウントの無料の枠（5 本）をほかの Worker が使い切っているため。入れるまでは、お店の画面を開いている間に画面が予定を動かす
+- Cron（`*/15 * * * *`）は 2026-10-28 に入れた（Workers Paid。9 節）。予定を動かして連絡を送るのは Cron だけ。**Cron が止まると、連絡も毎日の控えも何も動かない**（お店の画面は予定を動かさない）。止まったときは、Cloudflare の画面でお店の Worker に Cron が付いているかを見る
 - 2026-10-27 に置いた: お店の Worker と redux-ask（https://redux-ask.cibimaro-yousuke.workers.dev）。D1 は画面で作り、表はコンソールで 0001・0002 と同じ文を流した（wrangler の login に D1 の権限が付かなかったため）
 - サイトの予約フォーム（/api/bookings）は、Access の無い redux-ask が受ける（2026-10-27）。redux-ask の secret: SITE_ORIGINS（https://aquagate-demo.cibimaro-yousuke.workers.dev）と TURNSTILE_SECRET（Turnstile の widget「aquagate-demo booking form」。サイトキーはサイト側に）。お店の Worker の /api/bookings は Access の中なので使わない
-- メールの送り受けは、まだ設定を入れない（無ければ止まる作り。入れる物は plan/auto.md の「置くときの設定」）
+- メールの送り受けは 2026-10-28 に入れた（9 節）。設定が欠けると止まる作り（送らず unsent、受けずに断る）。入れる物の一覧は plan/auto.md の「置くときの設定」
 - 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
 
 ## 8. 毎日の控えと警報、控えから戻す（2026-10-28 から。Cron が動いてから効く）
 
 - 控えの置き場所: Workers KV の `redux-roster-backup`（binding は BACKUP。wrangler.jsonc に入れてある）。Cron が 1 日 1 回、お店ごとに名簿の本体を `day:<お店>:<日付>` に置く（1 年）。済んだ便の行は `past:<お店>:<part>`、警報は `alert:<お店>:<日付>`
 - 警報の宛先（運営）: `npx wrangler@4.151.0 secret put ALERT_TO`（メールの設定 MAIL_FROM・APP_URL と Email Service がそろうまでは、KV とログだけに残る）
-- Cron は Workers Paid にしてから `"triggers": { "crons": ["*/15 * * * *"] }` を入れる（draft PR #15）
+- Cron（`"triggers": { "crons": ["*/15 * * * *"] }`）は wrangler.jsonc に入れてある。Workers Paid が要る（9 節）
 
 控えから戻す（名簿が消えた・壊れたとき。約 15 分）:
 1. どの日の控えに戻すかを決める（`alert:<お店>:<日付>` があれば、その中の数を見て、減る前の日）
