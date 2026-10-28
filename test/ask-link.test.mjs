@@ -202,6 +202,75 @@ test('1 人ずつのリンク: 予約のリンクから作れる。その人の�
   assert.equal(stored(s).people.find(x => x.id === id).health.today, 'unwell', '予約のリンクからは当日の体調を入れない');
 });
 
+/* 同じお店に、もう 1 件の予約（別の人たち）を入れる */
+async function bookAnother(s, name) {
+  const r = await handle(new Request(`${ORIGIN}/api/bookings`, { method: 'POST',
+    headers: { origin: SITE, 'content-type': 'application/json', 'cf-turnstile-response': 't', 'cf-connecting-ip': '198.51.100.7' },
+    body: JSON.stringify({ tour: 'dive', date: '2026-11-03', people: 2, name, email: 'other@mail.example', exp: 'first' }) }), s.env, s.io);
+  assert.equal(r.status, 202);
+  const st = stored(s);
+  const booking = st.bookings.find(b => b.leadName === name);
+  return st.people.filter(p => p.bookingId === booking.id);
+}
+
+test('同伴者の名前: 予約のリンクで、名前が空の人にだけ入れられる。名前が入っている人・別の予約の人・1 人ずつのリンクでは入れられない', async () => {
+  const { s, key, people } = await booked();
+  const [lead, guest] = people;
+  assert.ok(lead.name && !guest.name, '予約フォームは代表者の名前だけを入れる');
+  const view = await (await call(s, '/api/ask', { k: key, action: 'view' })).json();
+  assert.ok(!view.people.find(p => p.person.id === lead.id).ask.includes('name'));
+  assert.ok(view.people.find(p => p.person.id === guest.id).ask.includes('name'), '名前が空の人には名前を聞く');
+  const send = (k, personId, input) => call(s, '/api/ask', { k, action: 'send', personId, input }).then(r => r.json());
+  const nameOf = (id) => stored(s).people.find(p => p.id === id).name;
+  /* 入っている名前は書き換えられない */
+  assert.deepEqual((await send(key, lead.id, { name: '別の人' })).problems, ['nothing']);
+  assert.equal(nameOf(lead.id), lead.name);
+  /* 悪い名前は断る（予約フォームの名前と同じ決まり）。何も入らない */
+  for (const bad of ['', '見本 http://evil.example', 'evil.example.com', '見本\n次郎', 'あ'.repeat(61), 7]) {
+    assert.deepEqual((await send(key, guest.id, { name: bad })).problems, ['personName'], String(bad).slice(0, 20));
+  }
+  assert.equal(nameOf(guest.id), '');
+  /* 別の予約の人には、この予約のリンクでは入れられない */
+  const [otherLead, otherGuest] = await bookAnother(s, '別 予約');
+  assert.ok(!otherGuest.name);
+  assert.equal((await call(s, '/api/ask', { k: key, action: 'send', personId: otherGuest.id, input: { name: '見本 次郎' } })).status, 404);
+  assert.equal(nameOf(otherGuest.id), '');
+  assert.equal(nameOf(otherLead.id), '別 予約');
+  /* 1 人ずつのリンク（健康だけ）では入れられない */
+  const made = await (await call(s, '/api/ask', { k: key, action: 'person-link', personId: guest.id })).json();
+  assert.deepEqual((await send(keyOf(made.url), guest.id, { name: '見本 次郎' })).problems, ['nothing']);
+  assert.equal(nameOf(guest.id), '');
+  /* 名前だけを送ると入る。ほかの項目は聞いたまま。見せる物に名前以外の中身は増えない */
+  const ok = await send(key, guest.id, { name: ' 見本   次郎 ' });
+  assert.deepEqual(ok.problems, []);
+  assert.equal(nameOf(guest.id), '見本 次郎');
+  const after = ok.view.people.find(p => p.person.id === guest.id);
+  assert.equal(after.person.name, '見本 次郎');
+  assert.ok(!after.ask.includes('name') && after.ask.includes('birthDate'));
+  assert.deepEqual(Object.keys(after.person).sort(), ['id', 'name']);
+  const saved = stored(s).people.find(p => p.id === guest.id);
+  assert.equal(saved.src.name, 'guest');
+  assert.ok(saved.health.answers.every(a => a === null), '健康の答えは入らない');
+  /* 入れた後は、もう書き換えられない */
+  assert.deepEqual((await send(key, guest.id, { name: '見本 三郎' })).problems, ['nothing']);
+  assert.equal(nameOf(guest.id), '見本 次郎');
+});
+
+test('同伴者の名前: 全部の項目と一緒に送っても入る。名前が空のままだと断る', async () => {
+  const { s, key, people } = await booked();
+  const guest = people[1];
+  const input = { birthDate: '1992-03-04', address: '那覇市 1-2-3', emergency: { name: '見本 母', relation: '母', phone: '090-0000-1111' },
+    cert: { course: 'NONE', date: '' }, courses: '', dives: 0, lastDive: '' };
+  const miss = await (await call(s, '/api/ask', { k: key, action: 'send', personId: guest.id, input })).json();
+  assert.deepEqual(miss.problems, ['personName']);
+  assert.equal(stored(s).people.find(p => p.id === guest.id).birthDate, '', '名前が無いと、ほかの項目も入れない');
+  const ok = await (await call(s, '/api/ask', { k: key, action: 'send', personId: guest.id, input: { ...input, name: '見本 次郎' } })).json();
+  assert.deepEqual(ok.problems, []);
+  const p = stored(s).people.find(x => x.id === guest.id);
+  assert.equal(p.name, '見本 次郎');
+  assert.equal(p.birthDate, '1992-03-04');
+});
+
 test('1 人ずつのリンクは、作り直しても前の物を止めない。1 人 3 本まで', async () => {
   const { s, key, people } = await booked();
   const id = people[1].id;
@@ -467,9 +536,11 @@ test('ログに鍵も名前も出ない', async () => {
   const { s, key, people } = await booked();
   await call(s, '/api/ask', { k: key, action: 'view' });
   await call(s, '/api/ask', { k: key, action: 'send', personId: people[0].id, input: { birthDate: '1990-05-01' } });
+  await call(s, '/api/ask', { k: key, action: 'send', personId: people[1].id, input: { name: '見本 次郎' } });
+  assert.equal(stored(s).people.find(p => p.id === people[1].id).name, '見本 次郎');
   const all = logs.join('\n');
   assert.ok(!all.includes(key));
-  assert.ok(!all.includes('花子') && !all.includes('1990-05-01'));
+  assert.ok(!all.includes('花子') && !all.includes('1990-05-01') && !all.includes('次郎'));
   assert.ok(logs.some(l => l.includes('"route":"/api/ask"') && l.includes('"action":"send"')));
 });
 
