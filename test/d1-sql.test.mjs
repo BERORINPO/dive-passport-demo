@@ -13,6 +13,7 @@ import { putLink, findLink, countLinks, useLink, dropExpired } from '../worker/a
 import { listShops, rosterShops } from '../worker/shop-db.mjs';
 import { addUnread, listUnread, dropUnread } from '../worker/unread-db.mjs';
 import { takeDaily, takeDailyAll, dropOldCounts } from '../worker/limit-db.mjs';
+import { putWalkinKey, findWalkinShop, walkinKeyAt, addWalkin, listWalkins, dropWalkin, dropExpiredWalkins } from '../worker/walkin-db.mjs';
 import { checkPut } from '../worker/sync-core.mjs';
 import { handle } from '../worker/handler.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
@@ -87,6 +88,27 @@ async function scenario(db) {
   await log('daily-drop', dropOldCounts(db, '2026-10-28'));
   await log('daily-after-drop', takeDaily(db, { scope: 'site', shop: 'shop-a', day: TODAY, max: 1 }));
   await log('daily-keep-today', takeDaily(db, { scope: 'site', shop: 'shop-a', day: '2026-10-28', max: 1 }));
+  /* 店頭の QR（0007）: 鍵の SHA-256 は 1 つのお店に 1 つ、作り直すと前の鍵は開けない。同じ SHA-256 を別のお店には置けない */
+  await log('walkin-key-none', findWalkinShop(db, 'w1'));
+  await log('walkin-key-at-none', walkinKeyAt(db, 'shop-a'));
+  await log('walkin-key-put', putWalkinKey(db, { shop: 'shop-a', hash: 'w1', at: AT }));
+  await log('walkin-key-find', findWalkinShop(db, 'w1'));
+  await log('walkin-key-at', walkinKeyAt(db, 'shop-a'));
+  await log('walkin-key-rotate', putWalkinKey(db, { shop: 'shop-a', hash: 'w2', at: '2026-10-27T02:00:00.000Z' }));
+  await log('walkin-key-old', findWalkinShop(db, 'w1'));
+  await log('walkin-key-new', findWalkinShop(db, 'w2'));
+  await log('walkin-key-other-shop-dup', putWalkinKey(db, { shop: 'shop-b', hash: 'w2', at: AT }));
+  await log('walkin-add-1', addWalkin(db, { shop: 'shop-a', id: 'x1', tripId: 't1', body: '{"a":1}', at: AT, expiresOn: '2026-10-29' }));
+  await log('walkin-add-2', addWalkin(db, { shop: 'shop-a', id: 'x2', tripId: '', body: '{"a":2}', at: '2026-10-27T02:00:00.000Z', expiresOn: '2026-10-27' }));
+  await log('walkin-add-dup', addWalkin(db, { shop: 'shop-a', id: 'x1', tripId: '', body: '{}', at: AT, expiresOn: '2026-10-29' }));
+  await log('walkin-list', listWalkins(db, 'shop-a', TODAY, 50));
+  await log('walkin-list-limit', listWalkins(db, 'shop-a', TODAY, 1));
+  await log('walkin-list-later', listWalkins(db, 'shop-a', '2026-10-28', 50));
+  await log('walkin-list-other', listWalkins(db, 'shop-b', TODAY, 50));
+  await log('walkin-drop', dropWalkin(db, 'shop-a', 'x1'));
+  await log('walkin-drop-again', dropWalkin(db, 'shop-a', 'x1'));
+  await log('walkin-drop-other-shop', dropWalkin(db, 'shop-b', 'x2'));
+  await log('walkin-expire', dropExpiredWalkins(db, '2026-10-28').then(() => listWalkins(db, 'shop-a', '2000-01-01', 50)));
   return out;
 }
 

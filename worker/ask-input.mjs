@@ -29,6 +29,45 @@ export function checkAsk(given) {
   return got.ok ? { ok: true, ...given } : got;
 }
 
+/* ---------- 店頭の QR（/api/walkin。決定ログ 2026-10-28 walkin-qr） ----------
+   鍵は ask の鍵と同じ形（32 バイトの base64url）。ここでは形と大きさだけを確かめ、名前・生年月日などの中身の検査は
+   お店の Worker が名簿と同じ検査（worker/walkin-core.mjs）でかけ直す */
+export const MAX_WALKIN_BODY = 4096;
+const WALKIN_FIELDS = ['action', 'tripId', 'name', 'people', 'email', 'birthDate', 'address', 'emergency'];
+const WALKIN_TEXT_MAX = 300;
+const EMERGENCY_FIELDS = ['name', 'relation', 'phone'];
+const shortText = (v) => typeof v === 'string' && v.length <= WALKIN_TEXT_MAX;
+
+function walkinSubmitShape(g) {
+  const e = g.emergency;
+  const texts = ['tripId', 'name', 'email', 'birthDate', 'address'];
+  if (!texts.every(k => g[k] === undefined || shortText(g[k]))) return 'text';
+  if (g.tripId === undefined || g.name === undefined || g.birthDate === undefined || g.address === undefined) return 'missing';
+  if (!Number.isInteger(g.people)) return 'people';
+  if (!isObj(e) || !Object.keys(e).every(k => EMERGENCY_FIELDS.includes(k)) || !Object.values(e).every(shortText)) return 'emergency';
+  return '';
+}
+
+/* /api/walkin の本文を確かめる。{ ok, k, action, req } か { ok: false, error }。req は鍵を除いた本文（view のときは {}） */
+export function checkWalkin(given) {
+  if (!isObj(given)) return { ok: false, error: 'shape' };
+  if (!Object.keys(given).every(k => k === 'k' || WALKIN_FIELDS.includes(k))) return { ok: false, error: 'keys' };
+  if (typeof given.k !== 'string' || !KEY_RE.test(given.k)) return { ok: false, error: 'key' };
+  if (!['view', 'submit'].includes(given.action)) return { ok: false, error: 'action' };
+  const { k, ...req } = given;
+  if (given.action === 'view') return Object.keys(req).length === 1 ? { ok: true, k, action: 'view', req: {} } : { ok: false, error: 'keys' };
+  const got = checkWalkinApply(req);
+  return got.ok ? { ok: true, k, action: 'submit', req } : got;
+}
+
+/* walkinSubmit が受ける本文（鍵は含まない。お店の Worker が、redux-ask から渡された物ももう一度確かめる） */
+export function checkWalkinApply(req) {
+  if (!isObj(req) || !Object.keys(req).every(k => WALKIN_FIELDS.includes(k))) return { ok: false, error: 'keys' };
+  if (req.action !== 'submit') return { ok: false, error: 'action' };
+  const bad = walkinSubmitShape(req);
+  return bad ? { ok: false, error: bad } : { ok: true };
+}
+
 /* askApply が受ける本文（鍵は含まない。view は askView の口なので受けない）。{ ok, action, personId, input, answer, consent } か { ok: false, error } */
 export function checkApply(req) {
   if (!isObj(req)) return { ok: false, error: 'shape' };

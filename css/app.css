@@ -525,3 +525,28 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .bk__ask p { margin: 0; font-size: 15px; }
 .sumline--board { display: flex; flex-wrap: wrap; gap: 2px 14px; }
 .sumline--board > * { white-space: nowrap; }
+
+/* 店頭の QR・QR を見せる・SMS / LINE で送る（js/walkin-staff.js・js/booking.js。決定ログ 2026-10-28 walkin-qr） */
+.sendrow { display: grid; gap: 8px; padding: 0 var(--inset) 12px; }
+a.btn { text-decoration: none; }
+.qr--big .qr__img { width: min(420px, 100%); }
+.poster { margin: 24px 0 0; padding: 20px 16px; border: 1px solid var(--line-2); background: var(--paper-bg); color: var(--paper-ink); text-align: center; }
+.poster__shop { margin: 0; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.poster__title { margin: 8px 0 0; font-size: 22px; }
+.poster__lead { margin: 8px 0 0; font-size: 16px; }
+.poster__qr { margin: 16px auto; width: min(320px, 100%); }
+.poster__qr .qr__img { width: 100%; margin: 0; }
+.poster__note { margin: 0; font-size: 14px; }
+/* 印刷: 店頭の貼り紙（body.print-poster）だけを A5 の縦で出す。名簿の紙（body.print-roster）と同じ作り */
+@page poster { size: A5 portrait; margin: 8mm; }
+@media print {
+  body.print-poster > :not(main), body.print-poster main > :not(#view-booking), body.print-poster #booking > :not(.poster) { display: none !important; }
+  body.print-poster .wrap { max-width: none; margin: 0; padding: 0; }
+  body.print-poster .view--desk { max-width: none; }
+  .poster { page: poster; margin: 0; padding: 0; border: 0; }
+  .poster__shop { font-size: 20px; }
+  .poster__title { font-size: 36px; }
+  .poster__lead { font-size: 22px; }
+  .poster__qr { width: 100mm; margin: 12mm auto; }
+  .poster__note { font-size: 16px; }
+}

@@ -1,5 +1,5 @@
 // お客さんのリンク（/api/ask・/api/ask-link。worker/ask-route.mjs・ask-core.mjs・ask-db.mjs）を、外との境目を見本に差し替えて確かめる。
-// Access の無い redux-ask は D1 を持たず、お店の Worker の 4 つの口（worker/shop-service.mjs。Service Binding の SHOP）だけを呼ぶ（SEC-13）。
+// Access の無い redux-ask は D1 を持たず、お店の Worker の 6 つの口（worker/shop-service.mjs。Service Binding の SHOP）だけを呼ぶ（SEC-13）。
 // 鍵は 32 バイトで D1 には SHA-256 だけ、鍵が違う・切れた・予約が無いは同じ 404、予約のリンクは健康以外・1 人ずつのリンクは健康だけ、
 // 当日の体調は Worker の日付が便の日のときだけ、名簿の中身は見せない、作り直したら古い鍵は止まる、回数の上限。
 // 実行: node test/ask-link.test.mjs （Node 18 以上。依存なし）
@@ -470,10 +470,10 @@ test('口(4) siteBooking(origin, given): origin のお店の名簿に入れる�
   assert.equal((await new ShopService({ ...s.env, DB: undefined }, s.io).siteBooking(SITE, body)).status, 503);
 });
 
-test('Service Binding の口は 4 つだけ: SHOP_METHODS・fakeShopBinding・ShopRpc のメソッドが一致し、D1 や名簿の口は無い', async () => {
+test('Service Binding の口は 6 つだけ: SHOP_METHODS・fakeShopBinding・ShopRpc のメソッドが一致し、D1 や名簿の口は無い', async () => {
   const s = setup();
   const binding = fakeShopBinding(new ShopService(s.env, s.io));
-  assert.deepEqual(SHOP_METHODS, ['askView', 'askApply', 'siteHosts', 'siteBooking']);
+  assert.deepEqual(SHOP_METHODS, ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit']);
   assert.deepEqual(Object.keys(binding).filter(k => typeof binding[k] === 'function').sort(), [...SHOP_METHODS].sort());
   for (const leak of ['env', 'io', 'DB', 'prepare', 'getRoster', 'listShops', 'makeAskLink']) assert.equal(binding[leak], undefined, leak);
   /* shop-rpc.mjs は cloudflare:workers を読むので Node では開けない。メソッド名だけ文字で突き合わせる */
@@ -507,7 +507,7 @@ test('向こうの答えは信用しない: 形が合わない答えは 500（cr
   assert.deepEqual([line.why.length, line.shop, line.problems, line.extra], [60, 'a-shop', 2, undefined]);
 });
 
-test('redux-ask の束: D1 の binding も、名簿・お店の一覧・鍵の行・お店の道を読むファイルも入らない。口は 4 つの RPC だけ', () => {
+test('redux-ask の束: D1 の binding も、名簿・お店の一覧・鍵の行・お店の道を読むファイルも入らない。口は 6 つの RPC だけ', () => {
   const files = reachable('worker/ask-index.mjs').filter(f => f.startsWith('worker/')).sort();
   assert.deepEqual(files, ['worker/api-http.mjs', 'worker/ask-index.mjs', 'worker/ask-input.mjs', 'worker/ask-key.mjs', 'worker/auto-core.mjs', 'worker/past-core.mjs',
     'worker/public-handler.mjs', 'worker/shop-client.mjs', 'worker/site-guard.mjs', 'worker/sync-core.mjs'], '足すときは、ここに増えるファイルが D1・名簿・お店の道に触れないことを確かめてから');

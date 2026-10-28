@@ -13,7 +13,7 @@ const out = join(root, 'dist');
 const outAsk = join(root, 'dist-ask');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
-const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
+const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^walkin\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
   /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.png$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/];
 
 export function siteFiles() {
@@ -32,7 +32,8 @@ export function headers() {
   /* pass.html（他のお店のスマホで開くパスポート）は字体も画像も読まず、どこにもつながない */
   const pass = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`,
     `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
-  /* ask.html（お店が送ったリンクから開くお客さんの画面）は同じ場所の /api/ask だけにつなぎ、字体は読まない。Access の外に出す道（plan/meibo.md） */
+  /* ask.html（お店が送ったリンクから開くお客さんの画面）と walkin.html（店頭の QR から開く画面）は同じ場所の /api/ask・/api/walkin だけにつなぎ、字体は読まない。
+     Access の外に出す道（plan/meibo.md） */
   const ask = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'self'`,
     `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
   const block = (paths, lines) => paths.map(p => [p, ...lines.map(l => `  ${l}`)].join('\n')).join('\n');
@@ -41,7 +42,7 @@ export function headers() {
       'Cross-Origin-Opener-Policy: same-origin', 'Permissions-Policy: geolocation=(), microphone=(), payment=(), usb=()']),
     block(['/', '/index.html', '/index'], [`Content-Security-Policy: ${index}`, 'Cache-Control: no-cache']),
     block(['/pass.html', '/pass'], [`Content-Security-Policy: ${pass}`, 'Cache-Control: no-cache']),
-    block(['/ask.html', '/ask'], [`Content-Security-Policy: ${ask}`, 'Cache-Control: no-store']),
+    block(['/ask.html', '/ask', '/walkin.html', '/walkin'], [`Content-Security-Policy: ${ask}`, 'Cache-Control: no-store']),
     /* どの束を取ったかで画面の字が分かるので、長くためて取りに来る回数を減らす（Worker を通らないので path はログに出ない） */
     block(['/fonts/*'], ['Cache-Control: public, max-age=31536000, immutable']),
     block(['/js/*', '/css/*'], ['Cache-Control: no-cache']),
@@ -84,17 +85,24 @@ export function swFor(entries, template = readFileSync(join(root, 'sw.js'), 'utf
   return template.replace("'__REDUX_SW_SHELL__'", shell.map(p => `'${p}'`).join(', ')).replace('__REDUX_SW_VERSION__', version);
 }
 
-/* ask.html が読む js と css（script の src と stylesheet の href）。これ以外はお客さん用の Worker に置かない */
-export function askFiles(html = readFileSync(join(root, 'ask.html'), 'utf8')) {
-  const refs = [...html.matchAll(/<script src="([^"]+)"><\/script>|<link rel="stylesheet" href="([^"]+)">/g)].map(m => m[1] || m[2]);
-  if (!refs.every(f => /^(js|css)\/[\w.-]+\.(js|css)$/.test(f))) throw new Error('ask.html が js/ と css/ のほかを読んでいる');
-  return ['ask.html', ...refs];
+/* お客さん用の Worker に置くページ: お店が送ったリンクの ask.html と、店頭の QR の walkin.html */
+export const ASK_PAGES = ['ask.html', 'walkin.html'];
+
+/* ASK_PAGES が読む js と css（script の src と stylesheet の href）。これ以外はお客さん用の Worker に置かない */
+export function askFiles(htmls = ASK_PAGES.map(p => [p, readFileSync(join(root, p), 'utf8')])) {
+  const refs = [];
+  for (const [page, html] of htmls) {
+    const found = [...html.matchAll(/<script src="([^"]+)"><\/script>|<link rel="stylesheet" href="([^"]+)">/g)].map(m => m[1] || m[2]);
+    if (!found.every(f => /^(js|css)\/[\w.-]+\.(js|css)$/.test(f))) throw new Error(`${page} が js/ と css/ のほかを読んでいる`);
+    refs.push(...found);
+  }
+  return [...htmls.map(([page]) => page), ...new Set(refs)];
 }
 
 export function askHeaders() {
   const all = headers().split('\n');
   /* 共通（/*）と、ask.html・/ask の CSP、js と css のキャッシュだけを、同じ書き方で写す */
-  const keep = new Set(['/*', '/ask.html', '/ask', '/js/*', '/css/*']);
+  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/js/*', '/css/*']);
   const out = [];
   let on = false;
   for (const line of all) {
