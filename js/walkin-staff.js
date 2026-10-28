@@ -71,10 +71,11 @@
     const qr = R.qrSvg(st.poster.url);
     return el('section', { class: 'poster', 'aria-label': '店頭に貼る QR' },
       el('p', { class: 'poster__shop', text: shopName }),
-      el('h3', { class: 'poster__title', text: 'ご来店のお客さまへ' }),
-      el('p', { class: 'poster__lead', text: 'スマホで QR を読み取り、お名前などの入力をお願いします。' }),
+      el('h3', { class: 'poster__title', text: 'お申込書は、スマホで書けます' }),
+      el('p', { class: 'poster__lead', text: 'カメラで読み取ると、お名前・ご住所・緊急連絡先を入れる画面が開きます。約 3 分です。紙に書く必要はありません。' }),
       qr ? el('div', { class: 'poster__qr' }, qr) : el('p', { class: 'errors', text: 'QR を描く部品が読めていません。画面を読み込み直してください。' }),
-      el('p', { class: 'poster__note', text: '入力はスタッフが確認してから名簿に入ります。健康のことは、ここでは聞きません。' }));
+      el('p', { class: 'poster__note', text: '入力はスタッフが確認してから名簿に入ります。体調のご質問は、当日スタッフからお聞きします。' }),
+      el('p', { class: 'poster__note', text: 'スマホが無い方・うまく開けない方は、スタッフにお声がけください。紙の申込書もあります。' }));
   }
 
   function keySection(ui, shopName) {
