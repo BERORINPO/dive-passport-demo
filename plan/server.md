@@ -120,7 +120,7 @@ INSERT INTO shops (id, name, members, sites, inbox, senders) VALUES ('shop-a', '
 - テストの本物さ（MEDIUM 11）: test/d1-sql.test.mjs が、同じ操作を fakeD1 と本物の SQLite（node:sqlite、migrations を全部流した表）に流して答えを比べる。adapter の SQL が全部 1 回は流れたかも確かめ、handler から SQLite につないで通しでも動かす
 - 長い行（MEDIUM 12）: 180 字を超える行の数を、ファイルごとに test/long-lines.json より増やさない（arch で検査）。今は 52 行。直したら json を下げる。説明は日本語のまま（作るのも引き継ぐのも日本語のチーム）
 
-- まだのこと: 「送れたか分からない」の連絡を、お店が画面から送り直す操作（今は表示だけ）
+- 送り直し（2026-10-28）: 「送れたか分からない」の連絡は、書類の自動化の画面（画面 10）で、お店がお客さんに確かめてから「届いていた」か「送り直す」を選ぶ。送り直しは元の連絡に resent の印を付けて、新しい連絡を 1 つだけ足す（js/roster-auto.js の resend。2 回押しても・Cron が重なっても 1 通、test/auto-worker.test.mjs）
 
 ## 毎日の控えと警報（2026-10-28。ジンのレビュー CRITICAL 2）
 

@@ -35,7 +35,7 @@ AquaGate（仲村さんのサイト）の予約フォームから届く予約を
 
 届いた予約メールを名簿に入れられなかったとき（日付が無い・AI が読めない・上限・本文が読めない・名簿に書けない）、今までは Worker のログに残るだけで、お店は気づけなかった。
 - 宛先・送り主・送り主のドメインの確かめを通ったメールだけ、D1 の `mail_unread`（worker/migrations/0005_mail_unread.sql）に 1 行残す。残すのは届いた時刻と理由の短い言葉だけ（件名・本文・送り主は残さない。件名にお客さんの名前が入る予約サイトがあるため）
-- お店の画面: 予約の一覧の上に「読めなかった予約メールが N 件」と、届いた時刻・理由を出す。お店は自分の受信箱で、その時刻のメールを探して「メールを貼る」で入れ、「入れた・済んだ」を押す
+- お店の画面: 書類の自動化の画面（画面 10。予約の一覧の上の「書類の自動化」の 1 行から開く）に「読めなかった予約メール」と、届いた時刻・理由を出す（2026-10-28 に予約の一覧から移した）。お店は自分の受信箱で、その時刻のメールを探して「メールを貼る」で入れ、「入れた・済んだ」を押す
 - 口: `GET /api/mail-unread`（新しい順 50 件）・`POST /api/mail-unread { id }`（消す）。Access の内、お店はログインしたメールで決める
 - 30 日を過ぎた行は、次に足すときに消す。1 お店で 1 日 60 行まで（大量に届いても表が育たない）
 - 理由の言葉は worker/auto-core.mjs の unreadWhy、テストは test/unread.test.mjs
@@ -45,9 +45,9 @@ AquaGate（仲村さんのサイト）の予約フォームから届く予約を
 | ファイル | 役割 | 中身 |
 |---|---|---|
 | js/roster-schema.js | shared | leadEmail・lang・jobs・outbox・trip.rosterAt の形 |
-| js/roster-auto.js | core | autoAdd（読み取り・フォームから入れて予定を作る）・planJobs・runDue・markSent・文面 |
+| js/roster-auto.js | core | autoAdd（読み取り・フォームから入れて予定を作る）・planJobs・runDue・markSent・文面・board（お店全体の一覧）・resend / confirmSent（送り直す・届いていた） |
 | js/booking.js ほか | entry | 自動で入れた印、1 件の流れ、送った連絡、当日の朝、デモの時刻 |
-| js/auto-flow.js | entry | 画面の B（1 件の流れ）・一覧の 1 行・デモの「見本のメールが届く」「時刻を進める」 |
+| js/auto-flow.js | entry | 画面の B（1 件の流れ）・画面 10（お店全体の書類の自動化）・一覧の 1 行・デモの「見本のメールが届く」「時刻を進める」 |
 | worker/auto-core.mjs | core | /api/bookings の本文の検査と、名簿に入れる直し・届いたメール（MIME）から本文を取り出す・送り主の許可・送った結果を付ける |
 | worker/mail.mjs | adapter | Cloudflare Email Service（binding `EMAIL`）で送る。設定がそろうまでは unsent（見本 fakeMail） |
 | worker/site-guard.mjs | adapter | Turnstile の確かめ・1 つの IP の回数（見本 fakeTurnstile・fakeRateLimit） |
