@@ -195,6 +195,10 @@ test('点検 2026-10-28 運用 C2: Cron は最後に動いた時刻を残し、�
   assert.deepEqual(Object.keys(body).sort(), ['cronAt', 'ok'], '返すのは時刻だけ');
   s.io.clock += 46 * 60000;
   assert.equal((await health()).status, 503, '45 分を過ぎたら止まっていると返す');
+  s.db.failing = true;
+  await scheduled(s.env, s.io).catch(() => {});
+  s.db.failing = false;
+  assert.equal((await health()).status, 503, '落ちた回は時刻を新しくしない');
   assert.equal(cronFresh('{"at":"x"}', '2026-01-01T00:00:00.000Z').ok, false, '壊れた値は止まっている扱い');
 });
 

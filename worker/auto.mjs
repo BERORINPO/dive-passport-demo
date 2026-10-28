@@ -133,9 +133,11 @@ export async function scheduled(env, io) {
 /* 例外の種類だけを残す（message には名前や本文が入りうるので残さない。点検 2026-10-28 運用 M15） */
 const errName = (e) => String((e && e.name) || 'Error').slice(0, 30);
 
-/* Cron が最後に動いた時刻（redux-ask の /api/health が見る）。数だけで、中身は書かない。書けなくても Cron は止めない */
+/* Cron が最後に動いた時刻（redux-ask の /api/health が見る）。数だけで、中身は書かない。書けなくても Cron は止めない。
+   落ちた回・全部のお店で失敗した回は書かない（時刻が古くなり、外の死活監視が鳴る） */
 async function markCron(env, io, note) {
   if (!env.BUDGET || typeof env.BUDGET.put !== 'function' || note.why === 'config:DB') return;
+  if (note.why === 'crash' || (note.shops && note.failed === note.shops)) return;
   try {
     const at = new Date(io.now()).toISOString();
     await env.BUDGET.put('cron:last', JSON.stringify({ at, shops: note.shops || 0, failed: note.failed || 0 }), { expirationTtl: 7 * 86400 });
