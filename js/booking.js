@@ -39,7 +39,7 @@
     newer: '別のタブで、この画面より新しい版の名簿が保存されました。消さないよう、この画面からは保存しません。ページを読み込み直してください。'
   };
 
-  /* 読めなかった予約メール（サーバーを使う版だけ）。予約の一覧を開いたときに、1 分に 1 回まで読む */
+  /* 読めなかった予約メール（サーバーを使う版だけ）。予約の一覧と書類の自動化の画面を開いたときに、1 分に 1 回まで読む */
   const UNREAD_WHY_JA = { limit: '1 日の上限を超えた', size: 'メールが大きすぎる', text: '本文が読めない', 'no-date': '日付が書かれていない',
     full: '名簿がいっぱい', roster: '名簿に書けなかった', error: 'サーバーの誤り', ai: 'AI が読めなかった',
     many: 'この日は、ほかにも読めなかったメールがある（多すぎて 1 通ずつは残していない）' };
@@ -47,24 +47,16 @@
   function loadUnread() {
     if (!R.rosterStore.synced() || Date.now() - unread.at < 60000) return;
     unread.at = Date.now();
-    R.rosterSync.unread().then(r => { if (r.ok) { unread.items = r.items; if (mode === 'list') render(); } });
+    R.rosterSync.unread().then(r => { if (r.ok) { unread.items = r.items; if (['list', 'board'].includes(mode)) render(); } });
   }
-  const jstShort = (iso) => {
-    const d = new Date(Date.parse(iso) + 9 * 3600000);
-    return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${d.getUTCHours()}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
-  };
-  function unreadBlock() {
-    if (!unread.items.length) return null;
-    const done = (id) => R.rosterSync.doneUnread(id).then(ok => { if (ok) { unread.items = unread.items.filter(x => x.id !== id); render(); } });
-    return el('section', { class: 'flag flag--warn', role: 'status' },
-      el('p', { text: `読めなかった予約メールが ${unread.items.length} 件あります。受信箱で、その時刻に届いた元のメールを探し、「メールを貼る」で入れてください。` }),
-      el('ul', { class: 'bks' }, unread.items.map(x => el('li', { class: 'bk' },
-        el('span', { class: 'bk__name', text: `${jstShort(x.at)} に届いたメール` }),
-        el('span', { class: 'bk__meta', text: UNREAD_WHY_JA[x.why] || '読めなかった' }),
-        el('button', { class: 'linkbtn', type: 'button', text: '入れた・済んだ', onclick: () => done(x.id) })))));
-  }
+  /* 読めなかった予約メールは、書類の自動化の画面（auto-flow.js の renderBoard）に出す */
+  const unreadView = () => ({
+    items: unread.items,
+    whyText: (x) => UNREAD_WHY_JA[x.why] || '読めなかった',
+    done: (id) => R.rosterSync.doneUnread(id).then(ok => { if (ok) { unread.items = unread.items.filter(x => x.id !== id); render(); } })
+  });
 
-  let mode = 'list';        // list / mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
+  let mode = 'list';        // list / board（書類の自動化、auto-flow.js）/ mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
                             // day（今日の名簿）/ spo2（血中酸素）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
                             // share（乗り合い）/ partner（他のお店役）/ partnerpaper / joint（合同名簿）/ jointprint / boat（船の上）/ callout（名前で呼ぶ）は share-roster.js
                             // partnerphoto（他のお店が写真で名前を渡す）は partner-photo.js
@@ -242,7 +234,7 @@
       ...head('予約'),
       aiRow(),
       R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
-      unreadBlock(),
+      R.autoFlow.boardRow(s, { unread: unread.items.length, ui }),
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
         class: 'day', type: 'button', 'aria-pressed': String(d === day), 'aria-label': md(d),
         onclick: () => { day = d; notice = null; armedReset = false; render(); }
@@ -580,6 +572,7 @@
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
             : mode === 'flow' ? R.autoFlow.render({ bookingId: askBooking, ui })
+            : mode === 'board' ? (loadUnread(), R.autoFlow.renderBoard({ ui, unread: unreadView() }))
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })
               : SHARE_MODES[mode] ? R.shareRoster[SHARE_MODES[mode]]({ tripId: dayTrip, shop: shareShop, ui })
                 : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui })
@@ -605,7 +598,8 @@
   const autoTick = () => { if (R.autoFlow.tick(save) && !root.closest('[hidden]') && !['mail', 'phone'].includes(mode)) render(); };
   setTimeout(autoTick, 1500);
   setInterval(autoTick, 60000);
-  R.rosterStore.subscribe(() => { if (['list', 'ask', 'day', 'log', 'joint', 'boat', 'callout'].includes(mode) && !document.getElementById('view-booking').hidden) render(); });
+  const LIVE_MODES = ['list', 'board', 'ask', 'day', 'log', 'joint', 'boat', 'callout'];
+  R.rosterStore.subscribe(() => { if (LIVE_MODES.includes(mode) && !document.getElementById('view-booking').hidden) render(); });
   /* 見本 / 本物が変わった（切り替えた・上限で見本に戻った・healthz が通った）。入力の途中の画面は描き直さない */
   R.aiReader.onChange(() => { if (mode === 'list' && !document.getElementById('view-booking').hidden) render(); });
 })();

@@ -534,3 +534,8 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .mailbody summary { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .mailbody__subject { margin: 4px 0 0; font-weight: 700; overflow-wrap: anywhere; }
 .mailbody__text { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 書類の自動化（お店全体、画面 10）: 送れたか分からない連絡は、行の下に確かめてから選ぶ 2 つのボタン（囲まない） */
+.bk__ask { grid-column: 1 / -1; display: grid; gap: 8px; margin: 6px 0 4px; }
+.bk__ask p { margin: 0; font-size: 15px; }
+.sumline--board { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.sumline--board > * { white-space: nowrap; }
