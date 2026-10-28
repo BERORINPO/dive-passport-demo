@@ -1,9 +1,11 @@
 // test/e2e.test.mjs と test/guards.test.mjs が使う道具（テストではない。見本の env・要求の作り方・届いたメールの見本）。
 // 外との境目はすべて worker/fakes.mjs の見本。時計は io.clock（日本では 10/27 の 10:00）。console.log は取り込み、結果の表示は REAL_LOG で出す
 import assert from 'node:assert/strict';
-import { handle, handlePublic } from '../worker/handler.mjs';
+import { handle } from '../worker/handler.mjs';
+import { handlePublic } from '../worker/public-handler.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
-import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, fakeMail, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
+import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, fakeMail, fakeTurnstile, fakeRateLimit, fakeShopBinding, checkRedirect } from '../worker/fakes.mjs';
+import { ShopService } from '../worker/shop-service.mjs';
 
 export const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
 export const ASK_ORIGIN = 'https://redux-ask.example.workers.dev';
@@ -67,8 +69,8 @@ export async function staffCall(s, method, path, body, { jwt, site = 'same-origi
     ...(token ? { 'cf-access-jwt-assertion': token } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) }), s.env, s.io);
 }
 
-/* お客さんの Worker（Access なし。D1 と回数の binding だけを持つ）に、お客さんが ask.html から送る要求 */
-export const publicEnv = (s) => ({ DB: s.env.DB, ASK_LIMIT: s.env.ASK_LIMIT, SINGLE_SHOP: s.env.SINGLE_SHOP });
+/* お客さんの Worker（Access なし。D1 は持たず、お店の Worker への SHOP と回数の binding だけ）に、お客さんが ask.html から送る要求 */
+export const publicEnv = (s) => ({ ASK_LIMIT: s.env.ASK_LIMIT, SHOP: fakeShopBinding(new ShopService(s.env, s.io)) });
 export function guestCall(s, body, { ip = '198.51.100.7', env = publicEnv(s) } = {}) {
   return handlePublic(new Request(`${ASK_ORIGIN}/api/ask`, { method: 'POST',
     headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', 'cf-connecting-ip': ip }, body: JSON.stringify(body) }), env, s.io);

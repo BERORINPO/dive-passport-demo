@@ -1,13 +1,18 @@
 // お客さんのリンク（/api/ask・/api/ask-link。worker/ask-route.mjs・ask-core.mjs・ask-db.mjs）を、外との境目を見本に差し替えて確かめる。
+// Access の無い redux-ask は D1 を持たず、お店の Worker の 4 つの口（worker/shop-service.mjs。Service Binding の SHOP）だけを呼ぶ（SEC-13）。
 // 鍵は 32 バイトで D1 には SHA-256 だけ、鍵が違う・切れた・予約が無いは同じ 404、予約のリンクは健康以外・1 人ずつのリンクは健康だけ、
 // 当日の体調は Worker の日付が便の日のときだけ、名簿の中身は見せない、作り直したら古い鍵は止まる、回数の上限。
 // 実行: node test/ask-link.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
-import { handle, handlePublic } from '../worker/handler.mjs';
+import { handle } from '../worker/handler.mjs';
+import { handlePublic } from '../worker/public-handler.mjs';
+import { ShopService } from '../worker/shop-service.mjs';
+import { SHOP_METHODS } from '../worker/shop-client.mjs';
+import { keyHash } from '../worker/ask-key.mjs';
 import { askFiles, askHeaders } from '../tools/build-site.mjs';
 import { readFileSync } from 'node:fs';
 import { resetAccessCache } from '../worker/access.mjs';
-import { fakeKv, fakeAccess, fakeD1, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
+import { fakeKv, fakeAccess, fakeD1, fakeTurnstile, fakeRateLimit, fakeShopBinding, checkRedirect } from '../worker/fakes.mjs';
 
 const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
 const SITE = 'https://aquagate.example.com';
@@ -43,7 +48,7 @@ function setup() {
     },
     now: () => io.clock
   };
-  return { db, env, io };
+  return { db, env, io, turnstile };
 }
 
 const call = (s, path, body, { staff = false, site = 'same-origin', ip = '203.0.113.5' } = {}) => handle(new Request(ORIGIN + path, {
@@ -53,6 +58,29 @@ const call = (s, path, body, { staff = false, site = 'same-origin', ip = '203.0.
 }), s.env, s.io);
 const stored = (s) => JSON.parse(s.db.rows.get('default').state);
 const keyOf = (url) => url.split('#k=')[1];
+
+/* redux-ask の env: 回数の binding と Turnstile の secret と、お店の Worker への SHOP だけ（D1 は無い）。SHOP の向こうは env を持つ ShopService */
+const PUBLIC_ASK = 'https://redux-ask.example.workers.dev';
+const publicEnv = (s, extra = {}) => ({ ASK_LIMIT: s.env.ASK_LIMIT, BOOKING_LIMIT: s.env.BOOKING_LIMIT, TURNSTILE_SECRET: s.env.TURNSTILE_SECRET,
+  SHOP: fakeShopBinding(new ShopService(s.env, s.io)), ...extra });
+const publicAsk = (s, env, body, { method = 'POST', site = 'same-origin', path = '/api/ask', ip = '203.0.113.9' } = {}) => handlePublic(new Request(PUBLIC_ASK + path, { method,
+  headers: { 'content-type': 'application/json', 'sec-fetch-site': site, 'cf-connecting-ip': ip }, body: method === 'POST' ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined }), env, s.io);
+const sitePost = (s, env, origin, body = { tour: 'dive', date: '2026-11-03', people: 1, name: '見本 一郎', email: 'ichiro@mail.example' }) => handlePublic(new Request(`${PUBLIC_ASK}/api/bookings`, {
+  method: 'POST', headers: { origin, 'content-type': 'application/json', 'cf-turnstile-response': 't', 'cf-connecting-ip': '198.51.100.2' }, body: JSON.stringify(body) }), env, s.io);
+
+/* import をたどって、ファイルの集まりを出す（redux-ask の束に何が入るか） */
+function reachable(entry) {
+  const seen = new Set();
+  const walk = (rel) => {
+    if (seen.has(rel)) return;
+    seen.add(rel);
+    const src = readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
+    for (const m of src.matchAll(/(?:from|import)\s*['"](\.{1,2}\/[^'"]+)['"]/g)) walk(new URL(m[1], new URL(`file:///${rel}`)).pathname.slice(1));
+  };
+  walk(entry);
+  return [...seen];
+}
+const jsonc = (path) => JSON.parse(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, ''));
 
 /* サイトの予約フォームから 2 人の予約を 1 件入れ、お店がリンクを作る */
 async function booked(date = '2026-11-03') {
@@ -226,17 +254,16 @@ test('中止になった便: 見られるが、入れられない', async () => 
 
 test('お客さん用の Worker（Access なし）: /api/ask だけを受け、お店の道は無い。置くのは ask.html と、それが読むファイルだけ', async () => {
   const { s, key } = await booked();
-  /* お客さんの Worker は D1 と回数の binding と SINGLE_SHOP だけを持つ（Access・AI・KV の設定は無い） */
-  const env = { DB: s.env.DB, ASK_LIMIT: s.env.ASK_LIMIT, SINGLE_SHOP: 'default' };
-  const ASK_ORIGIN = 'https://redux-ask.example.workers.dev';
-  const req = (path, body, method = 'POST', site = 'same-origin') => handlePublic(new Request(ASK_ORIGIN + path, { method,
-    headers: { 'content-type': 'application/json', 'sec-fetch-site': site }, body: method === 'POST' ? JSON.stringify(body) : undefined }), env, s.io);
+  /* お客さんの Worker は回数の binding と SHOP だけを持つ（D1・Access・AI・KV の設定は無い） */
+  const env = publicEnv(s);
+  assert.equal(env.DB, undefined);
+  const req = (path, body, method = 'POST', site = 'same-origin') => publicAsk(s, env, body, { method, site, path });
   assert.equal((await req('/api/ask', { k: key, action: 'view' })).status, 200);
   for (const path of ['/api/roster', '/api/ask-link', '/api/read', '/api/healthz']) assert.equal((await req(path, {})).status, 404, path);
   assert.equal((await req('/api/ask', null, 'GET')).status, 405);
   assert.equal((await req('/api/ask', { k: key, action: 'view' }, 'POST', 'cross-site')).status, 403);
   const made = await (await req('/api/ask', { k: key, action: 'person-link', personId: (await (await req('/api/ask', { k: key, action: 'view' })).json()).people[0].person.id })).json();
-  assert.ok(made.url.startsWith(`${ASK_ORIGIN}/ask#k=`), '1 人ずつのリンクは、お客さんの Worker の URL で作る');
+  assert.ok(made.url.startsWith(`${PUBLIC_ASK}/ask#k=`), '1 人ずつのリンクは、お客さんの Worker の URL で作る');
   const files = askFiles();
   assert.equal(files[0], 'ask.html');
   assert.ok(files.includes('js/ask-page.js') && files.includes('css/app.css'));
@@ -248,17 +275,184 @@ test('お客さん用の Worker（Access なし）: /api/ask だけを受け、�
 
 test('Access の無い Worker は、お店のサイトの予約フォームも受ける（許した origin・Turnstile・回数の守りは同じ）', async () => {
   const s = setup();
-  const env = { DB: s.env.DB, ASK_LIMIT: s.env.ASK_LIMIT, BOOKING_LIMIT: s.env.BOOKING_LIMIT, SITE_ORIGINS: SITE, TURNSTILE_SECRET: 'turnstile-test-secret', SINGLE_SHOP: 'default' };
-  const post = (origin) => handlePublic(new Request('https://redux-ask.example.workers.dev/api/bookings', { method: 'POST',
-    headers: { origin, 'content-type': 'application/json', 'cf-turnstile-response': 't', 'cf-connecting-ip': '198.51.100.2' },
-    body: JSON.stringify({ tour: 'dive', date: '2026-11-03', people: 1, name: '見本 一郎', email: 'ichiro@mail.example' }) }), env, s.io);
-  assert.equal((await post('https://evil.example.com')).status, 403);
-  const ok = await post(SITE);
+  const env = publicEnv(s);
+  assert.equal((await sitePost(s, env, 'https://evil.example.com')).status, 403);
+  const ok = await sitePost(s, env, SITE);
   assert.equal(ok.status, 202);
   assert.equal(ok.headers.get('access-control-allow-origin'), SITE);
   assert.equal(stored(s).bookings.length, 1);
-  const pre = await handlePublic(new Request('https://redux-ask.example.workers.dev/api/bookings', { method: 'OPTIONS', headers: { origin: SITE } }), env, s.io);
+  const pre = await handlePublic(new Request(`${PUBLIC_ASK}/api/bookings`, { method: 'OPTIONS', headers: { origin: SITE } }), env, s.io);
   assert.equal(pre.status, 204);
+  assert.equal(pre.headers.get('access-control-allow-origin'), SITE);
+  const evilPre = await handlePublic(new Request(`${PUBLIC_ASK}/api/bookings`, { method: 'OPTIONS', headers: { origin: 'https://evil.example.com' } }), env, s.io);
+  assert.equal(evilPre.status, 403);
+  assert.equal(evilPre.headers.get('access-control-allow-origin'), null, '許していない origin には CORS のヘッダを返さない');
+});
+
+test('redux-ask の守りは D1 なしでも同じ: 状態コードと上限（種類・大きさ・IP の回数・鍵ごとの回数・設定・形）', async () => {
+  const { s, key } = await booked();
+  const env = publicEnv(s);
+  const view = { k: key, action: 'view' };
+  assert.equal((await publicAsk(s, env, view, { site: 'cross-site' })).status, 403);
+  assert.equal((await publicAsk(s, env, view, { site: '' })).status, 403);
+  assert.equal((await publicAsk(s, env, 'x'.repeat(9000))).status, 413);
+  assert.equal((await publicAsk(s, env, '{not json')).status, 400);
+  assert.equal((await publicAsk(s, env, { ...view, extra: 1 })).status, 400);
+  assert.equal((await publicAsk(s, env, { k: 'short', action: 'view' })).status, 400);
+  assert.equal((await publicAsk(s, env, { k: key, action: 'send', personId: 'x', input: 'no' })).status, 400, 'input がオブジェクトでなければ形で断る');
+  const typed = await handlePublic(new Request(`${PUBLIC_ASK}/api/ask`, { method: 'POST', headers: { 'content-type': 'text/plain', 'sec-fetch-site': 'same-origin' }, body: '{}' }), env, s.io);
+  assert.equal(typed.status, 415);
+  for (let i = 0; i < 30; i += 1) await publicAsk(s, env, view);
+  assert.equal((await publicAsk(s, env, view)).status, 429, '鍵 1 つは 1 日 30 回まで');
+  s.io.clock += 24 * 3600 * 1000;
+  assert.equal((await publicAsk(s, env, view)).status, 200, '次の日はまた開ける');
+  const tight = publicEnv(s, { ASK_LIMIT: fakeRateLimit(1) });
+  await publicAsk(s, tight, view, { ip: '192.0.2.7' });
+  assert.equal((await publicAsk(s, tight, view, { ip: '192.0.2.7' })).status, 429, '1 つの IP の回数');
+  assert.equal((await publicAsk(s, publicEnv(s, { ASK_LIMIT: undefined }), view)).status, 503);
+  assert.equal((await publicAsk(s, publicEnv(s, { SHOP: undefined }), view)).status, 503, 'お店の Worker への binding が無ければ 503');
+  assert.equal((await sitePost(s, publicEnv(s, { SHOP: undefined }), SITE)).status, 503);
+  assert.equal((await sitePost(s, publicEnv(s, { TURNSTILE_SECRET: '' }), SITE)).status, 503);
+  assert.equal((await sitePost(s, publicEnv(s, { BOOKING_LIMIT: fakeRateLimit(0) }), SITE)).status, 429);
+  s.turnstile.success = false;
+  assert.equal((await sitePost(s, env, SITE)).status, 403, 'Turnstile を通らなければ入れない');
+  s.turnstile.success = true;
+  assert.equal((await sitePost(s, env, SITE, { tour: 'dive' })).status, 400, '予約の形が合わなければ 400');
+  assert.equal((await handlePublic(new Request(`${PUBLIC_ASK}/api/health`), { BUDGET: fakeKv() }, s.io)).status, 503, 'cron:last が無ければ /api/health は 503');
+});
+
+test('口(1) askView(hash): 名前と聞く項目の名前だけを返す。hash の形が違えば 400、鍵の行が無ければ 404、D1 が無ければ 503', async () => {
+  const { s, key } = await booked();
+  const shop = new ShopService(s.env, s.io);
+  const ok = await shop.askView(await keyHash(key));
+  assert.equal(ok.status, 200);
+  assert.deepEqual(Object.keys(ok.body.people[0].person).sort(), ['id', 'name']);
+  assert.ok(!JSON.stringify(ok.body).includes('hanako@mail.example'));
+  for (const bad of [undefined, null, 5, {}, key, 'abc', 'A'.repeat(64), 'a'.repeat(63), `${'a'.repeat(63)}g`]) {
+    const got = await shop.askView(bad);
+    assert.equal(got.status, 400, String(bad));
+    assert.deepEqual(got.note, { why: 'input-hash' });
+  }
+  const none = await shop.askView('0'.repeat(64));
+  assert.equal(none.status, 404);
+  assert.deepEqual(none.body, { error: 'gone' });
+  const noDb = await new ShopService({ ...s.env, DB: undefined }, s.io).askView(await keyHash(key));
+  assert.deepEqual([noDb.status, noDb.note], [503, { why: 'config:DB' }]);
+});
+
+test('口(2) askApply(hash, req, origin): 答えを入れる・1 人ずつのリンクを作る。鍵を含む本文・view・形の違う本文・変な origin は 400', async () => {
+  const { s, key, people } = await booked();
+  const shop = new ShopService(s.env, s.io);
+  const hash = await keyHash(key);
+  const id = people[0].id;
+  const input = { birthDate: '1990-05-01', address: '那覇市 1-2-3', emergency: { name: '見本 母', relation: '母', phone: '090-0000-1111' }, answers: Array(5).fill('no'), consent: true };
+  const sent = await shop.askApply(hash, { action: 'send', personId: id, input }, PUBLIC_ASK);
+  assert.equal(sent.status, 200);
+  assert.deepEqual(sent.body.problems, []);
+  assert.equal(stored(s).people.find(p => p.id === id).birthDate, '1990-05-01');
+  const link = await shop.askApply(hash, { action: 'person-link', personId: id }, PUBLIC_ASK);
+  assert.equal(link.status, 200);
+  assert.ok(link.body.url.startsWith(`${PUBLIC_ASK}/ask#k=`));
+  const bad = [{ action: 'send', personId: id, input: {}, k: key }, { action: 'view' }, { action: 'view', personId: id }, { action: 'send', personId: id }, { action: 'send', personId: '../x', input: {} },
+    { action: 'today', personId: id, answer: 'maybe' }, { action: 'delete', personId: id }, ['send'], null, 'send', { action: 'send', personId: id, input: {}, extra: 1 }];
+  for (const req of bad) assert.equal((await shop.askApply(hash, req, PUBLIC_ASK)).status, 400, JSON.stringify(req));
+  for (const origin of [undefined, '', 'javascript:alert(1)', 'https://evil.example/path', 'https://', `https://${'a'.repeat(200)}.example`, 5]) {
+    const got = await shop.askApply(hash, { action: 'person-link', personId: id }, origin);
+    assert.equal(got.status, 400, String(origin));
+    assert.deepEqual(got.note, { why: 'input-origin' });
+  }
+  assert.equal((await shop.askApply('0'.repeat(64), { action: 'send', personId: id, input: {} }, PUBLIC_ASK)).status, 404);
+  assert.equal((await shop.askApply('nope', { action: 'send', personId: id, input: {} }, PUBLIC_ASK)).status, 400);
+  assert.equal((await new ShopService({ ...s.env, DB: undefined }, s.io).askApply(hash, { action: 'send', personId: id, input: {} }, PUBLIC_ASK)).status, 503);
+});
+
+test('口(3) siteHosts(origin): お店の一覧にあるサイトならホスト名を返す。無ければ 403、一覧が使えなければ 503（開いた側に倒さない）', async () => {
+  const s = setup();
+  const shop = new ShopService(s.env, s.io);
+  assert.deepEqual(await shop.siteHosts(SITE), { ok: true, hosts: ['aquagate.example.com'], note: { shop: 'default' } });
+  for (const origin of ['https://evil.example.com', '', undefined, null, 5, {}, `https://${'a'.repeat(200)}.example`, 'ftp://aquagate.example.com', `${SITE}/`]) {
+    const got = await shop.siteHosts(origin);
+    assert.equal(got.ok, false, String(origin));
+    assert.equal(got.status, 403);
+    assert.deepEqual(got.body, { error: 'origin' });
+  }
+  const down = await new ShopService({ ...s.env, SINGLE_SHOP: undefined }, s.io).siteHosts(SITE);
+  assert.deepEqual([down.ok, down.status, down.body, down.note], [false, 503, { error: 'shops' }, { why: 'shops-no-table' }]);
+  const noDb = await new ShopService({ ...s.env, DB: undefined }, s.io).siteHosts(SITE);
+  assert.deepEqual([noDb.ok, noDb.status, noDb.note], [false, 503, { why: 'config:DB' }]);
+});
+
+test('口(4) siteBooking(origin, given): origin のお店の名簿に入れる。知らない origin は何も書かず 403、形が違えば 400', async () => {
+  const s = setup();
+  const shop = new ShopService(s.env, s.io);
+  const body = { tour: 'dive', date: '2026-11-03', people: 1, name: '見本 一郎', email: 'ichiro@mail.example' };
+  const ok = await shop.siteBooking(SITE, body);
+  assert.deepEqual([ok.status, ok.body, ok.note], [202, { ok: true }, { shop: 'default', added: 1 }]);
+  assert.equal(stored(s).bookings.length, 1);
+  const before = JSON.stringify(stored(s));
+  const evil = await shop.siteBooking('https://evil.example.com', body);
+  assert.deepEqual([evil.status, evil.body], [403, { error: 'origin' }]);
+  const shaped = await shop.siteBooking(SITE, { tour: 'dive' });
+  assert.equal(shaped.status, 400);
+  assert.match(shaped.note.why, /^input-/);
+  assert.equal((await shop.siteBooking(SITE, 'x')).status, 400);
+  assert.equal((await shop.siteBooking(SITE, null)).status, 400);
+  assert.equal(JSON.stringify(stored(s)), before, '断った要求は名簿を変えない');
+  assert.equal((await new ShopService({ ...s.env, DB: undefined }, s.io).siteBooking(SITE, body)).status, 503);
+});
+
+test('Service Binding の口は 4 つだけ: SHOP_METHODS・fakeShopBinding・ShopRpc のメソッドが一致し、D1 や名簿の口は無い', async () => {
+  const s = setup();
+  const binding = fakeShopBinding(new ShopService(s.env, s.io));
+  assert.deepEqual(SHOP_METHODS, ['askView', 'askApply', 'siteHosts', 'siteBooking']);
+  assert.deepEqual(Object.keys(binding).filter(k => typeof binding[k] === 'function').sort(), [...SHOP_METHODS].sort());
+  for (const leak of ['env', 'io', 'DB', 'prepare', 'getRoster', 'listShops', 'makeAskLink']) assert.equal(binding[leak], undefined, leak);
+  /* shop-rpc.mjs は cloudflare:workers を読むので Node では開けない。メソッド名だけ文字で突き合わせる */
+  const rpc = readFileSync(new URL('../worker/shop-rpc.mjs', import.meta.url), 'utf8');
+  assert.match(rpc, /class ShopRpc extends WorkerEntrypoint/);
+  assert.deepEqual([...rpc.matchAll(/^ {2}(\w+)\(/gm)].map(m => m[1]).sort(), [...SHOP_METHODS].sort(), '公開するメソッドは SHOP_METHODS だけ');
+  assert.match(readFileSync(new URL('../worker/index.mjs', import.meta.url), 'utf8'), /export \{ ShopRpc \} from '\.\/shop-rpc\.mjs'/);
+  /* RPC は素の値だけを渡す: 答えは structuredClone を通っても同じ */
+  const got = await binding.siteHosts(SITE);
+  assert.deepEqual(got, { ok: true, hosts: ['aquagate.example.com'], note: { shop: 'default' } });
+  assert.deepEqual(binding.calls, ['siteHosts']);
+});
+
+test('向こうの答えは信用しない: 形が合わない答えは 500（crash）にし、ログに足す note は決まった名前の短い値だけ', async () => {
+  const { s, key } = await booked();
+  const view = { k: key, action: 'view' };
+  const wrap = (fake) => ({ ...publicEnv(s), SHOP: { ...fakeShopBinding(new ShopService(s.env, s.io)), ...fake } });
+  for (const askView of [async () => ({ status: '200', body: {}, note: {} }), async () => ({ status: 200, body: 'x', note: {} }), async () => ({ status: 200, body: {} }), async () => null,
+    async () => ({ status: 99, body: {}, note: {} })]) {
+    assert.equal((await publicAsk(s, wrap({ askView }), view)).status, 500);
+  }
+  assert.equal((await sitePost(s, wrap({ siteHosts: async () => ({ ok: true, hosts: [1], note: {} }) }), SITE)).status, 500);
+  assert.equal((await sitePost(s, wrap({ siteHosts: async () => ({ ok: 'yes', note: {} }) }), SITE)).status, 500);
+  logs.length = 0;
+  const sly = await publicAsk(s, wrap({ askView: async () => ({ status: 200, body: { ok: true }, note: { why: 'x'.repeat(200), route: '/evil', status: 1, ms: -1, shop: 'a-shop', problems: 2, extra: 'y' } }) }), view);
+  assert.equal(sly.status, 200);
+  const line = JSON.parse(logs[logs.length - 1]);
+  assert.equal(line.route, '/api/ask');
+  assert.equal(line.status, 200);
+  assert.ok(line.ms >= 0);
+  assert.deepEqual([line.why.length, line.shop, line.problems, line.extra], [60, 'a-shop', 2, undefined]);
+});
+
+test('redux-ask の束: D1 の binding も、名簿・お店の一覧・鍵の行・お店の道を読むファイルも入らない。口は 4 つの RPC だけ', () => {
+  const files = reachable('worker/ask-index.mjs').filter(f => f.startsWith('worker/')).sort();
+  assert.deepEqual(files, ['worker/api-http.mjs', 'worker/ask-index.mjs', 'worker/ask-input.mjs', 'worker/ask-key.mjs', 'worker/auto-core.mjs', 'worker/past-core.mjs',
+    'worker/public-handler.mjs', 'worker/shop-client.mjs', 'worker/site-guard.mjs', 'worker/sync-core.mjs'], '足すときは、ここに増えるファイルが D1・名簿・お店の道に触れないことを確かめてから');
+  for (const f of files) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    assert.ok(!/\bDB\b|\bprepare\s*\(|roster-db|shop-db|ask-db|limit-db|unread-db/.test(src), `${f} が D1 に触れている`);
+  }
+  const ask = jsonc('wrangler.ask.jsonc');
+  assert.equal(ask.main, 'worker/ask-index.mjs');
+  assert.equal(ask.d1_databases, undefined, 'redux-ask は D1 の binding を持たない');
+  assert.deepEqual(ask.services, [{ binding: 'SHOP', service: jsonc('wrangler.jsonc').name, entrypoint: 'ShopRpc' }]);
+  assert.deepEqual(ask.kv_namespaces.map(k => k.binding), ['BUDGET'], 'KV は /api/health の cron:last を読む BUDGET だけ');
+  assert.deepEqual(ask.ratelimits.map(r => r.name).sort(), ['ASK_LIMIT', 'BOOKING_LIMIT']);
+  assert.equal(jsonc('wrangler.jsonc').d1_databases[0].binding, 'DB', 'D1 を持つのはお店の Worker だけ');
 });
 
 test('お店の Worker がリンクを作るとき、ASK_ORIGIN があればお客さんの Worker の URL にする', async () => {

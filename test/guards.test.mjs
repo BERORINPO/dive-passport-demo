@@ -19,7 +19,7 @@ import { MAX_ROSTER_BYTES } from '../worker/sync-core.mjs';
 import { mailReady } from '../worker/mail.mjs';
 import { underLimit } from '../worker/site-guard.mjs';
 import { verifyAccess } from '../worker/access.mjs';
-import { handlePublic } from '../worker/handler.mjs';
+import { handlePublic } from '../worker/public-handler.mjs';
 import { fakeRateLimit } from '../worker/fakes.mjs';
 import { setup, siteBooking, staffCall, guestCall, publicEnv, stored, putState, message, MAIL_RAW, MAIL_BODY, READING, GOOD, jwtFor, ASK_ORIGIN, ORIGIN, STAFF, NOW, AT, logs, runTests } from './kit.mjs';
 

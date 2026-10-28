@@ -5,7 +5,7 @@
 // H7: D1 の不調・版のぶつかり続け・Turnstile の不調・名簿が壊れたお店・KV の不調。送る前に止まったら 1 通も出ず、直ったら 1 回だけ出る。
 // 実行: node test/e2e.test.mjs （Node 18 以上。依存なし。本物の Cloudflare と Claude API は呼ばない）
 import assert from 'node:assert/strict';
-import { handlePublic } from '../worker/handler.mjs';
+import { handlePublic } from '../worker/public-handler.mjs';
 import { scheduled, receiveMail } from '../worker/auto.mjs';
 import { setup, siteBooking, staffCall, guestCall, keyOfMail, stored, message, MAIL_RAW, MAIL_BODY, READING, GOOD, ASK_ORIGIN, SITE, NOW, logs, runTests } from './kit.mjs';
 

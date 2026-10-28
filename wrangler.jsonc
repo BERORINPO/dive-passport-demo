@@ -4,6 +4,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dive-passport-demo",
+  // worker/index.mjs は default の fetch・scheduled・email のほかに、名前付きの WorkerEntrypoint ShopRpc を export する。
+  // redux-ask（wrangler.ask.jsonc）が Service Binding（entrypoint: "ShopRpc"）で呼ぶ。この側に足す設定は無い。**この Worker を先に置く**（docs/deploy.md の 7 節）
   "main": "worker/index.mjs",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
@@ -17,7 +19,7 @@
     "not_found_handling": "none"
   },
   "d1_databases": [
-    // お店の名簿の正本（plan/server.md）とお客さんのリンクの鍵。お客さんの Worker（wrangler.ask.jsonc）も同じ物を読む。
+    // お店の名簿の正本（plan/server.md）とお客さんのリンクの鍵。D1 を持つのはこの Worker だけ（お客さんの Worker は D1 を持たず、ここの ShopRpc を呼ぶ。2026-10-28）。
     // database_id は鍵ではない（wrangler d1 create が出した値）。表は worker/migrations/ を wrangler d1 migrations apply で作る
     { "binding": "DB", "database_name": "redux-rosters", "database_id": "f74f3e8d-7869-4899-9bdf-33c3737a5654", "migrations_dir": "worker/migrations" }
   ],

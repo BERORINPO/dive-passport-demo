@@ -84,7 +84,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 login --scopes account:read user:read workers:write workers_kv:write workers_scripts:write workers_routes:write workers_tail:read d1:write
    ```
-2. D1 を作る（1 つだけ。全部のお店がこの 1 つを使う）。出た `database_id` を wrangler.jsonc と wrangler.ask.jsonc の d1_databases に入れて push する（今の本番の値は入れてある）
+2. D1 を作る（1 つだけ。全部のお店がこの 1 つを使う）。出た `database_id` を wrangler.jsonc の d1_databases に入れて push する（今の本番の値は入れてある）。redux-ask（wrangler.ask.jsonc）は D1 を持たない（2026-10-28 から。お店の Worker を Service Binding で呼ぶ）
    ```bash
    npx wrangler@4.151.0 d1 create redux-rosters
    ```
@@ -92,22 +92,27 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 d1 migrations apply redux-rosters --remote
    ```
-4. 置く（お客さんの Worker を先に置いて URL を知り、お店の Worker に ASK_ORIGIN として入れてから、お店の Worker を置く）
+4. 置く（**お店の Worker を先、redux-ask を後**。redux-ask は Service Binding `SHOP` でお店の Worker の `ShopRpc` を呼ぶ。Cloudflare の文書: 相手の Worker が無いと置けず、先に相手を置く（「Deployment」の節）。ShopRpc を export する前のお店の Worker に当てると、/api/ask と /api/bookings が 500 になる）
    ```bash
    node tools/build-site.mjs
-   npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc
    npx wrangler@4.151.0 secret put ASK_ORIGIN
+   npx wrangler@4.151.0 secret put SITE_ORIGINS
    npx wrangler@4.151.0 deploy
+   npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc
    ```
-   - ASK_ORIGIN は今は `https://ask.reduxdive.com`（最後の / は付けない。9 節）。ドメインを持たないときは `https://redux-ask.<アカウントの名前>.workers.dev`
+   - ASK_ORIGIN は今は `https://ask.reduxdive.com`（最後の / は付けない。9 節）。ドメインを持たないときは `https://redux-ask.<アカウントの名前>.workers.dev`（初めて置く日で住所がまだ無ければ、redux-ask を置いたあとにもう一度入れる）
+   - SITE_ORIGINS: これまで redux-ask に入れていた値と同じ（予約フォームを置くサイトの住所）を、**お店の Worker に入れる**。サイトからの予約の振り分けと Turnstile のホスト名の確かめは、お店の一覧（D1 の shops）を引くお店の Worker が行うため。shops にそのサイトの行があれば要らない。入れ忘れて redux-ask を置くと、サイトの予約が 403（origin）になる
+   - 置いたあと、redux-ask の古い secret `SITE_ORIGINS` は使われない（消してよい）。`SINGLE_SHOP` は wrangler.jsonc の vars だけでよい（wrangler.ask.jsonc からは外した）
+   - 戻すとき（ロールバック）は逆の順: redux-ask を前の版（D1 を直に読む版。この変更の前の wrangler.ask.jsonc）に戻してから、お店の Worker を戻す。前の redux-ask は D1 の binding が要る
+   - 2 回目から（置き直し）も、お店の Worker → redux-ask の順。お店の Worker だけを先に置いても、4 つの口は足すだけなので前の redux-ask は動く（口を足すときは必ず、お店の Worker の版で足してから redux-ask を置く）
 5. 確かめ（ログインしていない端末か curl で）
    - お店の Worker: `/` は Access のログインへ、`/api/roster` も止まる
-   - お客さんの Worker: `/ask` は開ける。`/api/roster`・`/api/ask-link` は 404。`/api/ask` に間違った鍵を送ると 404
+   - お客さんの Worker: `/ask` は開ける。`/api/roster`・`/api/ask-link` は 404。`/api/ask` に間違った鍵を送ると 404。Cloudflare の画面で redux-ask の Bindings に D1 が無く、Service binding の `SHOP`（→ dive-passport-demo / ShopRpc）があること。サイトの予約フォームから 1 件送れること（202）
    - 2 台の端末で同じ名簿がそろう。「お客さんに聞くリンク」で作ったリンクを、ログインしていないスマホで開いて入れると、お店の画面に出る
-- お店の一覧（D1 の shops）が空・表が無いとき、Worker は 503（shops-empty・shops-no-table をログに出す）。今の 1 店の動き（名簿の行 = default）で動かすには、wrangler.jsonc と wrangler.ask.jsonc の vars に `SINGLE_SHOP: "default"` を入れる（入れてある）。shops に行を足したら行が先になる（足す前に default の行も入れる: tools/shop.mjs keep-sample）。置く順は 0006 を流す → redux-ask → お店の Worker
+- お店の一覧（D1 の shops）が空・表が無いとき、Worker は 503（shops-empty・shops-no-table をログに出す）。今の 1 店の動き（名簿の行 = default）で動かすには、wrangler.jsonc の vars に `SINGLE_SHOP: "default"` を入れる（入れてある。お店の一覧を引くのはお店の Worker だけなので、wrangler.ask.jsonc には要らない）。shops に行を足したら行が先になる（足す前に default の行も入れる: tools/shop.mjs keep-sample）。置く順は 0006 を流す → お店の Worker → redux-ask
 - Cron（`*/15 * * * *`）は 2026-10-28 に入れた（Workers Paid。9 節）。予定を動かして連絡を送るのは Cron だけ。**Cron が止まると、連絡も毎日の控えも何も動かない**（お店の画面は予定を動かさない）。止まったときは、Cloudflare の画面でお店の Worker に Cron が付いているかを見る
 - 2026-10-27 に置いた: お店の Worker と redux-ask（https://redux-ask.cibimaro-yousuke.workers.dev）。D1 は画面で作り、表はコンソールで 0001・0002 と同じ文を流した（wrangler の login に D1 の権限が付かなかったため）
-- サイトの予約フォーム（/api/bookings）は、Access の無い redux-ask が受ける（2026-10-27）。redux-ask の secret: SITE_ORIGINS（https://aquagate-demo.cibimaro-yousuke.workers.dev）と TURNSTILE_SECRET（Turnstile の widget「aquagate-demo booking form」。サイトキーはサイト側に）。お店の Worker の /api/bookings は Access の中なので使わない
+- サイトの予約フォーム（/api/bookings）は、Access の無い redux-ask が受ける（2026-10-27）。secret は、お店の Worker に SITE_ORIGINS（https://aquagate-demo.cibimaro-yousuke.workers.dev。お店の一覧を引く側）、redux-ask に TURNSTILE_SECRET（Turnstile の widget「aquagate-demo booking form」。サイトキーはサイト側に）。お店の Worker の /api/bookings は Access の中なので使わない
 - メールの送り受けは 2026-10-28 に入れた（9 節）。設定が欠けると止まる作り（送らず unsent、受けずに断る）。入れる物の一覧は plan/auto.md の「置くときの設定」
 - 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
 
@@ -164,7 +169,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 - サイト（AquaGate）は見本のまま workers.dev に置いておく（Turnstile の widget の hostname もそのまま）
 - メールのアドレスは公開の repo に書かない（送り主・警報の宛先は secret）
 
-置き直し: `node tools/build-site.mjs` のあと `npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc` と `npx wrangler@4.151.0 deploy`
+置き直し: `node tools/build-site.mjs` のあと、`npx wrangler@4.151.0 deploy`（お店の Worker）→ `npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc`（redux-ask）の順（7 節の 4）
 
 確かめ方（2026-10-28 に通した）: `ask.reduxdive.com/ask` が 200／MAIL_SENDERS のアドレスから `inbox@reduxdive.com` に予約メールを送る → 名簿に入り予定が 4 つできる → 次の Cron でお願いのメールが届く／Cron のあとに BACKUP の KV に `day:<お店>:<日付>` ができる。届いた記録は GraphQL の `emailRoutingAdaptive` で見られる
 
