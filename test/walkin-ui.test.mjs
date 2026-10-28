@@ -205,7 +205,7 @@ test('店頭の QR を作る: 作ると A5 の貼り紙に QR が出て、印刷
   assert.equal(poster.length, 1);
   assert.ok(root.children.includes(poster[0]), '貼り紙は画面の直下（印刷で貼り紙だけを出すため）');
   assert.match(poster[0].textContent, /B マリン（見本）/);
-  assert.match(poster[0].textContent, /スマホで QR を読み取り/);
+  assert.match(poster[0].textContent, /お申込書は、スマホで書けます/);
   assert.equal(all(poster[0], '.qr__img').length, 1);
   assert.ok(!/health|既往/.test(poster[0].textContent), '貼り紙に健康の質問は無い');
   await buttons(root, 'A5 で印刷')[0].click();
