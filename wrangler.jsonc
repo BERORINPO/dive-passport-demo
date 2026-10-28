@@ -10,8 +10,8 @@
   "compatibility_date": "2026-09-01",
   // お店の画面の住所は https://app.reduxdive.com（Custom Domain。DNS の行は deploy が作る）。Access の application も app.reduxdive.com に要る（docs/deploy.md の 9）
   "routes": [{ "pattern": "app.reduxdive.com", "custom_domain": true }],
-  // 移行のあいだは workers.dev の住所も残す。app.reduxdive.com で入れるのを確かめたら false にする
-  "workers_dev": true,
+  // 住所は app.reduxdive.com だけ（2026-10-29 に workers.dev を閉じた。名前を REDUX にそろえるため）
+  "workers_dev": false,
   // 版ごとの別の URL を作らない（Access を付けた URL のほかに入口を増やさない）
   "preview_urls": false,
   "assets": {
