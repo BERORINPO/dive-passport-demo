@@ -301,6 +301,27 @@
     return [...rows, ...extra];
   }
 
+  /* 確かめる画面で直せる項目（v12、2026-10-28）。AI が読む項目だけで、健康の 2 項目は入れない（お客さん本人が同意して答える物）。
+     スノーケル便では、名簿の項目に無い C カード・本数・最後に潜った日は、自信なしのときだけ出す */
+  const REVIEW_LABEL = { name: '氏名', birthDate: '生年月日', phone: '電話', address: '住所', emergency: '緊急時の連絡先',
+    cert: 'C カード', dives: '潜った本数', lastDive: '最後に潜った日', sizes: '身長・体重・足' };
+  const REVIEW_ALWAYS = ['phone', 'sizes'];
+  function reviewFields(p, trip) {
+    const onRoster = new Set(reviewRows(p, trip).map(r => r.field));
+    const fields = S().AI_FIELDS.filter(f => onRoster.has(f) || REVIEW_ALWAYS.includes(f) || p.unsure.includes(f));
+    const row = (f) => ({ field: f, label: REVIEW_LABEL[f], unsure: p.unsure.includes(f), src: p.src[f] || '' });
+    return { unsure: fields.filter(f => p.unsure.includes(f)).map(row), others: fields.filter(f => !p.unsure.includes(f)).map(row) };
+  }
+
+  /* 確かめる画面の「この内容で名簿に入れる」。直した項目は前と後を記録に残し（editPerson）、自信なしの印を外す（checkPerson）。
+     AI が読む項目のほかは受け取らない（健康の答えをお店の画面から入れさせない） */
+  function confirmReview(state, { id, patch, at }) {
+    const bad = Object.keys(patch || {}).filter(k => !S().AI_FIELDS.includes(k));
+    if (bad.length) throw new Error(`confirmReview: 確かめる画面で直せない項目 (${bad.join(',')})`);
+    const edited = Object.keys(patch || {}).length ? editPerson(state, { id, patch, who: 'staff', at }) : state;
+    return checkPerson(edited, { id, at });
+  }
+
   /* 確かめる必要がある人（AI が自信なしと言った所が残っている人）。便ごと */
   const toCheck = (state, tripId) => peopleOf(state, tripId).filter(p => p.unsure.length > 0);
 
@@ -629,7 +650,7 @@
   R.rosterCore = {
     COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
-    reviewRows, toCheck, scrubLog,
+    reviewRows, reviewFields, confirmReview, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
     addPerson, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,
     cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
