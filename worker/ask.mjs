@@ -4,9 +4,10 @@ import { readingFrom, costMicro, periods, limitsFrom, WORST_MICRO } from './read
 import { reserve, spend } from './budget.mjs';
 import { callModel } from './anthropic.mjs';
 
-/* 返すのは { ok: true, reading } か { ok: false, status, error, healthSeen }。note にはログに出す短い名前だけを足す */
-export async function askModel(ask, env, io, note) {
-  const keys = periods(io.now());
+/* 返すのは { ok: true, reading } か { ok: false, status, error, healthSeen }。note にはログに出す短い名前だけを足す。
+   上限はお店ごとに数える（shop は必須。無いと budget.mjs が断る） */
+export async function askModel(ask, env, io, note, shop) {
+  const keys = { ...periods(io.now()), shop };
   try {
     const got = await reserve(env.BUDGET, keys, limitsFrom(env));
     if (!got.ok) { note.why = got.why; return { ok: false, status: 429, error: 'limit', which: got.why }; }

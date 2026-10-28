@@ -7,5 +7,5 @@ arch: node test/arch.check.mjs
 contract: (置いたあと・手で) docs/deploy.md の「置いたあとの確かめ」。見本 16 件の読み取りと上限の止まり方を、置いた Worker で確かめる
 # 手元の通し: node tools/build-site.mjs && node tools/serve-dist.mjs（dist/ を CSP 付きで配り、/api は見本の AI で Worker を通す）
 
-phase_gate_required: [typecheck, offline_smoke]
-phase_gate_optional: [arch]
+phase_gate_required: [typecheck, offline_smoke, arch]
+phase_gate_optional: []

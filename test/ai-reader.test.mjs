@@ -157,6 +157,16 @@ test('健康の行を外した印で上限を超える本文は、送らずに�
   assert.equal(calls.length, 0);
 });
 
+test('点検 2026-10-28 SEC-03: 薬の名前・脳梗塞・妊娠の言い方・スペイン語の健康の文も外す', () => {
+  const H = globalThis.REDUX.healthRedact;
+  for (const line of ['I take warfarin daily', 'Nota: tengo asma', 'Remarks: had a stroke last year', '先月、脳梗塞をやりました', 'my wife is expecting', 'ワーファリンを飲んでいます']) {
+    const r = H.redact(`予約です\n${line}`);
+    assert.equal(r.redacted, 1, line);
+    assert.ok(!r.text.includes(line), line);
+  }
+  assert.equal(H.redact('予約です\n平泳ぎ（breaststroke）は得意').redacted, 0, '泳ぎ方の言葉は外さない');
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

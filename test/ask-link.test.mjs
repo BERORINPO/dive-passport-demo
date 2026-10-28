@@ -31,7 +31,7 @@ function setup() {
   const env = {
     ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL, DAILY_LIMIT: '200', MONTHLY_USD: '5',
     BUDGET: fakeKv(), DB: db, ASK_LIMIT: fakeRateLimit(100), SITE_ORIGINS: SITE, TURNSTILE_SECRET: 'turnstile-test-secret', BOOKING_LIMIT: fakeRateLimit(100),
-    SHOP_NAME: 'B マリン（見本）'
+    SHOP_NAME: 'B マリン（見本）', SINGLE_SHOP: 'default'
   };
   const io = {
     clock: NOW,
@@ -226,8 +226,8 @@ test('中止になった便: 見られるが、入れられない', async () => 
 
 test('お客さん用の Worker（Access なし）: /api/ask だけを受け、お店の道は無い。置くのは ask.html と、それが読むファイルだけ', async () => {
   const { s, key } = await booked();
-  /* お客さんの Worker は D1 と回数の binding だけを持つ（Access・AI・KV の設定は無い） */
-  const env = { DB: s.env.DB, ASK_LIMIT: s.env.ASK_LIMIT };
+  /* お客さんの Worker は D1 と回数の binding と SINGLE_SHOP だけを持つ（Access・AI・KV の設定は無い） */
+  const env = { DB: s.env.DB, ASK_LIMIT: s.env.ASK_LIMIT, SINGLE_SHOP: 'default' };
   const ASK_ORIGIN = 'https://redux-ask.example.workers.dev';
   const req = (path, body, method = 'POST', site = 'same-origin') => handlePublic(new Request(ASK_ORIGIN + path, { method,
     headers: { 'content-type': 'application/json', 'sec-fetch-site': site }, body: method === 'POST' ? JSON.stringify(body) : undefined }), env, s.io);
@@ -248,7 +248,7 @@ test('お客さん用の Worker（Access なし）: /api/ask だけを受け、�
 
 test('Access の無い Worker は、お店のサイトの予約フォームも受ける（許した origin・Turnstile・回数の守りは同じ）', async () => {
   const s = setup();
-  const env = { DB: s.env.DB, ASK_LIMIT: s.env.ASK_LIMIT, BOOKING_LIMIT: s.env.BOOKING_LIMIT, BUDGET: s.env.BUDGET, SITE_ORIGINS: SITE, TURNSTILE_SECRET: 'turnstile-test-secret' };
+  const env = { DB: s.env.DB, ASK_LIMIT: s.env.ASK_LIMIT, BOOKING_LIMIT: s.env.BOOKING_LIMIT, SITE_ORIGINS: SITE, TURNSTILE_SECRET: 'turnstile-test-secret', SINGLE_SHOP: 'default' };
   const post = (origin) => handlePublic(new Request('https://redux-ask.example.workers.dev/api/bookings', { method: 'POST',
     headers: { origin, 'content-type': 'application/json', 'cf-turnstile-response': 't', 'cf-connecting-ip': '198.51.100.2' },
     body: JSON.stringify({ tour: 'dive', date: '2026-11-03', people: 1, name: '見本 一郎', email: 'ichiro@mail.example' }) }), env, s.io);

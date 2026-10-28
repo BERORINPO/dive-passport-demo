@@ -27,7 +27,7 @@ function setup(over = {}) {
   const env = {
     SITE_ORIGINS: `${SITE}, https://other.example.com`, TURNSTILE_SECRET: 'turnstile-test-secret', DB: db, BOOKING_LIMIT: fakeRateLimit(5),
     ANTHROPIC_API_KEY: 'sk-test-not-real', DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), SHOP_NAME: 'B マリン（見本）',
-    EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN, MAIL_SENDERS: 'forward@shop.example', ...over
+    EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN, MAIL_SENDERS: 'forward@shop.example', SINGLE_SHOP: 'default', ...over
   };
   const io = {
     clock: NOW,
@@ -115,10 +115,30 @@ test('外からの予約の守り: 名簿が上限の 7 割を超えたら外か
   s.turnstile.action = 'login';
   assert.equal((await handle(booking(GOOD), s.env, s.io)).status, 403, 'action が booking でない答えは通さない');
   s.turnstile.action = 'booking';
-  s.env.BUDGET.put('site:default:2026-10-27', '30');
+  s.db.setCount('site', 'default', '2026-10-27', 30);
   const full = await handle(booking(GOOD, { ip: '198.51.100.20' }), s.env, s.io);
   assert.equal(full.status, 429, 'サイトからの予約は 1 日 30 件まで');
   assert.equal(s.db.writes, 0);
+});
+
+test('1 日の件数は D1 で正確に数える: 同じ秒に続けて届いても全部受け、30 件目の次で止まる。D1 が答えないときは「上限」でなく 503', async () => {
+  const s = setup();
+  s.turnstile.hostname = 'aquagate.example.com';
+  for (let i = 0; i < 5; i += 1) {
+    const r = await handle(booking({ ...GOOD, email: `guest${i}@mail.example`, name: `見本 ${i}` }, { ip: `203.0.113.${i + 40}` }), s.env, s.io);
+    assert.equal(r.status, 202, `${i + 1} 件目`);
+  }
+  assert.equal(s.db.daily.get('site\ndefault\n2026-10-27'), 5);
+  assert.equal(s.env.BUDGET.puts.length, 0, 'KV には書かない');
+  s.db.setCount('site', 'default', '2026-10-27', 29);
+  assert.equal((await handle(booking(GOOD, { ip: '198.51.100.41' }), s.env, s.io)).status, 202, '30 件目は通る');
+  assert.equal((await handle(booking(GOOD, { ip: '198.51.100.42' }), s.env, s.io)).status, 429, '31 件目は止まる');
+  assert.equal(s.db.daily.get('site\ndefault\n2026-10-27'), 30, '止めた分は数えない');
+  const { takeSiteBooking } = await import('../worker/auto.mjs');
+  const note = {};
+  s.db.failing = true;
+  const down = await takeSiteBooking(GOOD, s.env, s.io, note);
+  assert.deepEqual([down.status, down.body.error, note.why], [503, 'db', 'limit-db']);
 });
 
 test('POST /api/bookings: 許した origin だけ。OPTIONS はその origin にだけ CORS を返す', async () => {
@@ -225,6 +245,8 @@ test('Cron: 時刻が来た予定（2 日前・前日の夜・当日の朝）が
   assert.deepEqual(s.mail.sent.map(m => m.to), ['hanako@mail.example']);
   await scheduled(s.env, s.io);
   assert.equal(s.mail.sent.length, 1, '同じ時刻にもう一度動いても、二度は送らない');
+  s.io.clock = Date.parse('2026-11-02T11:00:00Z');   // 日本で 11/2 の 20:00（前日の夜）
+  await scheduled(s.env, s.io);
   s.io.clock = Date.parse('2026-11-02T21:00:00Z');   // 日本で 11/3 の 6:00（当日の朝）
   await scheduled(s.env, s.io);
   st = stored(s.db);
@@ -415,7 +437,7 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   await receiveMail(spoofed, s.env, s.io);
   assert.ok(spoofed.rejected, '封筒の From だけで SPF も DKIM も通らないメールは断る（ザクのレビュー M-5）');
   assert.equal(s.api.calls.length, 0);
-  const ok = message(MAIL_RAW('予約サイトからのお知らせ\r\n11/5 体験ダイビング 1 名\r\n見本 次郎 様'));
+  const ok = message(MAIL_RAW('予約サイトからのお知らせ\r\n11/5 体験ダイビング 1 名\r\n見本 次郎 様\r\n連絡先: jiro@mail.example'));
   await receiveMail(ok, s.env, s.io);
   assert.equal(ok.rejected, '');
   assert.equal(s.api.calls.length, 1);
@@ -426,10 +448,13 @@ test('届いた予約メール: 許した送り主だけを読み、日付が読
   assert.equal(st.bookings[0].leadEmail, 'jiro@mail.example');
   assert.equal(st.trips[0].date, '2026-11-05');
   assert.deepEqual(s.mail.sent.map(m => m.to), ['jiro@mail.example']);
+  s.api.answer = JSON.stringify({ participants: [{ name: '見本 四郎' }], booking: { site: '予約サイト', date: '2026-11-06', people: 1, lead_name: '見本 四郎', lead_email: 'other@evil.example' }, health_info_visible: false });
+  await receiveMail(message(MAIL_RAW('11/6 体験ダイビング 1 名 見本 四郎 様')), s.env, s.io);
+  assert.equal(stored(s.db).bookings[1].leadEmail, '', '本文に無い宛先を AI が読んでも使わない（設計 2）');
   s.api.answer = JSON.stringify({ participants: [{ name: '見本 三郎' }], booking: { people: 1 }, health_info_visible: false });
   await receiveMail(message(MAIL_RAW('日付の無いメール')), s.env, s.io);
-  assert.equal(stored(s.db).bookings.length, 1, '日付が読めないメールは自動では入れない（お店が画面で入れる）');
-  s.env.BUDGET.put('mail:default:2026-10-27', '30');
+  assert.equal(stored(s.db).bookings.length, 2, '日付が読めないメールは自動では入れない（お店が画面で入れる）');
+  s.db.setCount('mail', 'default', '2026-10-27', 30);
   const calls = s.api.calls.length;
   await receiveMail(message(MAIL_RAW('31 通目')), s.env, s.io);
   assert.equal(s.api.calls.length, calls, 'メールからの予約は 1 日 30 件まで。超えたら AI を呼ばない');

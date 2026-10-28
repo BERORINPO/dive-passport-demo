@@ -242,22 +242,25 @@
       dates.length
         ? trips.filter(t => t.date === day).map(t => tripCard(s, t))
         : el('p', { class: 'empty', text: 'まだ予約がありません。「メールを貼る」で、見本のメールから試せます。' }),
-      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本の乗り合い便を作る（4 店・30 人）',
+      /* 見本・デモのボタンは、サーバーにつながっていない試作だけ
+         （本物の名簿に架空の予約を混ぜない・名簿を消さない。ジンのレビュー 2026-10-28 H9） */
+      !R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本の乗り合い便を作る（4 店・30 人）',
         onclick: () => {
           /* 開いている日でなく今日に作り、今日を開く（見本の便は「今日の 13:00」。小禄さんの不具合さがし 2026-10-27） */
           const r = save(st => R.rosterShare.addBigSample(st, { day: R.today(), at: new Date().toISOString(), newId: R.newId }).state);
           if (!r.error) day = R.today();
           notice = r.error ? { kind: 'warn', text: '見本の便を作れませんでした' } : { kind: 'ok', text: '見本の乗り合い便を作りました（13:00、4 店・お客さん 30 人）' };
           render();
-        } })),
+        } })) : null,
       /* 書類の自動化のデモ: 見本のメールが届いた形と、次の予定の時刻まで進める */
-      el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本のメールが届く（デモ）', onclick: () => R.autoFlow.demoMail(ui) })),
+      !R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', {
+        class: 'linkbtn linkbtn--muted', type: 'button', text: '見本のメールが届く（デモ）', onclick: () => R.autoFlow.demoMail(ui) })) : null,
       /* デモの時計はつながっていない試作だけ（サーバーの版では予定を動かすのは Cron） */
       !R.rosterStore.synced() && (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
       healthModeRow(s),
       /* 済んで 7 日を過ぎた便は、サーバーが便ごとに分けて置く（読むだけ）。サーバーを使わない版には無い */
       R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '済んだ便を見る（7 日より前）', onclick: () => go('past') })) : null,
-      s.trips.length ? resetButton() : null,
+      !R.rosterStore.synced() && s.trips.length ? resetButton() : null,
       dock(
         el('button', { class: 'btn', type: 'button', text: 'メールを貼る', onclick: () => go('mail') }),
         el('button', { class: 'btn btn--ghost', type: 'button', text: '電話の予約', onclick: () => go('phone') }))

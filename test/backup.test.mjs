@@ -28,7 +28,7 @@ function setup({ backup = true } = {}) {
   const db = fakeD1();
   const kv = fakeKv();
   const mail = fakeMail();
-  const env = { DB: db, BUDGET: fakeKv(), EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: 'https://app.shop.example', ALERT_TO: 'ops@shop.example', ...(backup ? { BACKUP: kv } : {}) };
+  const env = { DB: db, SINGLE_SHOP: 'default', BUDGET: fakeKv(), EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: 'https://app.shop.example', ALERT_TO: 'ops@shop.example', ...(backup ? { BACKUP: kv } : {}) };
   const io = { clock: T0, now: () => io.clock, fetch: async () => { throw new Error('no fetch'); } };
   return { db, kv, mail, env, io };
 }

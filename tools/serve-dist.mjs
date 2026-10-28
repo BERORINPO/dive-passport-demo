@@ -33,7 +33,7 @@ const access = await fakeAccess(TEAM);
 const api = fakeAnthropic();
 const kv = fakeKv();
 const env = { ANTHROPIC_API_KEY: 'local-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-  DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, DB: fakeD1(),   // お店の名簿は、この道具が動いている間だけ覚える（止めると消える）
+  DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, DB: fakeD1(), SINGLE_SHOP: 'default',   // お店の名簿は、この道具が動いている間だけ覚える（止めると消える）
   /* 書類の自動化（plan/auto.md）。サイトの予約フォームは SITE_ORIGINS に書いた origin から（例: SITE_ORIGINS=http://localhost:5173）。
      Turnstile はどの答えも通す見本、メールは送らずにこの画面（端末）に出すだけの見本 */
   SITE_ORIGINS: process.env.SITE_ORIGINS || '', TURNSTILE_SECRET: 'local-not-real', BOOKING_LIMIT: fakeRateLimit(30), ASK_LIMIT: fakeRateLimit(300),

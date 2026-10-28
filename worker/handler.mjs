@@ -24,7 +24,7 @@ import { listUnread, dropUnread } from './unread-db.mjs';
 import { UNREAD_KEEP_DAYS, UNREAD_SHOW_MAX } from './auto-core.mjs';
 import { takeAsk, makeAskLink } from './ask-route.mjs';
 import { MAX_ASK_BODY } from './ask-core.mjs';
-import { listShops } from './shop-db.mjs';
+import { listShops, shopsWhy } from './shop-db.mjs';
 import { shopForEmail, shopForOrigin, sitesOf, nameOf, withShopName } from './shop-core.mjs';
 
 /* どれか欠けたら置き方の誤り。欠けた名前はログにだけ出す。直し方は docs/deploy.md */
@@ -32,6 +32,8 @@ const REQUIRED_SECRETS = ['ANTHROPIC_API_KEY', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD
 const REQUIRED_VARS = ['DAILY_LIMIT', 'MONTHLY_USD'];
 const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': ['GET', 'PUT'], '/api/roster/past': ['GET'], '/api/mail-unread': ['GET', 'POST'], '/api/bookings': ['POST', 'OPTIONS'],
   '/api/ask': ['POST'], '/api/ask-link': ['POST'] };
+
+const NEEDS_DB = ['/api/roster', '/api/roster/past', '/api/mail-unread', '/api/ask-link', '/api/read', '/api/healthz'];
 
 const API_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -92,16 +94,33 @@ async function cronHealth(env, io, note) {
   }
 }
 
-async function healthz(env, io) {
+/* お店の一覧が読めない・使えないときの 503（2026-10-28 shops-fail-closed）。理由の名前はログだけに出す（中身は出さない）。
+   D1 の不調は 'db'、一覧の問題（空・表が無い・形が壊れている・重なり）は shops-… */
+function shopsDown(e, note) {
+  note.why = shopsWhy(e, 'db');
+  return json(503, { error: note.why === 'db' ? 'db' : 'shops' });
+}
+
+/* ログインしたスタッフのお店。{ shops, shop } か、そのまま返す { res }（一覧が使えない 503・どのお店にもいない 403） */
+async function staffShop(env, note, who) {
+  let shops;
+  try { shops = await listShops(env.DB, env); } catch (e) { return { res: shopsDown(e, note) }; }
+  const shop = shopForEmail(shops, who.email);
+  if (!shop) { note.why = 'no-shop'; return { res: json(403, { error: 'shop' }) }; }
+  note.shop = shop;
+  return { shops, shop };
+}
+
+async function healthz(env, io, shop) {
   try {
-    const left = await remaining(env.BUDGET, periods(io.now()), limitsFrom(env));
+    const left = await remaining(env.BUDGET, { ...periods(io.now()), shop }, limitsFrom(env));
     return json(200, { ok: true, model: MODEL, left: { today: left.day, monthUsd: Math.floor(left.monthMicro / 1e4) / 100 } });
   } catch (e) {
     return json(503, { ok: false, error: 'kv' });
   }
 }
 
-async function read(request, env, io, note) {
+async function read(request, env, io, note, shop) {
   if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
   const raw = await readCapped(request, MAX_BODY);
   if (raw === null) return json(413, { error: 'size' });
@@ -113,23 +132,21 @@ async function read(request, env, io, note) {
   const ask = checked.ask;
   Object.assign(note, { doc: ask.doc, size: ask.size, redacted: ask.redacted });
 
-  const got = await askModel(ask, env, io, note);
+  const got = await askModel(ask, env, io, note, shop);
   if (got.ok) return json(200, got.reading);
   if (got.error === 'limit') return json(429, { error: 'limit', which: got.which });
   return json(got.status, got.error === 'answer' ? { error: 'answer', healthSeen: got.healthSeen } : { error: got.error });
 }
 
 /* お店の名簿（plan/server.md）。GET は今の名簿、PUT は版を確かめて書く。版が違えば最新を返す（画面が当て直して送り直す）。
-   どのお店の名簿かは、Access でログインしたメールをお店の一覧（D1 の shops）で引いて決める。一覧が空なら 1 店（default） */
+   どのお店の名簿かは、Access でログインしたメールをお店の一覧（D1 の shops）で引いて決める。一覧が空なら 503（SINGLE_SHOP を明示したときだけ 1 店） */
 async function roster(request, env, io, note, who) {
   const now = io.now();
   const at = new Date(now).toISOString();
   const today = periods(now).day;
-  let shops;
-  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
-  const shop = shopForEmail(shops, who.email);
-  if (!shop) { note.why = 'no-shop'; return json(403, { error: 'shop' }); }
-  note.shop = shop;
+  const mine = await staffShop(env, note, who);
+  if (mine.res) return mine.res;
+  const { shops, shop } = mine;
   const current = async () => {
     const got = await getRoster(env.DB, shop);
     return { version: got.version, state: got.text === null ? null : readStored(got.text, { today, at }) };
@@ -168,7 +185,7 @@ async function roster(request, env, io, note, who) {
         if (now.version === given.base) base = now.state;
       }
     } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
-    given = { ...given, state: serverOwned(base, given.state) };
+    given = { ...given, state: serverOwned(base, given.state, { fresh: given.base === 0 }) };
   }
   const checked = checkPut(given, { today, at });
   if (!checked.ok) {
@@ -212,11 +229,9 @@ async function rosterPast(request, env, io, url, note, who) {
   const today = periods(now).day;
   const range = checkPastRange(url.searchParams.get('from') || '', url.searchParams.get('to') || '', { today });
   if (!range.ok || [...url.searchParams.keys()].some(k => !['from', 'to'].includes(k))) { note.why = range.error || 'keys'; return json(400, { error: 'input' }); }
-  let shops;
-  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
-  const shop = shopForEmail(shops, who.email);
-  if (!shop) { note.why = 'no-shop'; return json(403, { error: 'shop' }); }
-  note.shop = shop;
+  const mine = await staffShop(env, note, who);
+  if (mine.res) return mine.res;
+  const { shops, shop } = mine;
   let rows;
   try { rows = await getPast(env.DB, shop, range.from, range.to, today, MAX_PAST_ROWS); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
   const name = nameOf(shops, shop, '');
@@ -228,11 +243,9 @@ async function rosterPast(request, env, io, url, note, who) {
 /* 読めなかった予約メール（plan/auto.md。ジンのレビュー HIGH 6）。GET は新しい順の一覧 { items: [{ id, at, why }] }、
    POST { id } はお店が「済んだ」を押した行を消す。お店はログインしたメールで決める */
 async function mailUnread(request, env, io, note, who) {
-  let shops;
-  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
-  const shop = shopForEmail(shops, who.email);
-  if (!shop) { note.why = 'no-shop'; return json(403, { error: 'shop' }); }
-  note.shop = shop;
+  const mine = await staffShop(env, note, who);
+  if (mine.res) return mine.res;
+  const { shop } = mine;
   try {
     if (request.method === 'GET') {
       const items = await listUnread(env.DB, shop, new Date(io.now() - UNREAD_KEEP_DAYS * 86400000).toISOString(), UNREAD_SHOW_MAX);
@@ -260,13 +273,13 @@ const BOOKING_NEEDS = ['TURNSTILE_SECRET'];
 function corsFor(origin) {
   return { 'access-control-allow-origin': origin, vary: 'Origin', 'cross-origin-resource-policy': 'cross-origin' };
 }
-/* どのお店の予約かは、送ってきたサイト（origin）をお店の一覧で引いて決める。一覧が空なら SITE_ORIGINS のサイトだけを 1 店へ */
+/* どのお店の予約かは、送ってきたサイト（origin）をお店の一覧で引いて決める（一覧が空なら、SINGLE_SHOP を明示したときだけ SITE_ORIGINS のサイトを 1 店へ） */
 async function bookings(request, env, io, note) {
   const origin = request.headers.get('origin') || '';
   if (!(env.DB && typeof env.DB.prepare === 'function')) { note.why = 'config:DB'; return json(503, { error: 'config' }); }
   let shops;
-  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
-  const shop = shopForOrigin(shops, origin, env.SITE_ORIGINS);
+  try { shops = await listShops(env.DB, env); } catch (e) { return shopsDown(e, note); }
+  const shop = shopForOrigin(shops, origin);
   if (!shop) { note.why = 'origin'; return json(403, { error: 'origin' }); }
   note.shop = shop;
   const cors = corsFor(origin);
@@ -276,7 +289,6 @@ async function bookings(request, env, io, note) {
   }
   const miss = BOOKING_NEEDS.filter(k => typeof env[k] !== 'string' || env[k].trim() === '');
   if (!(env.BOOKING_LIMIT && typeof env.BOOKING_LIMIT.limit === 'function')) miss.push('BOOKING_LIMIT');
-  if (!(env.BUDGET && typeof env.BUDGET.get === 'function')) miss.push('BUDGET');
   if (miss.length) { note.why = `config:${miss.join('+')}`; return json(503, { error: 'config' }, cors); }
   if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' }, cors);
   const ip = request.headers.get('cf-connecting-ip') || '';
@@ -285,7 +297,7 @@ async function bookings(request, env, io, note) {
   if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }, cors); }
   let given;
   try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }, cors); }
-  const hosts = sitesOf(shops, shop, env.SITE_ORIGINS).map(o => { try { return new URL(o).hostname.toLowerCase(); } catch (e) { return ''; } }).filter(Boolean);
+  const hosts = sitesOf(shops, shop).map(o => { try { return new URL(o).hostname.toLowerCase(); } catch (e) { return ''; } }).filter(Boolean);
   const human = await verifyTurnstile(env, request.headers.get('cf-turnstile-response'), ip, io, hosts);
   if (!human.ok) { note.why = human.why; return json(403, { error: 'turnstile' }, cors); }
   const got = await takeSiteBooking(given, env, io, note, shop, nameOf(shops, shop, ''));
@@ -310,10 +322,9 @@ async function ask(request, env, io, url, note) {
 
 /* お店が予約のリンクを作る（Access の後）。作れるのは、ログインしたスタッフのお店の予約だけ */
 async function askLink(request, env, io, url, note, who) {
-  let shops;
-  try { shops = await listShops(env.DB); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
-  const shop = shopForEmail(shops, who.email);
-  if (!shop) { note.why = 'no-shop'; return json(403, { error: 'shop' }); }
+  const mine = await staffShop(env, note, who);
+  if (mine.res) return mine.res;
+  const { shop } = mine;
   if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
   const raw = await readCapped(request, 1024);
   if (raw === null) return json(413, { error: 'size' });
@@ -335,8 +346,8 @@ async function route(request, env, io, url, note) {
   if (url.pathname === '/api/ask') return ask(request, env, io, url, note);
 
   const miss = missingConfig(env);
-  /* D1 は名簿の道だけが使う。無くても読み取り（/api/read）と /api/healthz は止めない */
-  if (['/api/roster', '/api/roster/past', '/api/mail-unread', '/api/ask-link'].includes(url.pathname) && !(env.DB && typeof env.DB.prepare === 'function')) miss.push('DB');
+  /* お店ごとの名簿・上限の道は D1（お店の一覧）が要る。AI の読み取りと /api/healthz も、上限をお店ごとに数えるので同じ */
+  if (NEEDS_DB.includes(url.pathname) && !(env.DB && typeof env.DB.prepare === 'function')) miss.push('DB');
   if (miss.length) { note.why = `config:${miss.join('+')}`; return json(503, { error: 'config' }); }
   const who = await verifyAccess(request, env, io);
   if (!who.ok) {
@@ -348,7 +359,9 @@ async function route(request, env, io, url, note) {
   if (url.pathname === '/api/roster/past') return rosterPast(request, env, io, url, note, who);
   if (url.pathname === '/api/mail-unread') return mailUnread(request, env, io, note, who);
   if (url.pathname === '/api/ask-link') return askLink(request, env, io, url, note, who);
-  return url.pathname === '/api/healthz' ? healthz(env, io) : read(request, env, io, note);
+  const mine = await staffShop(env, note, who);
+  if (mine.res) return mine.res;
+  return url.pathname === '/api/healthz' ? healthz(env, io, mine.shop) : read(request, env, io, note, mine.shop);
 }
 
 /* Access を付けない Worker（worker/ask-index.mjs）の入口。お客さんのリンク（/api/ask の POST）と、お店のサイトの予約フォーム（/api/bookings。

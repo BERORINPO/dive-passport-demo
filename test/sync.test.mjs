@@ -36,7 +36,7 @@ function setup(over = {}) {
   const db = fakeD1();
   const env = {
     ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, ...over
+    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, SINGLE_SHOP: 'default', ...over
   };
   const io = {
     fetch: async (url, init) => {
@@ -131,8 +131,11 @@ test('ジンのレビュー 2026-10-28 H1・H2: 送る連絡と予定の動き�
   const first = await put(s, 0, { ...base, jobs: [job], outbox: [out('evil', { to: 'victim@attacker.example', body: '本文を差し替えた' })] });
   assert.equal(first.status, 200);
   let st = JSON.parse(s.db.rows.get('default').state);
-  assert.deepEqual(st.outbox, [], '画面が足した連絡は置かない');
-  assert.deepEqual(st.jobs.map(j => j.status), ['waiting'], '画面が予定を済んだにしても、待つのまま（送るのは Cron）');
+  /* 名簿が無い所への最初の書き込み（base 0）は、端末の送った記録を残す（ジンの点検 2026-10-28 H2）。ただし宛先と本文はサーバーが作り直し、
+     送る途中の物は「送れたか分からない」にして送らない。済んだと来た予定は済んだのまま（送らない向きは信じる） */
+  assert.ok(st.outbox.every(o => o.status !== 'queued'), '画面が足した連絡を送る形では置かない（作り直せなければ捨てる。見本の予約はメールが無いので捨てる）');
+  assert.ok(st.outbox.every(o => o.to !== 'victim@attacker.example' && !o.body.includes('差し替え')), '宛先と本文は画面の物を使わない');
+  assert.deepEqual(st.jobs.map(j => j.status), ['done'], '済んだと来た予定を待ちに戻して送り直さない');
   /* 2. サーバー（Cron）が送った結果を置いた形: o1 は送れたか分からない、o2 は送れなかった */
   const serverState = { ...st, outbox: [out('o1', { status: 'failed', why: 'maybe-sent' }), out('o2', { status: 'failed', why: 'send' })] };
   assert.ok((await putRoster(s.db, 'default', 1, JSON.stringify(serverState), AT, { parts: [], today: TODAY })).ok);
@@ -228,7 +231,7 @@ test('画面の検査より厳しく見る: 余分な項目と、重なった id
   assert.equal(s.db.writes, 0);
 });
 
-test('入口の守り: Access・同じ場所からの呼び出し・method。D1 が無いときは名簿の道だけ止め、healthz は動く', async () => {
+test('入口の守り: Access・同じ場所からの呼び出し・method。D1 が無いときは名簿の道も、お店ごとに数える healthz と AI の読み取りも 503 (config)', async () => {
   const s = setup();
   assert.equal((await call(s, req('GET', { jwt: null }))).status, 403);
   assert.equal((await call(s, req('GET', { site: 'cross-site' }))).status, 403);
@@ -238,7 +241,7 @@ test('入口の守り: Access・同じ場所からの呼び出し・method。D1 
   const noDb = setup({ DB: undefined });
   assert.deepEqual([(await get(noDb)).status, (await get(noDb)).body.error], [503, 'config']);
   noDb.io.fetch = async (url, init) => { checkRedirect(init); return new Response(JSON.stringify({ keys: access.keys }), { status: 200 }); };
-  assert.equal((await call(noDb, req('GET', { path: '/api/healthz' }))).status, 200, 'D1 が無くても読み取りの道は止めない');
+  assert.equal((await call(noDb, req('GET', { path: '/api/healthz' }))).status, 503, '上限をお店ごとに数えるので、D1 が無ければ healthz も止める');
 });
 
 test('D1 が落ちたら 503。置いてある名簿が壊れていたら渡さない（500）', async () => {
