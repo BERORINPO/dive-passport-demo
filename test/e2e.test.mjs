@@ -168,6 +168,23 @@ test('H7 版のぶつかり続け: サイトの予約は 5 回当て直して 50
   assert.deepEqual(stored(s).bookings.map(b => b.leadEmail).sort(), ['hanako@mail.example', 'taro@mail.example'], 'お客さんが押し直しても重ならない');
 });
 
+test('H7 サイトの予約: 名簿を読めない・書けないときは 5xx で名簿に何も入れない。直ってから押し直すと 1 件だけ入る（重ならない）', async () => {
+  const s = setup();
+  assert.equal((await siteBooking(s, ONE, { ip: '203.0.113.71' })).status, 202);
+  const before = s.db.rows.get('default').state;
+  const second = { ...ONE, name: '見本 太郎', email: 'taro@mail.example' };
+  for (const [name, breakIt] of [['読めない', () => interceptStatements(s.db, /^SELECT version, state FROM rosters/, { fail: true })], ['書けない', () => failWrites(s.db)]]) {
+    const broken = breakIt();
+    const res = await siteBooking(s, second, { ip: '203.0.113.72' });
+    assert.ok(res.status >= 500, `${name} → ${res.status}`);
+    assert.equal(s.db.rows.get('default').state, before, `${name}: 名簿は変わらない`);
+    broken.restore();
+  }
+  assert.equal(s.mail.sent.length, 0);
+  assert.equal((await siteBooking(s, second, { ip: '203.0.113.73' })).status, 202);
+  assert.deepEqual(stored(s).bookings.map(b => b.leadEmail).sort(), ['hanako@mail.example', 'taro@mail.example']);
+});
+
 test('H7 版のぶつかり続け: Cron は 1 通も送らず失敗と残し、ぶつからなくなった回に 1 通だけ送る', async () => {
   const s = setup();
   assert.equal((await siteBooking(s, ONE)).status, 202);
