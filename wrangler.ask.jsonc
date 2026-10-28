@@ -1,7 +1,7 @@
 // Access を付けない Worker の設定（plan/meibo.md「お客さんのリンク」・plan/auto.md「予約を受ける口」）。
 // ask.html と、それが読むファイル（node tools/build-site.mjs が作る dist-ask/）と、/api/ask と /api/bookings（お店のサイトの予約フォーム）と /api/health だけを置く。
 // この Worker は D1 を持たない（2026-10-28 ask-service-binding。SEC-13）。名簿・鍵の行・お店の一覧は、お店の Worker（wrangler.jsonc）の
-// ShopRpc を Service Binding の SHOP で呼ぶ（口は 4 つ: askView・askApply・siteHosts・siteBooking。worker/shop-service.mjs）。お店の画面・名簿の道（/api/roster）は置かない。
+// ShopRpc を Service Binding の SHOP で呼ぶ（口は 6 つ: askView・askApply・siteHosts・siteBooking・walkinView・walkinSubmit。worker/shop-service.mjs）。お店の画面・名簿の道（/api/roster）は置かない。
 // secret: TURNSTILE_SECRET を wrangler secret put -c wrangler.ask.jsonc で入れる。サイトの住所（SITE_ORIGINS）と SINGLE_SHOP は、お店の一覧を引くお店の Worker 側に要る
 // （この Worker では使わない。前に入れた SITE_ORIGINS は消してよい）。ASK_ORIGIN は使わない。
 // 置き方: node tools/build-site.mjs && npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc（docs/deploy.md）。**お店の Worker を先に置く**:

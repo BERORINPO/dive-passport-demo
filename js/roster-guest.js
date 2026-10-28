@@ -294,6 +294,49 @@
     return { state: C().editPerson(state, { id, patch, who: 'guest', src: 'passport', at, markUnsure }), problems: [] };
   }
 
+  /* ---------- 店頭の QR（決定ログ 2026-10-28 walkin-qr） ----------
+     店頭で入れた人（walkin。Worker が名簿と同じ検査にかけて置いた物）を、お店が名簿に入れる直し。名簿に入れるのは、お客さんが入れた名前・生年月日・住所・
+     緊急時の連絡先だけ（健康の答えは聞いていない）。画面の「入れる」は op（guest.addWalkin・guest.mergeWalkin）を通し、電波が無くても貯めて送る。
+     walkin: { name, people, email, birthDate, address, emergency: { name, relation, phone } }。 */
+  const WALKIN_ASK = ['name', 'birthDate', 'address', 'emergency'];
+  const walkinInput = (w) => ({ name: w.name, birthDate: w.birthDate, address: w.address, emergency: w.emergency });
+
+  /* 「その予約にまとめる」の候補: 同じ日（選んだ便があればその便の日、無ければ受けた日 w.day）の、代表者の名前が同じ予約（乗り合いの他のお店の予約は除く） */
+  function walkinMatches(state, w) {
+    const picked = state.trips.find(t => t.id === w.tripId);
+    const day = picked ? picked.date : w.day;
+    return state.bookings.filter(b => !C().isPartnerBooking(b) && state.trips.some(t => t.id === b.tripId && t.date === day)).filter(b => {
+      const lead = b.leadName || (state.people.find(p => p.bookingId === b.id) || {}).name || '';
+      return C().sameName(lead, w.name);
+    }).map(b => ({ bookingId: b.id, tripId: b.tripId }));
+  }
+
+  /* 便を選んで新しい予約として入れる。代表者に入力を入れ、人数ぶんの空の行をそろえる。{ state, bookingId, problems }。便が無い・中止なら問題を返し、名簿は変えない */
+  function addWalkin(state, { tripId, walkin, at, newId }) {
+    const trip = state.trips.find(t => t.id === tripId);
+    if (!trip) return { state, problems: ['trip'] };
+    if (trip.cancel) return { state, problems: ['cancelled'] };
+    const booking = { source: 'form', leadName: walkin.name, people: walkin.people, ...(walkin.email ? { leadEmail: walkin.email } : {}) };
+    const want = { date: trip.date, start: trip.start, tour: trip.tour, kind: trip.kind };
+    const { state: added } = C().addBookingToTrip(state, { tripId, want, booking, reading: null, src: 'guest', at, newId });
+    const made = added.bookings[added.bookings.length - 1];
+    const lead = added.people.find(p => p.bookingId === made.id);
+    const patch = guestPatch(walkinInput(walkin), WALKIN_ASK, '');
+    return { state: C().editPerson(added, { id: lead.id, patch, who: 'guest', src: 'guest', at }), bookingId: made.id, problems: [] };
+  }
+
+  /* 同じ日・同じ名前の予約にまとめる。代表者（名前が同じ人、無ければ予約の最初の人）の、空の所だけを入れる（お店や AI が入れた所は書き換えない）。
+     何も入れる所が無ければ problems: ['nothing']（名簿は変わらない）。{ state, bookingId, problems } */
+  function mergeWalkin(state, { bookingId, walkin, today, at }) {
+    const v = guestView(state, bookingId);
+    if (!v || v.trip === null) return { state, problems: ['gone'] };
+    if (v.trip.cancel) return { state, problems: ['cancelled'] };
+    const lead = v.people.find(e => C().sameName(e.person.name, walkin.name)) || v.people[0];
+    if (!lead) return { state, problems: ['gone'] };
+    const out = applyGuest(state, { id: lead.person.id, input: walkinInput(walkin), today, at, only: WALKIN_ASK });
+    return { ...out, bookingId };
+  }
+
   R.rosterGuest = { CONSENT_VER, VALID_CONSENT, TODAY_KEY, guestView, openParts, guestProblems, guestPatch, applyGuest, answerToday, courseOf,
-    passportOffer, passportChoices, passportSameName, applyPassport, daysBetween };
+    passportOffer, passportChoices, passportSameName, applyPassport, daysBetween, walkinMatches, addWalkin, mergeWalkin };
 })();

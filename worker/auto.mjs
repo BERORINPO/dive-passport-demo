@@ -15,6 +15,7 @@ import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName } from './
 import { mailReady, sendOne, replyToOf } from './mail.mjs';
 import { askModel } from './ask.mjs';
 import { mintLink, dropExpired } from './ask-db.mjs';
+import { dropExpiredWalkins } from './walkin-db.mjs';
 import { linkExpiry } from './ask-core.mjs';
 
 const R = globalThis.REDUX;
@@ -125,6 +126,7 @@ export async function scheduled(env, io) {
       }
       await dropExpired(env.DB, clockOf(io).today);
       await dropOldCounts(env.DB, clockOf(io).today);
+      await dropExpiredWalkins(env.DB, clockOf(io).today);   // 店頭で入れた人（個人情報）は、押されなくても受けて 2 日で消す
     }
   } catch (e) {
     note.why = shopsWhy(e, 'crash');

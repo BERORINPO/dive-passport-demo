@@ -719,7 +719,7 @@
     'auto.runDue', 'auto.addFromReading', 'auto.addFromForm', 'auto.planJobs', 'auto.moveBooking', 'auto.requestResend', 'auto.resend', 'auto.confirmSent',
     'share.addBigSample', 'share.addPartner', 'share.removePartner', 'share.setHost', 'share.addPartnerPeople', 'share.setPartnerGuide',
     'share.handOver', 'share.recordReturn', 'share.undoReturn', 'share.recordHere', 'share.recordLeave',
-    'guest.applyGuest', 'guest.answerToday', 'guest.applyPassport', 'day.setSpo2'
+    'guest.applyGuest', 'guest.answerToday', 'guest.applyPassport', 'guest.addWalkin', 'guest.mergeWalkin', 'day.setSpo2'
   ];
   /* 表の関数をそのまま呼べない物: 名簿を丸ごと置く（デモの全消し・端末に残した名簿を戻す）、2 つの関数を続けて呼ぶ（他のお店の写真の名簿を渡す） */
   const OP_SPECIAL = {

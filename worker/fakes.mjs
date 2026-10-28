@@ -3,7 +3,7 @@
    - fakeAccess: Access のチームの鍵を作り、JWT を署名し、/cdn-cgi/access/certs を返す
    - fakeAnthropic: Claude API の答え（answer に返したい文、status で失敗）
    - fakeD1: Cloudflare D1 の prepare / bind / first / run / all / batch。roster-db.mjs などが使う文だけを読む（failing で壊せる）
-   - fakeShopBinding: redux-ask から見たお店の Worker（Service Binding の SHOP。口は 4 つ。引数と答えは structuredClone を通る） */
+   - fakeShopBinding: redux-ask から見たお店の Worker（Service Binding の SHOP。口は 6 つ。引数と答えは structuredClone を通る） */
 
 /* Cloudflare の fetch と同じく、redirect は follow か manual だけを受け付ける（'error' は Workers で例外になる。ザクのレビュー） */
 export function checkRedirect(init) {
@@ -65,13 +65,14 @@ export function fakeAnthropic() {
 }
 
 /* roster-db.mjs の 6 つの文（名簿の SELECT・INSERT … ON CONFLICT DO NOTHING・版つきの UPDATE・済んだ便を足す・消す・読む）と ask-db.mjs の 6 つの文と
-   shop-db.mjs の 2 つの文と limit-db.mjs の 2 つの文だけを、本物の D1 と同じ答えの形で返す。batch は本物と同じく 1 つの transaction（途中で失敗したら全部を戻す）。
+   shop-db.mjs の 2 つの文と limit-db.mjs の 2 つの文と walkin-db.mjs の 7 つの文だけを、本物の D1 と同じ答えの形で返す。batch は本物と同じく 1 つの transaction（途中で失敗したら全部を戻す）。
    知らない文は例外にする（roster-db.mjs に文を足したら、ここにも足してテストを通す。済んだ便の SQL は test/past.test.mjs が node:sqlite でも確かめる） */
 const ADD_PAST_SQL = "INSERT INTO roster_past (shop, part, day, keep_until, body, moved_at) SELECT ?1, json_extract(value, '$.part'), json_extract(value, '$.day'), " +
   "json_extract(value, '$.keepUntil'), json_extract(value, '$.body'), ?3 FROM json_each(?2) WHERE COALESCE((SELECT version FROM rosters WHERE shop = ?1), 0) = ?4 " +
   'ON CONFLICT(shop, part) DO NOTHING';
 
-const TAKE_DAILY_SQL = 'INSERT INTO daily_counts (scope, shop, day, n) VALUES (?1, ?2, ?3, 1) ON CONFLICT(scope, shop, day) DO UPDATE SET n = n + 1 WHERE n < ?4';
+const PUT_WALKIN_KEY_SQL = 'INSERT INTO walkin_keys (shop, hash, created_at) VALUES (?1, ?2, ?3) ON CONFLICT(shop) DO UPDATE SET hash = ?2, created_at = ?3';
+const TAKE_DAILY_SQL ='INSERT INTO daily_counts (scope, shop, day, n) VALUES (?1, ?2, ?3, 1) ON CONFLICT(scope, shop, day) DO UPDATE SET n = n + 1 WHERE n < ?4';
 
 export function fakeD1() {
   const rows = new Map();
@@ -80,7 +81,11 @@ export function fakeD1() {
   const past = new Map();    // roster_past（済んだ便）。キーは「お店 + 改行 + part」
   const unread = new Map();  // mail_unread（読めなかった予約メール）。キーは「お店 + 改行 + id」
   const daily = new Map();   // daily_counts（1 日の回数）。キーは「scope + 改行 + お店 + 改行 + 日」、値は n
+  const walkinKeys = new Map();   // walkin_keys（店頭の QR の鍵の SHA-256。キーはお店）
+  const walkins = new Map();      // walkin_pending（店頭で入れた人）。キーは「お店 + 改行 + id」
   const db = {
+    walkinKeys,
+    walkins,
     daily,
     /* テストの手伝い: 1 日の回数をいきなり n にする（上限の手前まで進めるため） */
     setCount(scope, shop, day, n) { daily.set([scope, shop, day].join('\n'), n); },
@@ -104,6 +109,14 @@ export function fakeD1() {
           if (db.failing) throw new Error('d1 down');
           if (/^SELECT COUNT\(\*\) AS n FROM ask_links WHERE shop = \?1 AND booking_id = \?2 AND person_id = \?3 AND expires_on >= \?4$/.test(text)) {
             return { n: [...links.values()].filter(l => l.shop === args[0] && l.booking_id === args[1] && l.person_id === args[2] && l.expires_on >= args[3]).length };
+          }
+          if (/^SELECT shop FROM walkin_keys WHERE hash = \?1$/.test(text)) {
+            const hit = [...walkinKeys].find(([, k]) => k.hash === args[0]);
+            return hit ? { shop: hit[0] } : null;
+          }
+          if (/^SELECT created_at FROM walkin_keys WHERE shop = \?1$/.test(text)) {
+            const k = walkinKeys.get(args[0]);
+            return k ? { created_at: k.created_at } : null;
           }
           if (/^SELECT shop, booking_id, person_id, expires_on FROM ask_links WHERE hash = \?1$/.test(text)) {
             const l = links.get(args[0]);
@@ -130,6 +143,19 @@ export function fakeD1() {
           } else if (/^UPDATE ask_links SET uses = CASE WHEN day = \?2 THEN uses \+ 1 ELSE 1 END, day = \?2 WHERE hash = \?1 AND \(day <> \?2 OR uses < \?3\)$/.test(text)) {
             const l = links.get(args[0]);
             if (l && (l.day !== args[1] || l.uses < args[2])) { l.uses = l.day === args[1] ? l.uses + 1 : 1; l.day = args[1]; changes = 1; }
+          } else if (text === PUT_WALKIN_KEY_SQL) {
+            if ([...walkinKeys].some(([shop, k]) => shop !== args[0] && k.hash === args[1])) throw new Error('UNIQUE constraint failed: walkin_keys.hash');
+            walkinKeys.set(args[0], { hash: args[1], created_at: args[2] });
+            changes = 1;
+          } else if (/^INSERT INTO walkin_pending \(shop, id, trip_id, body, created_at, expires_on\) VALUES \(\?1, \?2, \?3, \?4, \?5, \?6\)$/.test(text)) {
+            const key = `${args[0]}\n${args[1]}`;
+            if (walkins.has(key)) throw new Error('UNIQUE constraint failed: walkin_pending.shop, walkin_pending.id');
+            walkins.set(key, { shop: args[0], id: args[1], trip_id: args[2], body: args[3], created_at: args[4], expires_on: args[5] });
+            changes = 1;
+          } else if (/^DELETE FROM walkin_pending WHERE shop = \?1 AND id = \?2$/.test(text)) {
+            changes = walkins.delete(`${args[0]}\n${args[1]}`) ? 1 : 0;
+          } else if (/^DELETE FROM walkin_pending WHERE expires_on < \?1$/.test(text)) {
+            for (const [k, w] of walkins) if (w.expires_on < args[0]) { walkins.delete(k); changes += 1; }
           } else if (text === ADD_PAST_SQL) {
             const row = rows.get(args[0]);
             if ((row ? row.version : 0) === args[3]) {
@@ -170,7 +196,7 @@ export function fakeD1() {
             return { results: [...shops.values()] };
           }
           if (/^SELECT name FROM sqlite_master WHERE type = 'table'$/.test(text)) {
-            const tables = ['rosters', 'ask_links', 'shops', 'roster_past', 'mail_unread', 'daily_counts'];
+            const tables = ['rosters', 'ask_links', 'shops', 'roster_past', 'mail_unread', 'daily_counts', 'walkin_keys', 'walkin_pending'];
             return { results: tables.filter(t => !(db.missingTables || []).includes(t)).map(name => ({ name })) };
           }
           if (/^SELECT shop FROM rosters$/.test(text)) return { results: [...rows.keys()].map(shop => ({ shop })) };
@@ -181,6 +207,10 @@ export function fakeD1() {
             const hit = [...past.values()].filter(p => p.shop === shop && (p.moved_at > since || (p.moved_at === since && p.part > afterPart)))
               .sort((a, b) => (a.moved_at < b.moved_at ? -1 : a.moved_at > b.moved_at ? 1 : a.part < b.part ? -1 : 1)).slice(0, limit);
             return { results: hit.map(p => ({ part: p.part, day: p.day, keep_until: p.keep_until, body: p.body, moved_at: p.moved_at })) };
+          }
+          if (/^SELECT id, trip_id, body, created_at FROM walkin_pending WHERE shop = \?1 AND expires_on >= \?2 ORDER BY created_at LIMIT \?3$/.test(text)) {
+            const hit = [...walkins.values()].filter(w => w.shop === args[0] && w.expires_on >= args[1]).sort((a, b) => (a.created_at < b.created_at ? -1 : 1)).slice(0, args[2]);
+            return { results: hit.map(w => ({ id: w.id, trip_id: w.trip_id, body: w.body, created_at: w.created_at })) };
           }
           if (/^SELECT id, at, why FROM mail_unread WHERE shop = \?1 AND at >= \?2 ORDER BY at DESC LIMIT \?3$/.test(text)) {
             const hit = [...unread.values()].filter(u => u.shop === args[0] && u.at >= args[1]).sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, args[2]);
@@ -264,11 +294,11 @@ export function fakeRateLimit(max = 5) {
 }
 
 /* shop-client.mjs の Service Binding（SHOP）の見本。service は ShopService（shop-service.mjs）。本物の RPC と同じく、引数と答えは structuredClone で
-   渡す（素のオブジェクトと配列と文字・数だけが通る）。口は 4 つだけで、service にほかのメソッドがあっても通さない（redux-ask に D1 や名簿を渡さない） */
+   渡す（素のオブジェクトと配列と文字・数だけが通る）。口は 6 つだけで、service にほかのメソッドがあっても通さない（redux-ask に D1 や名簿を渡さない） */
 export function fakeShopBinding(service) {
   const call = (name) => async (...args) => structuredClone(await service[name](...structuredClone(args)));
   const binding = { calls: [] };
-  for (const name of ['askView', 'askApply', 'siteHosts', 'siteBooking']) {
+  for (const name of ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit']) {
     const run = call(name);
     binding[name] = async (...args) => { binding.calls.push(name); return run(...args); };
   }
