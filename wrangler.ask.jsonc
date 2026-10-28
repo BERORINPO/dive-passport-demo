@@ -1,7 +1,8 @@
 // Access を付けない Worker の設定（plan/meibo.md「お客さんのリンク」・plan/auto.md「予約を受ける口」）。
-// ask.html と、それが読むファイル（node tools/build-site.mjs が作る dist-ask/）と、/api/ask と /api/bookings（お店のサイトの予約フォーム）と /api/health だけを置く。
+// ask.html と、それが読むファイル（node tools/build-site.mjs が作る dist-ask/）と、/api/ask・/api/walkin・/api/bookings（お店のサイトの予約フォーム）・
+// /api/v1/bookings（予約の受け口 API。別のシステムのサーバーから。Authorization の API キー）・/api/health だけを置く。
 // この Worker は D1 を持たない（2026-10-28 ask-service-binding。SEC-13）。名簿・鍵の行・お店の一覧は、お店の Worker（wrangler.jsonc）の
-// ShopRpc を Service Binding の SHOP で呼ぶ（口は 6 つ: askView・askApply・siteHosts・siteBooking・walkinView・walkinSubmit。worker/shop-service.mjs）。お店の画面・名簿の道（/api/roster）は置かない。
+// ShopRpc を Service Binding の SHOP で呼ぶ（口は 7 つ: askView・askApply・siteHosts・siteBooking・walkinView・walkinSubmit・intakeBooking。worker/shop-service.mjs）。お店の画面・名簿の道（/api/roster）は置かない。
 // secret: TURNSTILE_SECRET を wrangler secret put -c wrangler.ask.jsonc で入れる。サイトの住所（SITE_ORIGINS）と SINGLE_SHOP は、お店の一覧を引くお店の Worker 側に要る
 // （この Worker では使わない。前に入れた SITE_ORIGINS は消してよい）。ASK_ORIGIN は使わない。
 // 置き方: node tools/build-site.mjs && npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc（docs/deploy.md）。**お店の Worker を先に置く**:
@@ -29,7 +30,9 @@
     // 1 つの IP から /api/ask を呼べる回数（1 分に 30 回）。鍵 1 つの 1 日の回数は、お店の Worker が D1 で数える
     { "name": "ASK_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
     // サイトの予約フォームの、1 つの IP の回数（1 分に 5 回）
-    { "name": "BOOKING_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } }
+    { "name": "BOOKING_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
+    // 予約の受け口 API（/api/v1/bookings）の、1 つの IP の回数（1 分に 60 回。Zapier など共有の出口からも来るので、サイトの予約フォームより広く）。鍵ごとの 1 日の件数はお店の Worker が D1 で数える
+    { "name": "INTAKE_LIMIT", "namespace_id": "1005", "simple": { "limit": 60, "period": 60 } }
   ],
   "kv_namespaces": [
     // 1 日の件数（サイトの予約）はお店の Worker が D1 の daily_counts で数える（migration 0006）。KV は Cron が最後に動いた時刻（cron:last）を

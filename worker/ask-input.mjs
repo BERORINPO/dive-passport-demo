@@ -76,3 +76,22 @@ export function checkApply(req) {
   const got = checkAction(req);
   return got.ok ? { ok: true, ...req } : got;
 }
+
+/* ---------- 予約の受け口 API（POST /api/v1/bookings。決定ログ 2026-10-28 intake-api） ----------
+   redux-ask は、Authorization の鍵の形と Idempotency-Key の形と本文の大きさだけを見る。項目の中身の検査は、お店の Worker が
+   名簿と同じ検査（worker/intake-core.mjs）でかけ直す。鍵は「rdx_」と 32 バイトの base64url（43 字） */
+export const MAX_INTAKE_BODY = 4096;
+export const API_KEY_RE = /^rdx_[A-Za-z0-9_-]{43}$/;
+const IDEM_RE = /^[\x21-\x7e]{1,128}$/;
+
+/* Authorization ヘッダから鍵を取り出す。形が合わなければ '' */
+export function bearerOf(header) {
+  const m = /^Bearer\s+(\S+)$/i.exec(String(header || '').trim());
+  return m && API_KEY_RE.test(m[1]) ? m[1] : '';
+}
+
+/* Idempotency-Key（無ければ null か ''）。空は「付けていない」。{ ok: true, key } か { ok: false } */
+export function idemKeyOf(value) {
+  if (value === null || value === undefined || value === '') return { ok: true, key: '' };
+  return typeof value === 'string' && IDEM_RE.test(value) ? { ok: true, key: value } : { ok: false };
+}

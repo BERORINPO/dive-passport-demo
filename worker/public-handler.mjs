@@ -1,23 +1,27 @@
-/* Access を付けない Worker（redux-ask。入口は worker/ask-index.mjs）の道（entry）。受けるのは 4 つだけで、ほかの /api は 404:
+/* Access を付けない Worker（redux-ask。入口は worker/ask-index.mjs）の道（entry）。受けるのは 5 つだけで、ほかの /api は 404:
    - /api/ask（お客さんのリンク。ask.html から同じ場所で呼ぶ）
    - /api/walkin（店頭の QR。walkin.html から同じ場所で呼ぶ。鍵は店頭に貼った QR の # の後ろ）
    - /api/bookings（お店のサイトの予約フォーム。別の origin から CORS で）
+   - /api/v1/bookings（予約の受け口 API。お店のサイト・WordPress・Zapier など別のシステムのサーバーから。Authorization: Bearer の API キー。
+     CORS は付けず、ブラウザの Origin 付きの要求は 403 で断る。決定ログ 2026-10-28 intake-api）
    - /api/health（外の死活監視。Cron が最後に動いた時刻を KV の BUDGET から読む）
    この Worker は D1 を持たない（SEC-13）。名簿・鍵の行・お店の一覧は、Service Binding の SHOP（お店の Worker の ShopRpc。shop-client.mjs）の
-   6 つの口の向こうにあり、ここに残すのは道・Sec-Fetch-Site・許した origin（CORS）・Turnstile・1 つの IP の回数・本文の種類と大きさと形・鍵の SHA-256 だけ。
+   7 つの口の向こうにあり、ここに残すのは道・Sec-Fetch-Site・許した origin（CORS）・Turnstile・1 つの IP の回数・本文の種類と大きさと形・鍵の SHA-256 だけ。
    お店の画面・名簿の道（/api/roster）・リンクを作る道（/api/ask-link）・AI の読み取りは、この束に入れない（test/ask-link.test.mjs が import をたどって確かめる）。
    守りの順番  ask: 道と method → Sec-Fetch-Site → 設定 → 種類 → 1 つの IP の回数 → 大きさ → 形 → （お店の Worker で）鍵の行と鍵ごとの回数。
    bookings: 道と method → 許した origin（お店の Worker に聞く）→ 設定 → 種類 → 1 つの IP の回数 → 大きさ → Turnstile → （お店の Worker で）形。
+   /api/v1/bookings: 道と method → ブラウザの要求を断る（Origin・Sec-Fetch-Site） → 設定 → 1 つの IP の回数 → API キーの形 → 種類 → 大きさ → 本文と Idempotency-Key の形 →
+   （お店の Worker で）鍵の行・同じ予約の 2 回目・本文の検査・鍵ごとの 1 日の件数。
    お店の Worker の handler.mjs も、手元の確かめ（tools/serve-dist.mjs）のために ask と bookings をここから使う（SHOP は同じ Worker の ShopService）。
    ログは 1 要求 1 行（道の名前・状態・短い理由・量・時間だけ。鍵・名前・メールアドレスは出さない） */
 import { json, isJson, readCapped } from './api-http.mjs';
 import { shopClient } from './shop-client.mjs';
 import { keyHash } from './ask-key.mjs';
-import { checkAsk, MAX_ASK_BODY, checkWalkin, MAX_WALKIN_BODY } from './ask-input.mjs';
+import { checkAsk, MAX_ASK_BODY, checkWalkin, MAX_WALKIN_BODY, MAX_INTAKE_BODY, bearerOf, idemKeyOf } from './ask-input.mjs';
 import { verifyTurnstile, underLimit } from './site-guard.mjs';
 import { MAX_BOOKING_BODY, cronFresh, CRON_STALE_MS } from './auto-core.mjs';
 
-const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/walkin': ['POST'], '/api/bookings': ['POST', 'OPTIONS'], '/api/health': ['GET'] };
+const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/walkin': ['POST'], '/api/bookings': ['POST', 'OPTIONS'], '/api/v1/bookings': ['POST'], '/api/health': ['GET'] };
 const BOOKING_NEEDS = ['TURNSTILE_SECRET'];
 
 const hasLimiter = (l) => Boolean(l && typeof l.limit === 'function');
@@ -63,6 +67,28 @@ export async function bookings(request, env, io, note) {
   const got = await shop.siteBooking(origin, given);
   Object.assign(note, got.note);
   return json(got.status, got.body, cors);
+}
+
+/* 予約の受け口 API。サーバーからサーバーへ送る口で、CORS は付けない。ブラウザは Origin（と Sec-Fetch-Site）を必ず付けるので、付いていたら 403 で断る
+   （API キーを、ウェブページの中に書かせない）。鍵は SHA-256 にしてから、お店の Worker に渡す。鍵が無い・形が違う・止めた・知らないは同じ 401 */
+export async function intake(request, env, io, note) {
+  if (request.headers.get('origin') !== null || request.headers.get('sec-fetch-site') !== null) { note.why = 'origin'; return json(403, { error: 'origin' }); }
+  const shop = shopClient(env.SHOP);
+  if (!shop || !hasLimiter(env.INTAKE_LIMIT)) { note.why = 'config:intake'; return json(503, { error: 'config' }); }
+  if (!(await underLimit(env.INTAKE_LIMIT, request.headers.get('cf-connecting-ip') || ''))) { note.why = 'rate'; return json(429, { error: 'limit' }); }
+  const auth = request.headers.get('authorization');
+  const bearer = bearerOf(auth);
+  if (!bearer) { note.why = auth ? 'auth-format' : 'auth-missing'; return json(401, { error: 'auth' }, { 'www-authenticate': 'Bearer' }); }
+  if (!isJson(request)) return json(415, { error: 'type' });
+  const raw = await readCapped(request, MAX_INTAKE_BODY);
+  if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }); }
+  let given;
+  try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
+  const idem = idemKeyOf(request.headers.get('idempotency-key'));
+  if (!idem.ok) { note.why = 'input-idem'; return json(400, { error: 'input', fields: ['idempotency_key'] }); }
+  const got = await shop.intakeBooking(await keyHash(bearer), given, idem.key);
+  Object.assign(note, got.note);
+  return json(got.status, got.body, got.status === 401 ? { 'www-authenticate': 'Bearer' } : undefined);
 }
 
 /* お客さんのリンク（Access の外）。同じ場所（ask.html）からの呼び出しだけ。鍵は SHA-256 にしてから、お店の Worker に渡す */
@@ -115,6 +141,7 @@ export async function handlePublic(request, env, io) {
     if (!methods) res = json(404, { error: 'path' });
     else if (!methods.includes(request.method)) res = json(405, { error: 'method' }, { allow: methods.join(', ') });
     else if (url.pathname === '/api/bookings') res = await bookings(request, env, io, note);
+    else if (url.pathname === '/api/v1/bookings') res = await intake(request, env, io, note);
     else if (url.pathname === '/api/health') res = await cronHealth(env, io, note);
     else if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; res = json(403, { error: 'site' }); }
     else if (url.pathname === '/api/walkin') res = await walkin(request, env, io, note);

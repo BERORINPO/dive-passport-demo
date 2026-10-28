@@ -54,6 +54,8 @@ export function headers() {
 
 /* 他のお店のスマホで開くパスポートは、GitHub Pages の公開版（Worker は Access の中なので、他のお店は開けない。spec/architecture.md の pass-place） */
 export const PASS_BASE = 'https://berorinpo.github.io/dive-passport-demo/';
+/* 予約の受け口 API の説明書（docs/api.md）。鍵の画面（js/api-keys-staff.js）のリンクの先。js には外の URL を書けないので、meta で渡す */
+export const API_DOCS_URL = 'https://github.com/BERORINPO/dive-passport-demo/blob/main/docs/api.md';
 const REFERRER_META = '<meta name="referrer" content="no-referrer">';
 
 /* Worker 版の index.html。redux-worker の印（画面はこの印があるときだけ /api/healthz を確かめ、名簿をサーバーとそろえる。js/app.js）を足し、
@@ -63,7 +65,7 @@ export function workerIndex(index) {
   const band = /<!-- 見本の帯[^\n]*-->\r?\n<p class="demo-band"[^\n]*<\/p>\r?\n/;
   if (!band.test(index) || !index.includes('（見本）</title>')) throw new Error('index.html に見本の帯か題の印が無い（Worker 版から外す物の形が変わった）');
   return index.replace(band, '').replace('（見本）</title>', '</title>').replace(REFERRER_META,
-    `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-worker" content="1">`);
+    `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-api-docs" content="${API_DOCS_URL}">\n<meta name="redux-worker" content="1">`);
 }
 
 function build() {

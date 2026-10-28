@@ -55,7 +55,7 @@ const buttons = (root, text) => [...all(root, 'button'), ...all(root, 'a')].filt
 /* ---------- 画面の部品を index.html と同じ順で読む ---------- */
 const SCRIPTS = ['core.js', 'data.js', 'data-sipe.js', 'qr.js', 'roster-schema.js', 'health-redact.js', 'roster-core.js', 'roster-guest.js', 'roster-day.js', 'roster-share.js',
   'roster-auto.js', 'data-samples.js', 'data-big-sample.js', 'photo-mask.js', 'photo-prep.js', 'ai-reader.js', 'roster-sync.js', 'day-roster.js', 'past-trips.js', 'share-roster.js',
-  'partner-photo.js', 'intake-photo.js', 'auto-flow.js', 'contact-link.js', 'walkin-staff.js', 'booking-add.js', 'booking-edit.js', 'booking.js'];
+  'partner-photo.js', 'intake-photo.js', 'auto-flow.js', 'contact-link.js', 'walkin-staff.js', 'api-keys-staff.js', 'booking-add.js', 'booking-edit.js', 'booking.js'];
 const memory = () => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: k => m.delete(k), raw: m }; };
 
 function boot({ worker = true } = {}) {

@@ -16,6 +16,8 @@ import { mailReady, sendOne, replyToOf } from './mail.mjs';
 import { askModel } from './ask.mjs';
 import { mintLink, dropExpired } from './ask-db.mjs';
 import { dropExpiredWalkins } from './walkin-db.mjs';
+import { dropOldIdem } from './intake-db.mjs';
+import { IDEM_KEEP_DAYS } from './intake-core.mjs';
 import { linkExpiry } from './ask-core.mjs';
 
 const R = globalThis.REDUX;
@@ -29,7 +31,7 @@ export function clockOf(io) {
   const now = io.now();
   return { at: new Date(now).toISOString(), nowJst: new Date(now + JST_MS).toISOString().slice(0, 16), today: periods(now).day };
 }
-const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const dbReady = (env) => Boolean(env.DB && typeof env.DB.prepare === 'function');
 /* お客さんへの連絡のリンクの所は印（LINK_MARK）のまま名簿に残し、送る直前に予約ごとの鍵のリンクを作って差し替える。
    作り直すと前のリンクは開けなくなる（2 日前の連絡を送ったら、最初の連絡のリンクは止まる） */
@@ -127,6 +129,7 @@ export async function scheduled(env, io) {
       await dropExpired(env.DB, clockOf(io).today);
       await dropOldCounts(env.DB, clockOf(io).today);
       await dropExpiredWalkins(env.DB, clockOf(io).today);   // 店頭で入れた人（個人情報）は、押されなくても受けて 2 日で消す
+      await dropOldIdem(env.DB, new Date(io.now() - IDEM_KEEP_DAYS * 86400000).toISOString());   // 予約の受け口 API の「同じ予約の 2 回目」の記録は 7 日で消す
     }
   } catch (e) {
     note.why = shopsWhy(e, 'crash');

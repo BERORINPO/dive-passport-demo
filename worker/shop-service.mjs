@@ -1,4 +1,4 @@
-/* redux-ask（Access なし）がお店の Worker を呼ぶ 6 つの口（entry。お店の Worker 側）。D1・名簿・お店の一覧に触れるのはここから先だけで、
+/* redux-ask（Access なし）がお店の Worker を呼ぶ 7 つの口（entry。お店の Worker 側）。D1・名簿・お店の一覧に触れるのはここから先だけで、
    redux-ask は D1 の binding を持たない（SEC-13。2026-10-28 ask-service-binding）。
    - askView(hash)                       お客さんのリンクを開く。鍵の SHA-256 から、名前と聞く項目の名前だけを返す
    - askApply(hash, req, origin)         リンクから答える・1 人ずつのリンクを作る（req は鍵を除いた本文）
@@ -6,13 +6,15 @@
    - siteBooking(origin, given)          サイトの予約を、その origin のお店の名簿に入れる（Turnstile と回数は redux-ask が先にかける）
    - walkinView(hash)                    店頭の QR を開く。鍵の SHA-256 から、お店の名前と今日・明日の便の日付・時刻・ツアーの名前だけを返す
    - walkinSubmit(hash, req)             店頭で入れた項目を、名簿と同じ検査にかけて「店頭で入れた人」に置く（名簿の本体には入れない）
+   - intakeBooking(hash, given, idem)    予約の受け口 API（POST /api/v1/bookings）。API キーの SHA-256 から、そのお店の名簿に予約を入れる（決定ログ 2026-10-28 intake-api）
    どの口も { status, body, note } を返す（siteHosts は { ok, hosts, note } か { ok: false, status, body, note }）。note はログに足す短い理由で、
    中身・名前・メールアドレスは入れない。呼び手が送ってくる値も信じない: 形を確かめ直し（ask-input.mjs）、お店は origin と鍵の行から自分で決める。
    Cloudflare の口は shop-rpc.mjs（WorkerEntrypoint）。ここは素のクラスで、テストは直に呼ぶ（外との境目の見本は fakes.mjs の fakeShopBinding） */
 import { askView, askApply } from './ask-route.mjs';
 import { takeSiteBooking } from './auto.mjs';
-import { HASH_RE, checkApply, checkWalkinApply } from './ask-input.mjs';
+import { HASH_RE, checkApply, checkWalkinApply, idemKeyOf } from './ask-input.mjs';
 import { walkinView, walkinSubmit } from './walkin-route.mjs';
+import { intakeBooking } from './intake-route.mjs';
 import { listShops, shopsWhy } from './shop-db.mjs';
 import { shopForOrigin, sitesOf, nameOf } from './shop-core.mjs';
 
@@ -70,6 +72,16 @@ export class ShopService {
     if (!checked.ok) return refuse(400, 'input', `input-${checked.error}`);
     const note = {};
     return { ...(await walkinSubmit(this.env, this.io, note, hash, req)), note };
+  }
+
+  /* 予約の受け口 API。hash は redux-ask が Authorization の鍵から作った SHA-256、given は JSON にした本文、idem は Idempotency-Key（無ければ ''）。
+     お店は鍵の行から決める（呼び手が送ってくる値では決めない）。本文の検査はここでかけ直す */
+  async intakeBooking(hash, given, idem) {
+    if (!dbReady(this.env)) return refuse(503, 'config', 'config:DB');
+    if (typeof hash !== 'string' || !HASH_RE.test(hash)) return refuse(400, 'input', 'input-hash');
+    if (!idemKeyOf(idem).ok) return refuse(400, 'input', 'input-idem');
+    const note = {};
+    return { ...(await intakeBooking(this.env, this.io, note, hash, given, idem)), note };
   }
 
   async siteHosts(origin) {

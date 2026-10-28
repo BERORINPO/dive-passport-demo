@@ -14,6 +14,10 @@ import { listShops, rosterShops } from '../worker/shop-db.mjs';
 import { addUnread, listUnread, dropUnread } from '../worker/unread-db.mjs';
 import { takeDaily, takeDailyAll, dropOldCounts } from '../worker/limit-db.mjs';
 import { putWalkinKey, findWalkinShop, walkinKeyAt, addWalkin, listWalkins, dropWalkin, dropExpiredWalkins } from '../worker/walkin-db.mjs';
+import { putApiKey, findApiKey, countApiKeys, listApiKeys, rotateApiKey, revokeApiKey, claimIdem, readIdem, finishIdem, releaseIdem, dropOldIdem } from '../worker/intake-db.mjs';
+import { changeKeysFor } from '../worker/intake-route.mjs';
+import { ShopService } from '../worker/shop-service.mjs';
+import { keyHash } from '../worker/ask-key.mjs';
 import { checkPut } from '../worker/sync-core.mjs';
 import { handle } from '../worker/handler.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
@@ -109,6 +113,49 @@ async function scenario(db) {
   await log('walkin-drop-again', dropWalkin(db, 'shop-a', 'x1'));
   await log('walkin-drop-other-shop', dropWalkin(db, 'shop-b', 'x2'));
   await log('walkin-expire', dropExpiredWalkins(db, '2026-10-28').then(() => listWalkins(db, 'shop-a', '2000-01-01', 50)));
+  /* 予約の受け口 API（0008）: 鍵の SHA-256 から引く・数える・並べる・作り直す・止める */
+  const LATER = '2026-10-27T02:00:00.000Z';
+  await log('apikey-find-none', findApiKey(db, 'h1'));
+  await log('apikey-put', putApiKey(db, { id: 'k1', shop: 'shop-a', hash: 'h1', label: 'WordPress', at: AT }));
+  await log('apikey-put-dup-hash', putApiKey(db, { id: 'k9', shop: 'shop-a', hash: 'h1', label: 'x', at: AT }));
+  await log('apikey-put-dup-id', putApiKey(db, { id: 'k1', shop: 'shop-a', hash: 'h9', label: 'x', at: AT }));
+  await log('apikey-put-2', putApiKey(db, { id: 'k2', shop: 'shop-a', hash: 'h2', label: 'Zapier', at: LATER }));
+  await log('apikey-put-other-shop', putApiKey(db, { id: 'k3', shop: 'shop-b', hash: 'h3', label: 'B', at: AT }));
+  await log('apikey-find', findApiKey(db, 'h1'));
+  await log('apikey-count', countApiKeys(db, 'shop-a'));
+  await log('apikey-list', listApiKeys(db, 'shop-a', 50));
+  await log('apikey-list-limit', listApiKeys(db, 'shop-a', 1));
+  await log('apikey-rotate', rotateApiKey(db, { shop: 'shop-a', id: 'k1', hash: 'h1b', at: LATER }));
+  await log('apikey-rotate-old-hash', findApiKey(db, 'h1'));
+  await log('apikey-rotate-new-hash', findApiKey(db, 'h1b'));
+  await log('apikey-rotate-other-shop', rotateApiKey(db, { shop: 'shop-b', id: 'k1', hash: 'h1c', at: LATER }));
+  await log('apikey-rotate-dup-hash', rotateApiKey(db, { shop: 'shop-a', id: 'k1', hash: 'h2', at: LATER }));
+  await log('apikey-revoke-other-shop', revokeApiKey(db, { shop: 'shop-b', id: 'k2', at: LATER }));
+  await log('apikey-revoke', revokeApiKey(db, { shop: 'shop-a', id: 'k2', at: LATER }));
+  await log('apikey-revoke-again', revokeApiKey(db, { shop: 'shop-a', id: 'k2', at: '2026-10-28T00:00:00.000Z' }));
+  await log('apikey-revoked-find', findApiKey(db, 'h2'));
+  await log('apikey-rotate-revoked', rotateApiKey(db, { shop: 'shop-a', id: 'k2', hash: 'h2b', at: LATER }));
+  await log('apikey-count-after', countApiKeys(db, 'shop-a'));
+  await log('apikey-list-after', listApiKeys(db, 'shop-a', 50));
+  /* 同じ予約を 2 回入れない: 受け付ける・受け付け中は引き継げない・古ければ引き継ぐ・結果を書く・消す */
+  const claim = (keyId, idem, at, stale, expired) => claimIdem(db, { keyId, idem, at, staleBefore: stale, expiredBefore: expired });
+  const T1 = '2026-10-27T01:00:00.000Z';
+  const T2 = '2026-10-27T01:05:00.000Z';
+  await log('idem-read-none', readIdem(db, { keyId: 'k1', idem: 'i1' }));
+  await log('idem-claim', claim('k1', 'i1', T1, '2026-10-27T00:58:00.000Z', '2026-10-20T01:00:00.000Z'));
+  await log('idem-claim-pending', claim('k1', 'i1', T2, '2026-10-27T00:59:00.000Z', '2026-10-20T01:00:00.000Z'));
+  await log('idem-read-pending', readIdem(db, { keyId: 'k1', idem: 'i1' }));
+  await log('idem-claim-stale', claim('k1', 'i1', T2, '2026-10-27T01:03:00.000Z', '2026-10-20T01:00:00.000Z'));
+  await log('idem-finish', finishIdem(db, { keyId: 'k1', idem: 'i1', bookingId: 'b1' }));
+  await log('idem-read-done', readIdem(db, { keyId: 'k1', idem: 'i1' }));
+  await log('idem-claim-done', claim('k1', 'i1', '2026-10-27T03:00:00.000Z', '2026-10-27T02:58:00.000Z', '2026-10-20T01:00:00.000Z'));
+  await log('idem-finish-again', finishIdem(db, { keyId: 'k1', idem: 'i1', bookingId: 'b2' }).then(() => readIdem(db, { keyId: 'k1', idem: 'i1' })));
+  await log('idem-release-done', releaseIdem(db, { keyId: 'k1', idem: 'i1' }).then(() => readIdem(db, { keyId: 'k1', idem: 'i1' })));
+  await log('idem-other-key', claim('k2', 'i1', T1, '2026-10-27T00:58:00.000Z', '2026-10-20T01:00:00.000Z'));
+  await log('idem-release-pending', releaseIdem(db, { keyId: 'k2', idem: 'i1' }).then(() => readIdem(db, { keyId: 'k2', idem: 'i1' })));
+  await log('idem-claim-expired', claim('k1', 'i1', '2026-11-05T01:00:00.000Z', '2026-11-05T00:58:00.000Z', '2026-10-29T01:00:00.000Z').then(async ok => [ok, await readIdem(db, { keyId: 'k1', idem: 'i1' })]));
+  await log('idem-drop-old', claim('k1', 'i2', T1, '2026-10-27T00:58:00.000Z', '2026-10-20T01:00:00.000Z')
+    .then(() => dropOldIdem(db, '2026-11-01T00:00:00.000Z')).then(async () => [await readIdem(db, { keyId: 'k1', idem: 'i2' }), await readIdem(db, { keyId: 'k1', idem: 'i1' })]));
   return out;
 }
 
@@ -196,6 +243,27 @@ test('名簿・済んだ便・読めなかった予約メールを、本物の h
   db.raw.prepare("INSERT INTO mail_unread (shop, id, at, why) VALUES ('default', 'u1', '2026-10-27T00:00:00.000Z', 'ai')").run();
   assert.equal((await call('GET', '/api/mail-unread')).body.items.length, 1);
   assert.equal((await call('POST', '/api/mail-unread', { id: 'u1' })).status, 200);
+});
+
+test('予約の受け口 API（migration 0008）を本物の SQLite につないで通しで動かす: 鍵 → 予約 → 同じ Idempotency-Key の 2 回目 → 1 日の上限 → 止めると断る', async () => {
+  const db = await sqliteD1();
+  const env = { DB: db, SINGLE_SHOP: 'default', INTAKE_DAILY_MAX: '2' };
+  const io = { now: () => Date.parse('2026-10-27T01:00:00Z') };
+  const shop = new ShopService(env, io);
+  const made = await changeKeysFor(env, io, {}, 'default', { action: 'create', label: 'WordPress' }, 'https://ask.example');
+  assert.equal(made.status, 200);
+  const hash = await keyHash(made.body.key);
+  assert.equal(db.raw.prepare('SELECT hash FROM api_keys WHERE id = ?').get(made.body.id).hash, hash, 'D1 には SHA-256 だけ');
+  const body = { date: '2026-11-03', tour: '体験ダイビング', people: 2, lead_name: '見本 花子' };
+  const first = await shop.intakeBooking(hash, body, 'order-1');
+  const replay = await shop.intakeBooking(hash, body, 'order-1');
+  assert.deepEqual([first.status, replay.status, replay.body.booking_id], [201, 200, first.body.booking_id]);
+  assert.equal(JSON.parse(db.raw.prepare("SELECT state FROM rosters WHERE shop = 'default'").get().state).bookings.length, 1);
+  assert.equal((await shop.intakeBooking(hash, body, 'order-2')).status, 201);
+  assert.equal((await shop.intakeBooking(hash, body, 'order-3')).status, 429);
+  assert.equal(db.raw.prepare("SELECT COUNT(*) AS n FROM api_idempotency WHERE booking_id = ''").get().n, 0, '断った要求の印は残らない');
+  assert.equal((await revokeApiKey(db, { shop: 'default', id: made.body.id, at: '2026-10-27T02:00:00.000Z' })), true);
+  assert.equal((await shop.intakeBooking(hash, body, 'order-4')).status, 401);
 });
 
 let failed = 0;
