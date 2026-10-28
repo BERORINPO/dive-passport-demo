@@ -11,7 +11,7 @@
    /api/ask もお客さんのリンク（ask.html）から Access の外で呼ぶ。守りの順番: 道と method → Sec-Fetch-Site → 設定 → 種類 → 1 つの IP の回数 → 大きさ → 形 → 鍵
    （鍵の回数は ask-route.mjs）。/api/ask-link はお店がリンクを作る道で、/api/roster と同じく Access の内。中身は ask-route.mjs、計画は plan/meibo.md */
 import { checkRequest, periods, limitsFrom, MAX_BODY, MODEL } from './read-core.mjs';
-import { checkPut, readStored, shrinkProblem, MAX_PUT_BODY } from './sync-core.mjs';
+import { checkPut, readStored, shrinkProblem, serverOwned, MAX_PUT_BODY } from './sync-core.mjs';
 import { liveOf, checkPastRange, readPast, MAX_PAST_ROWS } from './past-core.mjs';
 import { verifyAccess } from './access.mjs';
 import { remaining } from './budget.mjs';
@@ -143,6 +143,20 @@ async function roster(request, env, io, note, who) {
     const { shop: sent, ...rest } = given;
     if (typeof sent !== 'string' || sent !== shop) { note.why = 'shop-changed'; return json(409, { error: 'shop', shop }); }
     given = rest;
+  }
+  /* 送る連絡と予定の動きはサーバーの物。画面が足した・書き換えた連絡は、今の名簿の物に戻してから検査にかける
+     （ログインした端末から任意の宛先・本文のメールを送らせない。ジンのレビュー 2026-10-28 H2。js/roster-auto.js の serverOwned） */
+  if (given && typeof given === 'object' && given.state && typeof given.state === 'object' && Number.isInteger(given.base)) {
+    let base = null;
+    try {
+      if (given.base > 0) {
+        const now = await current();
+        /* 版は合うのに保存済みの名簿が読めないときは、空の名簿を元にせず断る（画面の連絡と予定をそのまま通さない。ザクのレビュー 2026-10-28 LOW） */
+        if (now.version === given.base && !now.state) { note.why = 'stored'; return json(500, { error: 'stored' }); }
+        if (now.version === given.base) base = now.state;
+      }
+    } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
+    given = { ...given, state: serverOwned(base, given.state) };
   }
   const checked = checkPut(given, { today, at });
   if (!checked.ok) {

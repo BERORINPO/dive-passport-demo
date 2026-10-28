@@ -288,6 +288,67 @@ test('送り直し: 送れたか分からない連絡をお店が送り直すと
   assert.deepEqual(outbox.map(o => [o.status, o.why]), [['failed', 'resent'], ['sent', '']]);
 });
 
+test('ジンのレビュー 2026-10-28 H2: 名簿に入り込んだ連絡でも、Cron は宛先と本文を今の予約から作り直して送る（書いてある宛先・本文・リンクは使わない）', async () => {
+  const s = setup({ ASK_ORIGIN: 'https://ask.example.com' });
+  await handle(booking(GOOD), s.env, s.io);
+  await scheduled(s.env, s.io);   // 最初のお願いを送る
+  s.mail.sent.length = 0;
+  const st0 = stored(s.db);
+  const b = st0.bookings[0];
+  const evil = { ...st0.outbox[0], id: 'evil1', to: 'victim@attacker.example', subject: '差し替えた件名', body: `差し替えた本文 ${ORIGIN}/#ask=${b.id}`, status: 'queued', why: '', sentAt: '' };
+  assert.ok((await changeRoster(s.env, s.io, st => ({ state: { ...st, outbox: [...st.outbox, evil] } }))).ok);
+  s.io.clock = NOW + 16 * 60000;
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 1);
+  const m = s.mail.sent[0];
+  assert.equal(m.to, GOOD.email, '宛先は予約のメール');
+  assert.ok(!m.text.includes('差し替えた') && !m.subject.includes('差し替えた'), '本文と件名は決まった文面');
+  assert.ok(m.text.includes('https://ask.example.com/') && !m.text.includes(ORIGIN), 'リンクはお客さんの住所（Access の中の住所は入れない）');
+});
+
+test('ザクのレビュー 2026-10-28 MEDIUM-1: スタッフが書ける名前・ツアーに改行や URL を入れても、Cron が作るメールには入らない', async () => {
+  const s = setup({ ASK_ORIGIN: 'https://ask.example.com' });
+  await handle(booking(GOOD), s.env, s.io);
+  const evil = '見本\n\n【重要】こちらから再入力 https://evil.example/x www.evil.jp evil.com';
+  assert.ok((await changeRoster(s.env, s.io, st => ({ state: {
+    ...st,
+    bookings: st.bookings.map(b => ({ ...b, leadName: evil })),
+    people: st.people.map(p => ({ ...p, name: evil })),
+    trips: st.trips.map(t => ({ ...t, tour: `${t.tour}\nhttp://evil.example` }))
+  } }))).ok);
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 1);
+  const m = s.mail.sent[0];
+  for (const bad of ['evil.example', 'www.evil', 'evil.com', '\n\n【重要】']) {
+    assert.ok(!m.text.includes(bad) && !m.subject.includes(bad), `メールに「${bad.trim()}」が入らない`);
+  }
+  assert.ok(m.text.startsWith('見本 【重要】こちらから再入力 様\n'), '名前は 1 行の文字として残る');
+  assert.ok(m.text.includes('https://ask.example.com/'), 'リンクはお店のお願いのリンクだけ');
+});
+
+test('ジンのレビュー 2026-10-28 H1: 画面は送り直しを頼むだけ（requestResend）。次の Cron が今の予約から 1 通だけ作って送る。2 回頼んでも 1 通', async () => {
+  const s = setup();
+  await handle(booking(GOOD), s.env, s.io);
+  const send = s.mail.send;
+  s.mail.send = async (msg) => { const r = await send(msg); s.db.failing = true; return r; };
+  await scheduled(s.env, s.io);
+  s.db.failing = false;
+  s.mail.send = send;
+  s.io.clock = NOW + 31 * 60000;
+  await scheduled(s.env, s.io);
+  const id = stored(s.db).outbox[0].id;
+  const A = globalThis.REDUX.rosterAuto;
+  const ask = () => changeRoster(s.env, s.io, st => ({ state: A.requestResend(st, { id, nowJst: '2026-10-27T10:31' }).state }));
+  assert.ok((await ask()).ok);
+  assert.ok((await ask()).ok);
+  assert.deepEqual(stored(s.db).outbox.map(o => [o.status, o.why]), [['failed', 'resend']], '頼んだ印だけ。連絡はまだ作らない');
+  s.io.clock = NOW + 46 * 60000;
+  await scheduled(s.env, s.io);
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent.length, 2, '最初の 1 通と、送り直しの 1 通だけ');
+  assert.deepEqual(stored(s.db).outbox.map(o => [o.status, o.why]), [['failed', 'resent'], ['sent', '']]);
+});
+
 test('ジンのレビュー: 1 回に印を付けて送るのは 10 件まで。残りは次の回に送る', async () => {
   const s = setup();
   for (let i = 0; i < 12; i += 1) {
