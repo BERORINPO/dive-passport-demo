@@ -30,12 +30,12 @@ async function importMail(R, id) {
   const req = { doc: 'mail', text, sampleId: id };
   const shown = R.aiReader.preview(req);
   const { reading, sent } = await R.aiReader.read(req);
-  R.rosterStore.update(s => R.rosterCore.logAi(s, { at: AT, sent }));
+  R.rosterStore.apply('core.logAi', { at: AT, sent });
   const b = reading.booking;
   const want = { date: b.date, start: b.start, tour: b.tour, kind: '' };
   const sug = R.rosterCore.suggestTrip(R.rosterStore.get(), want);
-  const saved = R.rosterStore.update(s => R.rosterCore.addBookingToTrip(s, { tripId: sug.tripId, want: { ...want, kind: sug.kind },
-    booking: R.rosterCore.bookingFromReading(reading), reading, src: 'mail', at: AT, newId: R.newId }).state);
+  const { saved } = R.rosterStore.apply('core.addBookingToTrip', { tripId: sug.tripId, want: { ...want, kind: sug.kind },
+    booking: R.rosterCore.bookingFromReading(reading), reading, src: 'mail', at: AT });
   return { shown, saved };
 }
 
@@ -311,6 +311,28 @@ test('選択肢の形: 横につなげるのは短い名前だけ（2 つなら 
 test('形の合わない state は保存しない', () => {
   const R = boot(memory());
   assert.throws(() => R.rosterStore.update(s => ({ ...s, trips: 'x' })), /形が合わない/);
+});
+
+test('apply: サーバーを使わないときも、画面と同じ入れ方で保存され、読み直しても同じ。問題があって変わらない直しは保存しない', () => {
+  const local = memory();
+  const R = boot(local);
+  const want = { date: '2099-01-10', start: '08:30', tour: '体験ダイビング', kind: 'dive' };
+  const input = { tripId: '', want, booking: { source: 'phone', leadName: '見本 花子', people: 2 }, reading: null, src: 'staff', at: AT };
+  const first = R.rosterStore.apply('core.addBookingToTrip', input);
+  input.want.date = '2000-01-01';   // 画面があとで入力を変えても、入れた予約は変わらない
+  assert.equal(first.saved, true);
+  assert.equal(first.out.state.bookings.length, 1);
+  assert.equal(R.rosterStore.get().trips[0].date, '2099-01-10');
+  assert.ok(R.rosterStore.get().log.every(e => e.at === AT), '時刻は押した時刻');
+  const same = R.rosterStore.get();
+  const none = R.rosterStore.apply('core.editTrip', { tripId: same.trips[0].id, patch: { site: '' }, at: AT });
+  assert.equal(none.saved, true);
+  assert.equal(R.rosterStore.get(), same, '変わらない直しは、名簿も記録も増やさない');
+  assert.throws(() => R.rosterStore.apply('core.nope', {}), /知らない直し/);
+  assert.throws(() => R.rosterStore.apply('core.editTrip', { tripId: 'ない', patch: {}, at: AT }), /便が見つからない/);
+  assert.deepEqual(JSON.parse(JSON.stringify(boot(local).rosterStore.get())), JSON.parse(JSON.stringify(R.rosterStore.get())));
+  assert.equal(R.rosterStore.link(), 'local');
+  assert.equal(R.rosterStore.pending(), 0);
 });
 
 let failed = 0;

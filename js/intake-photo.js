@@ -112,7 +112,7 @@
     ui.rerender();
     try {
       const { reading, sent } = await R.aiReader.read(job.prepared.req);
-      ui.save(s => C().logAi(s, { at: now(), sent }));
+      ui.save('core.logAi', { at: now(), sent });
       if (reading.healthSeen) {   // 塗り残しか、撮る書類の間違い。読み取りは使わず、塗る画面に戻す（同じ写真をもう一度送らせない）
         job.prepared = null;
         job.confirmed = false;
@@ -124,7 +124,7 @@
       const hit = read ? C().findByName(C().peopleOf(R.rosterStore.get(), job.tripId, { own: true }), read.name) : null;
       job.personId = hit ? hit.id : '';
     } catch (e) {
-      if (e.sent) ui.save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
+      if (e.sent) ui.save('core.logAi', { at: now(), sent: e.sent });   // 送ったあとに失敗しても、送った記録は残す
       job.error = ERROR_JA[e.kind] || ERROR_JA.bad;
       if (e.sent && e.sent.healthSeen) {   // 答えは壊れていても、健康が見えたと言っていたら、成功のときと同じく塗る画面に戻す
         job.prepared = null;
@@ -139,12 +139,9 @@
 
   function applyRead(ui) {
     const read = shot.reading.people[0];
-    let got = null;
-    const r = ui.save(s => {
-      const out = C().applyReadingTo(s, { personId: shot.personId, read, src: shot.doc, at: now() });
-      got = out;
-      return out.state;
-    });
+    /* 画面の「今の」入力（shot）は、ここで全部写す。貯めた直しが、あとで別の人の写真を読まないように */
+    const r = ui.save('core.applyReadingTo', { personId: shot.personId, read, src: shot.doc, at: now() });
+    const got = r.out;
     if (r.error || !got) { shot.error = '名簿に入れられませんでした。入れる人を選び直してください'; ui.rerender(); return; }
     const personId = shot.personId;
     reset(shot.tripId, '');
@@ -326,7 +323,7 @@
     const p = R.rosterStore.get().people.find(x => x.id === personId);
     const patch = patchFrom(p);
     const at = now();
-    const r = ui.save(s => C().confirmReview(s, { id: personId, patch, at }));
+    const r = ui.save('core.confirmReview', { id: personId, patch, at });
     if (r.error) { review.error = '直した値の形が合いません。日付は 2023-08-20、本数は数で入れてください。'; ui.rerender(); return; }
     review = { personId, edits: {}, open: false, error: '', done: personId, doneAt: at };
     ui.rerender();

@@ -82,7 +82,8 @@
   if (document.querySelector('meta[name="redux-worker"]')) {
     R.aiReader.probe();
     /* お店の名簿をサーバーとそろえる（plan/server.md）。D1 がまだ無い Worker では答えず、端末だけで続ける。
-       画面に戻ってきたら、別の端末の直しを取り込む */
+       つながらないときは、直しを端末に貯めながら試し直す（core.js。電波が戻った online でもすぐ試す）。
+       画面に戻ってきたら、つながっていなければつなぎ直し、つながっていれば別の端末の直しを取り込む（refresh） */
     R.rosterStore.startSync();
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') R.rosterStore.refresh(); });
   }
