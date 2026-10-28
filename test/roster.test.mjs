@@ -1,7 +1,7 @@
 // 予約と名簿の形・判定・記録・条例の名簿を確かめる。保存して読み戻しても同じになるかも見る。
 // 実行: node test/roster.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import vm from 'node:vm';
 
 const load = (path) => vm.runInThisContext(readFileSync(new URL(path, import.meta.url), 'utf8'));
@@ -9,6 +9,7 @@ load('../js/roster-schema.js');
 load('../js/roster-core.js');
 load('../js/health-redact.js');
 load('../js/data-samples.js');
+['roster-guest', 'roster-day', 'roster-share', 'roster-auto'].forEach(f => load(`../js/${f}.js`));   // 直しの表（ops）が呼ぶ core
 const { roster: S, rosterCore: C, healthRedact: H, SAMPLE_READINGS } = globalThis.REDUX;
 
 const AT = '2026-10-21T09:00:00.000Z';
@@ -598,6 +599,74 @@ test('予約前の確認から: C カードありは本数、スノーケルは�
   assert.equal(odd.state.people[0].dives, '');
   const sn = C.addFromIntake(S.blankState('見本の店'), { intake: intakeOf({ tour: 'snorkel' }), tour: SNORKEL_TOUR, at: AT, newId });
   assert.deepEqual([sn.state.trips[0].kind, sn.state.people[0].dives, sn.state.people[0].cert.course], ['snorkel', '', '']);
+});
+
+/* ---------- 直しの記録（op log）。電波が無いときの貯め方と、開き直したあとの当て直しの土台 ---------- */
+const PHONE = { tripId: '', want: { date: '2026-10-24', start: '08:30', tour: '体験ダイビング', kind: 'dive' },
+  booking: { source: 'phone', leadName: '見本 花子', people: 2 }, reading: null, src: 'staff' };
+const phoneOp = (id, at, patch = {}) => ({ op: 'core.addBookingToTrip', id, at, args: { ...PHONE, ...patch } });
+
+test('op: 同じ直しは、JSON に写して別の名簿に当て直しても、同じ id・同じ時刻になる（C2・L4）', () => {
+  const entry = phoneOp('k1', AT);
+  const first = C.ops.run(S.blankState('見本の店'), entry).state;
+  const again = C.ops.run(S.blankState('見本の店'), JSON.parse(JSON.stringify(entry))).state;
+  assert.deepEqual(again, first);
+  assert.ok(first.bookings[0].id.startsWith('k1-') && first.people.every(p => p.id.startsWith('k1-')) && first.trips[0].id.startsWith('k1-'));
+  assert.ok(first.log.every(e => e.at === AT), '記録の時刻は押した時刻');
+  /* 押した時刻が args に無ければ entry.at を使う。args に at があればそちら */
+  const later = C.ops.run(S.blankState('見本の店'), phoneOp('k1', '2026-11-01T00:00:00.000Z')).state;
+  assert.ok(later.log.every(e => e.at === '2026-11-01T00:00:00.000Z'));
+});
+
+test('op: 続けて 2 件の予約を入れても別々のまま（同じ名簿に当て直しても 2 つの id がぶつからない）', () => {
+  const a = phoneOp('ka', AT, { booking: { source: 'phone', leadName: '見本 一郎', people: 1 } });
+  const b = phoneOp('kb', AT, { booking: { source: 'phone', leadName: '見本 二郎', people: 3 } });
+  const s2 = [a, b].reduce((s, e) => C.ops.run(s, e).state, S.blankState('見本の店'));
+  assert.deepEqual(s2.bookings.map(x => [x.leadName, x.people]), [['見本 一郎', 1], ['見本 二郎', 3]]);
+  assert.equal(s2.trips.length, 2, 'tripId が空の予約は、それぞれ新しい便を作る（便の id も押した時の id から決まる）');
+  assert.equal(s2.bookings.reduce((n, x) => n + x.people, 0), s2.people.length);
+  const ids = [...s2.bookings, ...s2.people, ...s2.trips].map(x => x.id);
+  assert.equal(new Set(ids).size, ids.length, 'id は重ならない');
+});
+
+test('op: 知らない名前・表に無い関数は当てない。表の名前は全部、関数に引ける', () => {
+  assert.throws(() => C.ops.run(base, { op: 'core.constructor', id: 'k', at: AT, args: {} }), /知らない直し/);
+  assert.throws(() => C.ops.run(base, { op: 'nope.x', id: 'k', at: AT, args: {} }), /知らない直し/);
+  assert.throws(() => C.ops.run(base, { op: '__proto__', id: 'k', at: AT, args: {} }), /知らない直し/);
+  C.ops.names.filter(n => !n.startsWith('roster.') && n !== 'share.listAndHandOver').forEach(n => {
+    const [mod, fn] = n.split('.');
+    const m = { core: C, auto: globalThis.REDUX.rosterAuto, share: globalThis.REDUX.rosterShare, guest: globalThis.REDUX.rosterGuest, day: globalThis.REDUX.rosterDay }[mod];
+    assert.equal(typeof m[fn], 'function', n);
+  });
+});
+
+test('op: 触った項目と「前」の値を取り、当て直した名簿で前の値が違えば、その項目が別の端末と食い違う（M6 手前の知らせ）', () => {
+  const t = { op: 'core.editTrip', id: 'e1', at: AT, args: { tripId: 't1', patch: { site: '南の根' } } };
+  const mine = C.ops.run(base, t).state;
+  const was = C.ops.touches(base, mine);
+  assert.deepEqual(was.map(x => [x.kind, x.id, x.fields, x.before]), [['trip', 't1', ['site'], { site: '北の根' }]]);
+  /* 別の端末が先に同じ項目を直していた名簿に当て直す */
+  const theirs = C.ops.run(base, { op: 'core.editTrip', id: 'e2', at: AT, args: { tripId: 't1', patch: { site: '西の根' } } }).state;
+  const replay = C.ops.touches(theirs, C.ops.run(theirs, t).state);
+  assert.deepEqual(C.ops.conflicts(was, replay), [{ kind: 'trip', id: 't1', field: 'site' }]);
+  /* 別の項目を直していたなら食い違わない。何も変わっていなければ食い違わない */
+  const other = C.ops.run(base, { op: 'core.editTrip', id: 'e3', at: AT, args: { tripId: 't1', patch: { boat: '第一丸' } } }).state;
+  assert.deepEqual(C.ops.conflicts(was, C.ops.touches(other, C.ops.run(other, t).state)), []);
+  assert.deepEqual(C.ops.conflicts(was, C.ops.touches(base, C.ops.run(base, t).state)), []);
+});
+
+test('op: 画面の直しは全部この表を通る（関数を貯める update は使わない。表に無い名前も使わない）', () => {
+  const dir = new URL('../js/', import.meta.url);
+  const files = readdirSync(dir).filter(f => f.endsWith('.js') && f !== 'turtle3d.js');
+  const names = new Set(C.ops.names);
+  files.forEach(f => {
+    const text = readFileSync(new URL(f, dir), 'utf8');
+    if (f !== 'core.js') assert.equal(/rosterStore\.update\(/.test(text), false, `${f}: rosterStore.update(関数) は開き直すと消える。apply(op, args) を使う`);
+    if (f !== 'roster-core.js') {
+      assert.equal(/newId:\s*R\.newId/.test(text), false, `${f}: id は押した時の entry.id から決まる。newId を渡さない`);
+      for (const m of text.matchAll(/'((?:core|auto|share|guest|day|roster)\.[A-Za-z]+)'/g)) assert.ok(names.has(m[1]), `${f}: 表に無い直し ${m[1]}`);
+    }
+  });
 });
 
 let failed = 0;

@@ -80,13 +80,13 @@
     const backToPaint = () => Object.assign(job, { prepared: null, confirmed: false, error: HEALTH_SEEN });
     try {
       const { reading, sent } = await R.aiReader.read(job.prepared.req);
-      ui.save(s => C().logAi(s, { at: now(), sent }));
+      ui.save('core.logAi', { at: now(), sent });
       if (reading.healthSeen) { backToPaint(); return; }   // 塗り残し。同じ写真をもう一度送らせない
       job.rows = X().fromListReading(reading);
       job.readMode = sent.mode;   // 読んだときの読み方（あとで見本 / 本物を切り替えても、出す言葉は変えない）
       if (!job.rows.length) job.error = '写真から名前を読み取れませんでした。写真を撮り直してください';
     } catch (e) {
-      if (e.sent) ui.save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
+      if (e.sent) ui.save('core.logAi', { at: now(), sent: e.sent });   // 送ったあとに失敗しても、送った記録は残す
       job.error = ERROR_JA[e.kind] || ERROR_JA.bad;
       if (e.sent && e.sent.healthSeen) backToPaint();
     } finally {
@@ -208,12 +208,9 @@
   function handOver(v, ui) {
     const guide = shot.guide.trim();
     if (!guide || guide.length > 40) { shot.error = GUIDE_FIRST; ui.rerender(); return; }
-    let out = null;
-    const r = ui.save(st => {
-      out = X().addPartnerList(st, { tripId: v.tripId, shop: v.shop, rows: shot.rows, guide, at: now(), newId: R.newId });
-      if (out.problem) return st;
-      return X().handOver(out.state, { tripId: v.tripId, shop: v.shop, today: R.today(), at: now() });
-    });
+    /* 画面の「今の」入力（shot）は、ここで全部写す。名簿に入れて、そのまま渡す 2 つを 1 つの直しにする */
+    const r = ui.save('share.listAndHandOver', { tripId: v.tripId, shop: v.shop, rows: shot.rows, guide, today: R.today(), at: now() });
+    const out = r.out;
     if (r.error || !out) { shot.error = '渡せませんでした。もう一度押してください'; ui.rerender(); return; }
     if (out.problem) { shot.error = out.problem === 'guide' ? GUIDE_FIRST : 'このお店は乗り合いから外れています。乗り合いの画面で足してください'; ui.rerender(); return; }
     const added = out.ids.length;

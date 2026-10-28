@@ -210,7 +210,11 @@
     try {
       /* 書類の自動化: 予約に連絡先を持ち、お願い・2 日前・前日の夜・当日の朝の予定も作る（js/roster-auto.js） */
       const nowJst = R.nowJst();
-      R.rosterStore.update(s => { const out = R.rosterAuto.addFromForm(s, { intake, tour, at: intake.at, nowJst, newId: R.newId }); bookingId = out.bookingId; return out.state; });
+      /* 貯める直しは端末に置くので、予約に要る項目だけを渡す（健康の答えなどは渡さない） */
+      const { date, people, name, exp, dives, email, lang } = intake;
+      const given = { date, people, name, exp, dives, email, lang };
+      const tourGiven = { diving: tour.diving, start: tour.start, name: { ja: tour.name.ja } };
+      bookingId = R.rosterStore.apply('auto.addFromForm', { intake: given, tour: tourGiven, at: intake.at, nowJst }).out.bookingId;
     } catch (e) {
       bookingId = '';
     }

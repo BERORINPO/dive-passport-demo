@@ -210,16 +210,11 @@
   }
 
   /* ---------- 送る ---------- */
-  /* fn は { state, problems } を返す core の関数。問題があれば保存せずに problems に置く。保存できなかったときも知らせる */
-  function save(fn) {
-    let found = [];
+  /* op は { state, problems } を返す core の関数の名前。問題があれば保存せずに problems に置く。保存できなかったときも知らせる */
+  function save(op, args) {
     try {
-      const saved = R.rosterStore.update(s => {
-        const r = fn(s);
-        found = r.problems;
-        return r.state;
-      });
-      problems = found.length ? found : saved === false ? ['save'] : [];
+      const { saved, out } = R.rosterStore.apply(op, args);
+      problems = out.problems.length ? out.problems : saved === false ? ['save'] : [];
       return !problems.length;
     } catch (e) {
       problems = ['save'];
@@ -248,11 +243,11 @@
     if (remote) { sendRemote(entry, d); return; }
     if (entry.ask.length) {
       const inputValue = { ...d, dives: d.dives === '' ? '' : Number(d.dives) };
-      if (!save(s => G().applyGuest(s, { id: entry.person.id, input: inputValue, today: R.today(), at }))) { render(); return; }
+      if (!save('guest.applyGuest', { id: entry.person.id, input: inputValue, today: R.today(), at })) { render(); return; }
     }
     const demo = !isTheDay(trip, entry) && todayDemo && demoMode();
     if (entry.needsToday && (isTheDay(trip, entry) || demo) && d.today) {
-      if (!save(s => G().answerToday(s, { id: entry.person.id, answer: d.today, day: trip.date, consent: d.consent, today: R.today(), demo, at }))) { render(); return; }
+      if (!save('guest.answerToday', { id: entry.person.id, answer: d.today, day: trip.date, consent: d.consent, today: R.today(), demo, at })) { render(); return; }
     }
     flash = 'sent';
     render();
@@ -299,7 +294,7 @@
         el('button', { class: 'btn', type: 'button', disabled: !chosen.length || (differs && !otherName) || (needsConsent && !d.consent), text: L(T.passUse),
           onclick: () => {
             const at = new Date().toISOString();
-            if (!save(s => G().applyPassport(s, { id: entry.person.id, offer, keys: passKeys, otherName, consent: d.consent, today: R.today(), at }))) { render(); return; }
+            if (!save('guest.applyPassport', { id: entry.person.id, offer, keys: passKeys, otherName, consent: d.consent, today: R.today(), at })) { render(); return; }
             flash = 'sent';
             leave();
           } }),

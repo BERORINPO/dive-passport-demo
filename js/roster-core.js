@@ -647,12 +647,64 @@
       entry(at, 'system', 'remove', 'state', '', { after: { trips: trips.size, people: people.size, log: removed } }));
   }
 
+  /* ---------- 直しの記録（op log） ----------
+     電波が無いときや読み込み直しをまたいで貯める直しは、関数でなく { op, args, id, at } のデータで持つ（貯めて当て直すのは js/core.js）。
+     op は下の表の名前。at は押した時刻、id は押すたびに画面が作る印で、直しの中で作る id（newId）はここから決まる。
+     だから、いつ・どの名簿に当て直しても、同じ入力は同じ id・同じ時刻になる。args は JSON にできる物だけ（関数は入れない） */
+  const OP_MODULES = { core: () => R.rosterCore, auto: () => R.rosterAuto, share: () => R.rosterShare, guest: () => R.rosterGuest, day: () => R.rosterDay };
+  const OP_NAMES = [
+    'core.logAi', 'core.addTrip', 'core.addBookingToTrip', 'core.editPerson', 'core.editTrip', 'core.logOutput', 'core.cancelTrip', 'core.reopenTrip',
+    'core.ackCancel', 'core.confirmReview', 'core.applyReadingTo', 'core.setHealthPaper',
+    'auto.runDue', 'auto.addFromReading', 'auto.addFromForm', 'auto.planJobs', 'auto.requestResend', 'auto.resend', 'auto.confirmSent',
+    'share.addBigSample', 'share.addPartner', 'share.removePartner', 'share.setHost', 'share.addPartnerPeople', 'share.setPartnerGuide',
+    'share.handOver', 'share.recordReturn', 'share.undoReturn', 'share.recordHere', 'share.recordLeave',
+    'guest.applyGuest', 'guest.answerToday', 'guest.applyPassport', 'day.setSpo2'
+  ];
+  /* 表の関数をそのまま呼べない物: 名簿を丸ごと置く（デモの全消し・端末に残した名簿を戻す）、2 つの関数を続けて呼ぶ（他のお店の写真の名簿を渡す） */
+  const OP_SPECIAL = {
+    'roster.reset': (state, { shop }) => S().blankState(shop),
+    'roster.replace': (state, a) => a.state,
+    'share.listAndHandOver': (state, a) => {
+      const out = R.rosterShare.addPartnerList(state, a);
+      return out.problem ? { ...out, state } : { ...out, state: R.rosterShare.handOver(out.state, a) };
+    }
+  };
+  const opFn = (name) => {
+    if (has(OP_SPECIAL, name)) return OP_SPECIAL[name];
+    if (!OP_NAMES.includes(name)) return null;
+    const [mod, fn] = name.split('.');
+    return OP_MODULES[mod]()[fn];
+  };
+  const seqIds = (seed) => { let n = 0; return () => `${seed}-${(n += 1)}`; };
+  /* 直し 1 つを名簿に当てる。返すのは { state, ... }（関数が state だけを返す物も、この形にそろえる）。知らない op・当てられない直しは例外 */
+  function runOp(state, { op, args, id, at }) {
+    const fn = opFn(op);
+    if (!fn) throw new Error(`runOp: 知らない直し (${op})`);
+    const out = fn(state, { at, ...args, newId: seqIds(id) });
+    return out && typeof out === 'object' && has(out, 'state') ? out : { state: out };
+  }
+  /* 直しが触った項目と、その「前」の値（記録に足された、直した項目のある行）。別の端末が先に同じ項目を直していたかを、当て直したときに比べる */
+  function opTouches(before, after) {
+    if (!Array.isArray(before.log) || !Array.isArray(after.log) || after.log.length <= before.log.length) return [];
+    return after.log.slice(before.log.length).filter(e => Array.isArray(e.fields) && e.fields.length)
+      .map(e => ({ kind: e.kind, id: e.id, fields: e.fields, before: e.before }));
+  }
+  /* 当て直したとき（now）の「前」の値が、押したとき（was）と違う項目。{ kind, id, field } の並び */
+  function opConflicts(was, now) {
+    const out = [];
+    now.forEach(t => was.filter(w => w.kind === t.kind && w.id === t.id).forEach(w => {
+      t.fields.filter(f => w.fields.includes(f) && !same(w.before[f], t.before[f])).forEach(field => out.push({ kind: t.kind, id: t.id, field }));
+    }));
+    return out;
+  }
+
   R.rosterCore = {
     COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, reviewFields, confirmReview, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, logAi, editTrip, logOutput,
     addPerson, renameGuideTag, addCheck, logHandover, cancelTrip, reopenTrip, ackCancel,
-    cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired
+    cellText, rosterRows, toCsv, keepUntil, expired, purgeExpired,
+    ops: { names: [...OP_NAMES, ...Object.keys(OP_SPECIAL)], run: runOp, touches: opTouches, conflicts: opConflicts }
   };
 })();

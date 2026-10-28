@@ -32,6 +32,9 @@
     'sync-shop': 'この端末には、別のお店の名簿がありました。送らずに端末の別の場所に残し、ログインしたお店の名簿にしました。',
     'sync-lost': '送れなかった直しを、端末の容量が足りず残せませんでした。予約と名簿を確かめ、足りない物を入れ直してください。',
     'sync-shop-changed': 'ログインしたお店が変わりました。画面を読み込み直してください。この端末の直しは送らず、別の場所に残してあります。',
+    'sync-conflict': '別の端末が先に直した項目を、この端末の直しで書き換えました。記録の画面で、前と後を確かめてください。',
+    'sync-gone': 'サーバーの名簿が見つかりません。この端末の直しは送らず、名簿を別の場所に残しました。お店の管理者に知らせてください。',
+    'sync-shrunk': 'サーバーの名簿は、この端末の名簿より人が大きく減っていました。この端末の名簿は消さず、別の場所に残しました。予約と名簿を確かめてください。',
     'sync-newer': 'REDUX が新しくなりました。画面を読み込み直してください。この端末の直しは別の場所に残してあります。',
     'sync-login': 'ログインが切れました。画面を読み込み直してください。直しはこの端末に残してあり、ログインし直したら送ります。',
     'sync-shrink': 'この端末から、名簿の人が大きく消える書き込みがあったので、サーバーが止めました。サーバーの名簿に戻し、この端末の名簿は別の場所に残しました。',
@@ -60,6 +63,7 @@
                             // day（今日の名簿）/ spo2（血中酸素）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
                             // share（乗り合い）/ partner（他のお店役）/ partnerpaper / joint（合同名簿）/ jointprint / boat（船の上）/ callout（名前で呼ぶ）は share-roster.js
                             // partnerphoto（他のお店が写真で名前を渡す）は partner-photo.js
+                            // kept（端末に残した名簿を見て戻す）
   let intakeTrip = '';
   let reviewPerson = '';
   let askBooking = '';
@@ -89,12 +93,14 @@
   const tripLabel = (t) => `${t.start ? `${t.start < '12:00' ? '午前便' : '午後便'} ${clock(t.start)}` : '時刻未定の便'} ${t.tour || KIND_JA[t.kind]}`;
   const tour = (id) => R.TOURS.find(t => t.id === id);
 
-  /* 保存は rosterStore を通す。形が合わなければ例外、端末に書けなければ saved: false */
-  function save(fn) {
+  /* 保存は rosterStore.apply を通す。op は roster-core.js の ops の名前、args は押した時に決まる入力を全部入れた物（時刻もここで決める）。
+     形が合わなければ error、端末に書けなければ saved: false。out は core の関数の答え（bookingId など） */
+  function save(op, args, opts) {
     try {
-      return { error: null, saved: R.rosterStore.update(fn) };
+      const r = R.rosterStore.apply(op, args, opts);
+      return { error: null, saved: r.saved, out: r.out };
     } catch (e) {
-      return { error: e, saved: false };
+      return { error: e, saved: false, out: null };
     }
   }
 
@@ -102,6 +108,7 @@
   function go(next, ctx = {}) {
     mode = next;
     armedReset = false;
+    armedKept = '';
     notice = ctx.saved === false ? { kind: 'warn', text: NOT_SAVED } : ctx.warn ? { kind: 'warn', text: ctx.warn } : ctx.notice ? { kind: 'ok', text: ctx.notice } : null;
     if (ctx.tripId) { intakeTrip = ctx.tripId; dayTrip = ctx.tripId; }
     if (ctx.personId) reviewPerson = ctx.personId;
@@ -122,10 +129,27 @@
     render();
   }
 
+  /* サーバーにつながっていない間は、どの画面でも上に出す（直しは端末に貯めて、試し直している） */
+  function linkBanner() {
+    if (R.rosterStore.link() !== 'down') return null;
+    const n = R.rosterStore.pending();
+    return el('p', { class: 'flag flag--warn', role: 'status',
+      text: `サーバーにつながっていません。${n ? `直した ${n} 件はこの端末に残してあり、つながったら送ります。` : '直しはこの端末に残し、つながったら送ります。'}` });
+  }
+  /* 名簿の知らせ。つながっていない知らせ（sync-offline）は linkBanner が出す */
+  function storeNote() {
+    const key = R.rosterStore.note();
+    if (!key || key === 'sync-offline') return null;
+    const seen = key === 'sync-conflict';
+    return el('p', { class: 'flag flag--warn' }, `${STORE_NOTE_JA[key]}${seen ? `（${R.rosterStore.conflicts().length} 件）` : ''}`,
+      seen ? el('button', { class: 'linkbtn', type: 'button', text: '確かめた', onclick: () => R.rosterStore.clearConflicts() }) : null);
+  }
+
   const head = (title, sub) => [
     el('p', { class: 'note', text: R.rosterStore.get().shop.name }),
     el('h2', { class: 'page__title', text: title }),
     sub ? el('p', { class: 'page__sub', text: sub }) : null,
+    linkBanner(),
     notice ? el('p', { class: `flag flag--${notice.kind}`, role: 'status', text: notice.text }) : null
   ];
   const back = () => el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '予約の一覧に戻る', onclick: () => go('list') }));
@@ -213,7 +237,7 @@
   function healthModeRow(s) {
     const paper = C().paperOf(s);
     const pick = (on) => () => {
-      const r = save(st => C().setHealthPaper(st, { paper: on, at: now() }));
+      const r = save('core.setHealthPaper', { paper: on, at: now() });
       notice = r.error ? { kind: 'warn', text: '切り替えられませんでした' }
         : { kind: 'ok', text: on ? '健康の質問は、紙の申込書で聞きます。お客さんのリンクと自動の連絡では聞きません。' : '健康の質問を、お客さんのリンクで聞きます。' };
       render();
@@ -233,7 +257,7 @@
     return [
       ...head('予約'),
       aiRow(),
-      R.rosterStore.note() ? el('p', { class: 'flag flag--warn', text: STORE_NOTE_JA[R.rosterStore.note()] }) : null,
+      storeNote(),
       R.autoFlow.boardRow(s, { unread: unread.items.length, ui }),
       dates.length ? el('div', { class: 'days', role: 'group', 'aria-label': '日付' }, dates.map(d => el('button', {
         class: 'day', type: 'button', 'aria-pressed': String(d === day), 'aria-label': md(d),
@@ -247,7 +271,7 @@
       !R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '見本の乗り合い便を作る（4 店・30 人）',
         onclick: () => {
           /* 開いている日でなく今日に作り、今日を開く（見本の便は「今日の 13:00」。小禄さんの不具合さがし 2026-10-27） */
-          const r = save(st => R.rosterShare.addBigSample(st, { day: R.today(), at: new Date().toISOString(), newId: R.newId }).state);
+          const r = save('share.addBigSample', { day: R.today(), at: now() });
           if (!r.error) day = R.today();
           notice = r.error ? { kind: 'warn', text: '見本の便を作れませんでした' } : { kind: 'ok', text: '見本の乗り合い便を作りました（13:00、4 店・お客さん 30 人）' };
           render();
@@ -258,6 +282,8 @@
       /* デモの時計はつながっていない試作だけ（サーバーの版では予定を動かすのは Cron） */
       !R.rosterStore.synced() && (s.jobs || []).some(j => j.status === 'waiting') ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '時刻を次の予定まで進める（デモ）', onclick: () => R.autoFlow.demoAdvance(ui) })) : null,
       healthModeRow(s),
+      R.rosterStore.kept().length ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button',
+        text: `端末に残した名簿（${R.rosterStore.kept().length}）`, onclick: () => go('kept') })) : null,
       /* 済んで 7 日を過ぎた便は、サーバーが便ごとに分けて置く（読むだけ）。サーバーを使わない版には無い */
       R.rosterStore.synced() ? el('p', { class: 'reset' }, el('button', { class: 'linkbtn linkbtn--muted', type: 'button', text: '済んだ便を見る（7 日より前）', onclick: () => go('past') })) : null,
       !R.rosterStore.synced() && s.trips.length ? resetButton() : null,
@@ -383,7 +409,7 @@
     fillMail();
     try {
       const { reading, sent } = await R.aiReader.read({ doc: 'mail', text: job.text, sampleId: job.sampleId });
-      save(s => C().logAi(s, { at: now(), sent }));
+      save('core.logAi', { at: now(), sent });
       job.reading = reading;
       job.tripId = '';
       /* 書類の自動化: 日付が読めたら、確かめずに便へ入れて予定を作る（自信の無い所は印が付き、名簿の「確かめる」に出る） */
@@ -392,7 +418,7 @@
         if (!r.error) { go('flow', { bookingId: r.bookingId, saved: r.saved, notice: '予約メールを読んで、自動で入れました' }); return; }
       }
     } catch (e) {
-      if (e.sent) save(s => C().logAi(s, { at: now(), sent: e.sent }));   // 送ったあとに失敗しても、送った記録は残す
+      if (e.sent) save('core.logAi', { at: now(), sent: e.sent });   // 送ったあとに失敗しても、送った記録は残す
       job.error = ERROR_JA[e.kind] || ERROR_JA.bad;
       if (e.sent && e.sent.healthSeen) job.error += '。AI が「健康の情報が見えた」と答えました。送った文面を確かめてください';
     } finally {
@@ -404,7 +430,7 @@
   function commitMail() {
     const want = { ...mailWant(), kind: mail.kind || C().suggestTrip(R.rosterStore.get(), mailWant()).kind };
     const booking = C().bookingFromReading(mail.reading);
-    const r = save(s => C().addBookingToTrip(s, { tripId: mail.tripId, want, booking, reading: mail.reading, src: 'mail', at: now(), newId: R.newId }).state);
+    const r = save('core.addBookingToTrip', { tripId: mail.tripId, want, booking, reading: mail.reading, src: 'mail', at: now() });
     if (r.error) { mail.error = '予約を入れられませんでした。読み取りを確かめて、もう一度試してください。'; fillMail(); return; }
     done(want.date, `予約を入れました: ${booking.leadName || '名前の分からない予約'}`, r.saved);
   }
@@ -452,10 +478,11 @@
     const email = phone.email.trim();
     if (email && !R.roster.emailOk(email)) { errorsNode.textContent = '確かめてください: メールアドレス'; return; }
     const booking = { source: phone.source, leadName: input.leadName, leadPhone: input.leadPhone, people: input.people, note: input.note, ...(email ? { leadEmail: email } : {}) };
-    let bookingId = '';
-    const r = save(s => { const st = C().addBookingToTrip(s, { tripId: phone.tripId, want: phoneWant(), booking, reading: null, src: 'staff', at: now(), newId: R.newId }).state; bookingId = st.bookings[st.bookings.length - 1].id; return st; });
+    /* 画面の「今の」入力（phone）は、ここで全部写す。貯めた直しが、あとで別の予約の入力を読まないように */
+    const r = save('core.addBookingToTrip', { tripId: phone.tripId, want: phoneWant(), booking, reading: null, src: 'staff', at: now() });
     if (r.error) { errorsNode.textContent = '予約を入れられませんでした。入力を確かめて、もう一度試してください。'; return; }
-    R.autoFlow.plan(save, bookingId);   // 書類の自動化: お願い・2 日前・前日の夜・当日の朝の予定
+    const bookings = r.out.state.bookings;
+    R.autoFlow.plan(save, bookings[bookings.length - 1].id);   // 書類の自動化: お願い・2 日前・前日の夜・当日の朝の予定
     done(phone.date, `予約を入れました: ${booking.leadName || '名前の分からない予約'}（${booking.people} 人）`, r.saved);
   }
 
@@ -486,6 +513,31 @@
           '健康のことは書かないでください。名簿の健康の欄は、お客さんが自分で選びます。')),
       back(),
       dock(errorsNode, el('button', { class: 'btn', type: 'button', text: '予約を入れる', onclick: () => commitPhone(errorsNode) }))
+    ];
+  }
+
+  /* ---------- 端末に残した名簿（送れなかった・ぶつかった・断られたときの、直す前の名簿） ---------- */
+  let armedKept = '';
+  const keptWhen = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  function keptLine(k) {
+    const armed = armedKept === k.key;
+    const restore = () => {
+      if (!armed) { armedKept = k.key; render(); return; }
+      armedKept = '';
+      const ok = R.rosterStore.restoreKept(k.key);
+      go(ok ? 'list' : 'kept', ok ? { notice: '残した名簿に戻しました（戻す前の名簿も残してあります）' } : { warn: '戻せませんでした' });
+    };
+    return el('li', { class: 'bk' },
+      el('span', { class: 'bk__name', text: keptWhen(k.at) }),
+      el('span', { class: 'bk__meta', text: k.ok ? `便 ${k.trips}・予約 ${k.bookings}・人 ${k.people}` : '読めない名簿（そのまま残しています）' }),
+      k.ok ? el('button', { class: armed ? 'btn btn--small' : 'linkbtn', type: 'button', text: armed ? 'もう一度押すと、この名簿に置き換わります' : '戻す', onclick: restore }) : null);
+  }
+  function renderKept() {
+    const list = R.rosterStore.kept(true);
+    return [
+      ...head('端末に残した名簿', `送れなかった直しや、別の端末とぶつかったときの名簿を、新しい ${list.length} 個残しています（最大 5 個）。戻すと今の名簿に置き換わります。今の名簿も残します。`),
+      list.length ? el('ul', { class: 'bks' }, list.map(keptLine)) : el('p', { class: 'empty', text: '残した名簿はありません。' }),
+      back()
     ];
   }
 
@@ -571,7 +623,7 @@
     mailOut = null;
     mailInputs = [];
     phonePick = null;
-    const body = mode === 'mail' ? renderMail() : mode === 'phone' ? renderPhone()
+    const body = mode === 'mail' ? renderMail() : mode === 'phone' ? renderPhone() : mode === 'kept' ? renderKept()
       : mode === 'intake' ? R.photoIntake.renderIntake({ tripId: intakeTrip, ui })
         : mode === 'review' ? R.photoIntake.renderReview({ personId: reviewPerson, ui })
           : mode === 'ask' ? renderAskLink()
