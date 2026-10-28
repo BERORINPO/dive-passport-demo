@@ -86,5 +86,7 @@
        画面に戻ってきたら、つながっていなければつなぎ直し、つながっていれば別の端末の直しを取り込む（refresh） */
     R.rosterStore.startSync();
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') R.rosterStore.refresh(); });
+    /* 電波の無い所（船の上）でも、画面そのものを開けるようにする（sw.js。登録できなくても画面はそのまま動く） */
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 })();
