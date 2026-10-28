@@ -25,6 +25,9 @@
   --ok-bg: oklch(95% 0.022 155);
   --info: oklch(42% 0.060 245);
   --info-bg: oklch(95.5% 0.012 245);
+  /* 見本の帯（js/demo-band.js）。字と地を入れ替えた帯にして、ほかのどの部品とも見間違えないようにする。7:1 以上（test/design.check.mjs） */
+  --demo-bg: oklch(29% 0.020 190);
+  --demo-ink: oklch(96.2% 0.010 85);
   --qr-bg: oklch(100% 0 0); /* QR は白地でないと読めない。暗い画面設定でも白のまま */
   /* 条例の名簿は紙の色のまま（暗い画面設定でも白地に黒。印刷と同じ見た目） */
   --paper-bg: oklch(100% 0 0);
@@ -49,6 +52,7 @@
     --control: oklch(55% 0.012 200); --disabled-bg: oklch(32% 0.008 200); --disabled-ink: oklch(72% 0.010 150);
     --accent: oklch(75% 0.050 190); --accent-ink: oklch(21% 0.020 190); --accent-soft: oklch(30% 0.020 200);
     --you-bg: oklch(50% 0.050 190); --you-ink: oklch(99% 0 0);
+    --demo-bg: oklch(93% 0.008 85); --demo-ink: oklch(21% 0.006 200);
     --warn: oklch(83% 0.080 70); --warn-bg: oklch(29% 0.030 70); --warn-line: oklch(48% 0.060 70);
     --ok: oklch(83% 0.060 155); --ok-bg: oklch(28% 0.025 155); --info: oklch(81% 0.040 245); --info-bg: oklch(27% 0.020 245);
     color-scheme: dark;
@@ -549,4 +553,17 @@ a.btn { text-decoration: none; }
   .poster__lead { font-size: 22px; }
   .poster__qr { width: 100mm; margin: 12mm auto; }
   .poster__note { font-size: 16px; }
+}
+
+/* ---------- 見本の帯（GitHub Pages の見本の画面だけ。js/demo-band.js、design.md の「見本と本物」）----------
+   画面の一番上に貼り付いて、消せない。字と地を入れ替え、下に二重線を引く（色だけで区別しない）。
+   上の帯（.bar）はその下に貼り付く（帯の高さは --band-h に JS が入れる）。印刷では背景が抜けることがあるので、地を使わず枠と字で出す */
+.demo-band { position: sticky; top: 0; z-index: 11; margin: 0; padding: 10px 16px 8px; background: var(--demo-bg); color: var(--demo-ink);
+  border-bottom: 7px double var(--demo-ink); font-size: 16px; font-weight: 700; line-height: 1.5; text-align: center; }
+.bar { top: var(--band-h, 0px); }
+html { scroll-padding-top: calc(96px + var(--band-h, 0px)); }
+.demo-note:empty { display: none !important; }
+@media print {
+  .demo-band { position: static; background: none; color: var(--paper-ink); border: 3px double var(--paper-ink); padding: 6px 10px; margin: 0 0 8px; }
+  body.print-roster > .demo-band, body.print-poster > .demo-band { display: block !important; }
 }
