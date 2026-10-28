@@ -18,11 +18,20 @@ export function mailReady(env) {
     && typeof env.APP_URL === 'string' && linkOk(env.APP_URL));
 }
 
-/* 1 通送る。返すのは { id, result: 'sent' | 'failed' | 'unsent', why }。why は短い名前だけ（宛先や本文はログに出さない） */
-export async function sendOne(env, item, shopName) {
+/* お客さんが返信したときの行き先（Reply-To）。送り元 yoyaku@ は受け口が無いので、返信はお店のアドレスへ向ける（点検 2026-10-28 設計 20・運用 H5）。
+   今は 1 店なので secret の REPLY_TO（公開の repo に書かない）。形が合わなければ付けない。2 店目からはお店ごとに持つ */
+export function replyToOf(env) {
+  const v = typeof env.REPLY_TO === 'string' ? env.REPLY_TO.trim() : '';
+  return /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(v) && v.length <= 254 ? v : '';
+}
+
+/* 1 通送る。返すのは { id, result: 'sent' | 'failed' | 'unsent', why }。why は短い名前だけ（宛先や本文はログに出さない）。
+   replyTo を渡したときだけ Reply-To を付ける（運営への警報には付けない） */
+export async function sendOne(env, item, shopName, replyTo = '') {
   if (!mailReady(env)) return { id: item.id, result: 'unsent', why: 'no-mail-config' };
   try {
-    await env.EMAIL.send({ to: item.to, from: { email: env.MAIL_FROM, name: String(shopName || '').slice(0, 60) || 'REDUX' }, subject: item.subject, text: item.body });
+    await env.EMAIL.send({ to: item.to, from: { email: env.MAIL_FROM, name: String(shopName || '').slice(0, 60) || 'REDUX' }, subject: item.subject, text: item.body,
+      ...(replyTo ? { replyTo } : {}) });
     return { id: item.id, result: 'sent', why: '' };
   } catch (e) {
     return { id: item.id, result: 'failed', why: String((e && e.code) || 'send').slice(0, 40) };

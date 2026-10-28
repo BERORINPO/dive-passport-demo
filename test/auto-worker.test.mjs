@@ -469,6 +469,19 @@ test('点検 2026-10-28 運用 C4: 設定が欠けていて読めない予約メ
   assert.equal(s.api.calls.length, 0);
 });
 
+test('点検 2026-10-28 設計 20: REPLY_TO があれば、お客さんへの連絡に Reply-To を付ける（返信が受け口の無い送り元に行かない）。形が合わなければ付けない', async () => {
+  const s = setup();
+  s.env.REPLY_TO = 'shop@mail.example';
+  await handle(booking(GOOD), s.env, s.io);
+  await scheduled(s.env, s.io);
+  assert.equal(s.mail.sent[0].replyTo, 'shop@mail.example');
+  const t = setup();
+  t.env.REPLY_TO = 'not an address';
+  await handle(booking(GOOD), t.env, t.io);
+  await scheduled(t.env, t.io);
+  assert.equal(t.mail.sent[0].replyTo, undefined);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {
