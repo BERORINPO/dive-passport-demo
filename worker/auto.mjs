@@ -12,7 +12,7 @@ import { dailyBackup } from './backup.mjs';
 import { missingMigrations } from './backup-core.mjs';
 import { listShops, rosterShops, shopsWhy } from './shop-db.mjs';
 import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName } from './shop-core.mjs';
-import { mailReady, sendOne } from './mail.mjs';
+import { mailReady, sendOne, replyToOf } from './mail.mjs';
 import { askModel } from './ask.mjs';
 import { mintLink, dropExpired } from './ask-db.mjs';
 import { linkExpiry } from './ask-core.mjs';
@@ -81,7 +81,8 @@ export async function runAutomation(env, io, note, shop = SHOP_DEFAULT) {
   for (const item of queued) {
     /* 宛先と本文は、名簿に書いてある物でなく、今の予約から作り直す（ジンのレビュー 2026-10-28 H2。js/roster-auto.js の rebuildOut） */
     const fresh = R.rosterAuto.rebuildOut(moved.state, item);
-    results.push(fresh ? await sendOne(env, await withLink(env, io, moved.state, fresh, shop), moved.state.shop.name) : { id: item.id, result: 'failed', why: 'gone' });
+    const linked = fresh ? await withLink(env, io, moved.state, fresh, shop) : null;
+    results.push(linked ? await sendOne(env, linked, moved.state.shop.name, replyToOf(env)) : { id: item.id, result: 'failed', why: 'gone' });
   }
   note.sent = results.filter(r => r.result === 'sent').length;
   const marked = await changeRoster(env, io, s => ({ state: markResults(s, { results, at }) }), { shop });

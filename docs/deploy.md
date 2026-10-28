@@ -157,6 +157,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 | 送信 | Email Sending を reduxdive.com で有効（送り元 `yoyaku@reduxdive.com`、Return-Path は `cf-bounce.reduxdive.com`。DKIM・SPF・DMARC p=reject は自動） | API `/zones/{zone}/email/sending/subdomains`（wrangler の `email sending enable` は 4.151.0 で認証の誤りになった） |
 | お客さんのリンク | `ask.reduxdive.com`（redux-ask の custom domain）。お店の Worker の secret `ASK_ORIGIN` もこの住所 | wrangler.ask.jsonc |
 | 警報の宛先 | secret `ALERT_TO` | `wrangler secret put ALERT_TO` |
+| お客さんの返信の行き先（Reply-To） | secret `REPLY_TO` | `wrangler secret put REPLY_TO`（無ければ Reply-To を付けない。返信は受け口の無い yoyaku@ に行く） |
 | Cron | `*/15 * * * *`（書類の自動化と毎日の控え） | wrangler.jsonc |
 
 - お店の画面は workers.dev のまま（APP_URL も workers.dev）。app.reduxdive.com に移すには、その住所にも Access の application を作る必要があり、権限の設定を足すことになるので、別に決める
