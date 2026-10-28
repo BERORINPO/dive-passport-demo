@@ -1,6 +1,6 @@
 # Worker を置く手順（P6）
 
-本物の AI で読む版を Cloudflare Worker に置く。画面と `/api` は同じ Worker から配り、入口は Cloudflare Access（チームのメールだけ。合言葉は 2026-10-22 に外した）。
+本物の AI で読む版を Cloudflare Worker に置く。画面と `/api` は同じ Worker から配り、入口は Cloudflare Access（チームのメールだけ。合言葉は 2026-10-22 に外した）。お客さんのリンクと予約フォームを受ける Worker（redux-ask）だけは Access が無い（7 節）。
 中身は架空の見本だけ。本物のお客さんの情報は入れない（spec/meibo.md の「本物のお客さんの情報を入れる前に」）。
 
 - Yosuke の作業: 約 25 分（下の ★）。鍵の値は Yosuke だけが打ち、こちらは見ない
@@ -26,7 +26,7 @@ npx wrangler@4.151.0 login --scopes account:read user:read workers:write workers
 ```bash
 npx wrangler@4.151.0 kv namespace create BUDGET
 ```
-出た `id` を wrangler.jsonc の `REPLACE_WITH_KV_ID` に入れる（こちらで直して push する）。そのあと:
+出た `id` を wrangler.jsonc の BUDGET の `id` に入れる（こちらで直して push する。今の本番の値は入れてある）。そのあと:
 ```bash
 node tools/build-site.mjs && npx wrangler@4.151.0 deploy
 ```
@@ -84,11 +84,11 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 login --scopes account:read user:read workers:write workers_kv:write workers_scripts:write workers_routes:write workers_tail:read d1:write
    ```
-2. D1 を作る（無料の枠）。出た `database_id` を wrangler.jsonc と wrangler.ask.jsonc の `REPLACE_WITH_D1_ID` に入れて push する
+2. D1 を作る（1 つだけ。全部のお店がこの 1 つを使う）。出た `database_id` を wrangler.jsonc と wrangler.ask.jsonc の d1_databases に入れて push する（今の本番の値は入れてある）
    ```bash
    npx wrangler@4.151.0 d1 create redux-rosters
    ```
-3. 表を作る（worker/migrations/ の 0001〜0005。表は、それを使う Worker を置く前に作る。0004（済んだ便）が無いと便が済んで 7 日を過ぎた日の書き込みが 503 になり、0005（読めなかった予約メール）が無いと、読めなかったことを残せない（ログには残る））
+3. 表を作る（worker/migrations/ の 0001〜0006。表は、それを使う Worker を置く前に作る。0004（済んだ便）が無いと便が済んで 7 日を過ぎた日の書き込みが 503 になり、0005（読めなかった予約メール）が無いと、読めなかったことを残せない（ログには残る）。0006（1 日の件数）が無いと、サイトの予約が 503 になる（件数を D1 で数えるため）。0006 は足すだけなので、前の版の Worker が動いたままでも先に流せる）
    ```bash
    npx wrangler@4.151.0 d1 migrations apply redux-rosters --remote
    ```
@@ -99,22 +99,23 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    npx wrangler@4.151.0 secret put ASK_ORIGIN
    npx wrangler@4.151.0 deploy
    ```
-   - ASK_ORIGIN は `https://redux-ask.<アカウントの名前>.workers.dev`（最後の / は付けない）
+   - ASK_ORIGIN は今は `https://ask.reduxdive.com`（最後の / は付けない。9 節）。ドメインを持たないときは `https://redux-ask.<アカウントの名前>.workers.dev`
 5. 確かめ（ログインしていない端末か curl で）
    - お店の Worker: `/` は Access のログインへ、`/api/roster` も止まる
    - お客さんの Worker: `/ask` は開ける。`/api/roster`・`/api/ask-link` は 404。`/api/ask` に間違った鍵を送ると 404
    - 2 台の端末で同じ名簿がそろう。「お客さんに聞くリンク」で作ったリンクを、ログインしていないスマホで開いて入れると、お店の画面に出る
-- Cron（15 分ごとの予定）はまだ入れていない。アカウントの無料の枠（5 本）をほかの Worker が使い切っているため。入れるまでは、お店の画面を開いている間に画面が予定を動かす
+- お店の一覧（D1 の shops）が空・表が無いとき、Worker は 503（shops-empty・shops-no-table をログに出す）。今の 1 店の動き（名簿の行 = default）で動かすには、wrangler.jsonc と wrangler.ask.jsonc の vars に `SINGLE_SHOP: "default"` を入れる（入れてある）。shops に行を足したら行が先になる（足す前に default の行も入れる: tools/shop.mjs keep-sample）。置く順は 0006 を流す → redux-ask → お店の Worker
+- Cron（`*/15 * * * *`）は 2026-10-28 に入れた（Workers Paid。9 節）。予定を動かして連絡を送るのは Cron だけ。**Cron が止まると、連絡も毎日の控えも何も動かない**（お店の画面は予定を動かさない）。止まったときは、Cloudflare の画面でお店の Worker に Cron が付いているかを見る
 - 2026-10-27 に置いた: お店の Worker と redux-ask（https://redux-ask.cibimaro-yousuke.workers.dev）。D1 は画面で作り、表はコンソールで 0001・0002 と同じ文を流した（wrangler の login に D1 の権限が付かなかったため）
 - サイトの予約フォーム（/api/bookings）は、Access の無い redux-ask が受ける（2026-10-27）。redux-ask の secret: SITE_ORIGINS（https://aquagate-demo.cibimaro-yousuke.workers.dev）と TURNSTILE_SECRET（Turnstile の widget「aquagate-demo booking form」。サイトキーはサイト側に）。お店の Worker の /api/bookings は Access の中なので使わない
-- メールの送り受けは、まだ設定を入れない（無ければ止まる作り。入れる物は plan/auto.md の「置くときの設定」）
+- メールの送り受けは 2026-10-28 に入れた（9 節）。設定が欠けると止まる作り（送らず unsent、受けずに断る）。入れる物の一覧は plan/auto.md の「置くときの設定」
 - 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
 
 ## 8. 毎日の控えと警報、控えから戻す（2026-10-28 から。Cron が動いてから効く）
 
 - 控えの置き場所: Workers KV の `redux-roster-backup`（binding は BACKUP。wrangler.jsonc に入れてある）。Cron が 1 日 1 回、お店ごとに名簿の本体を `day:<お店>:<日付>` に置く（1 年）。済んだ便の行は `past:<お店>:<part>`、警報は `alert:<お店>:<日付>`
 - 警報の宛先（運営）: `npx wrangler@4.151.0 secret put ALERT_TO`（メールの設定 MAIL_FROM・APP_URL と Email Service がそろうまでは、KV とログだけに残る）
-- Cron は Workers Paid にしてから `"triggers": { "crons": ["*/15 * * * *"] }` を入れる（draft PR #15）
+- Cron（`"triggers": { "crons": ["*/15 * * * *"] }`）は wrangler.jsonc に入れてある。Workers Paid が要る（9 節）
 
 控えから戻す（名簿が消えた・壊れたとき。約 15 分）:
 1. どの日の控えに戻すかを決める（`alert:<お店>:<日付>` があれば、その中の数を見て、減る前の日）
@@ -144,22 +145,27 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 - 名簿の行が消えたまま 7 日たつと、比べる控えが無くなり警報は止まる。メールが送れるようになるまで（KV にだけ残るあいだ）は、`alert:` を週に 1 度見る
 - お客さんから「消して」と頼まれたときは、名簿から消したうえで、控え（`day:` と `past:`）にも残っていることを伝え、要るなら控えも消す（控えは最長 1 年残る）
 
-## 9. ドメイン reduxdive.com とメール（2026-10-28 から。Workers Paid とドメインがそろってから置く）
-1. ★ Yosuke: reduxdive.com を Cloudflare Registrar で買う（1 年 10.46 ドル、自動更新オフ）。買うと Cloudflare に zone ができる
-2. ★ Yosuke: Workers & Pages → Plans で Workers Paid（月 5 ドル）に切り替える（メールの送信と Cron に要る）
-3. Email Sending を有効にする: `npx wrangler@4.151.0 email sending enable reduxdive.com`（SPF・DKIM の DNS は自動で足される）
-4. Email Routing を有効にする: reduxdive.com で有効にし、受け口のアドレス（お店ごとの inbox、例 a@reduxdive.com）をお店の Worker（dive-passport-demo）へ送る rule を作る。お店の一覧（shops）の inbox と senders を埋める
-5. お店の Worker の secret: ASK_ORIGIN を https://ask.reduxdive.com に変える。ALERT_TO（運営の警報の宛先）を入れる
-6. 置く（このブランチを merge したあと）:
-   ```bash
-   node tools/build-site.mjs
-   npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc
-   npx wrangler@4.151.0 deploy
-   ```
-   - custom_domain の route で ask.reduxdive.com の DNS は Worker が足す
-7. 確かめ: ask.reduxdive.com/ask が開く／予約メールを inbox に転送 → 名簿に入る → 次の Cron でお願いのメールが届く（自分の受け取れるアドレスで）／次の日に `day:` の控えができる
-- お店の画面は workers.dev のまま（APP_URL も workers.dev）。app.reduxdive.com に移すには、その住所にも Access の application を作る必要があり、権限の設定を足すことになるので、別に決める（2026-10-28）
+## 9. ドメイン reduxdive.com とメール（2026-10-28 に置いた）
+
+いまの形:
+| 物 | 中身 | どこで |
+|---|---|---|
+| ドメイン | reduxdive.com（Cloudflare Registrar、自動更新オフ、期限 2027-10-28。.com は 2026-11-01 から 11.17 ドル） | Domains → Registrations |
+| Workers | Paid（月 5 ドル）。Cron と Email Sending に要る | Workers plans |
+| 受信 | Email Routing を有効にし（MX・SPF・DKIM は自動）、`inbox@reduxdive.com` → お店の Worker（dive-passport-demo）の rule | API `/zones/{zone}/email/routing/rules`（rule の名前 REDUX booking inbox） |
+| 受ける送り主 | secret `MAIL_SENDERS`（「,」区切り。お店が予約メールを転送する元）。お店の一覧（shops）が空の間は 1 店で、これを使う | `wrangler secret put MAIL_SENDERS` |
+| 送信 | Email Sending を reduxdive.com で有効（送り元 `yoyaku@reduxdive.com`、Return-Path は `cf-bounce.reduxdive.com`。DKIM・SPF・DMARC p=reject は自動） | API `/zones/{zone}/email/sending/subdomains`（wrangler の `email sending enable` は 4.151.0 で認証の誤りになった） |
+| お客さんのリンク | `ask.reduxdive.com`（redux-ask の custom domain）。お店の Worker の secret `ASK_ORIGIN` もこの住所 | wrangler.ask.jsonc |
+| 警報の宛先 | secret `ALERT_TO` | `wrangler secret put ALERT_TO` |
+| Cron | `*/15 * * * *`（書類の自動化と毎日の控え） | wrangler.jsonc |
+
+- お店の画面は workers.dev のまま（APP_URL も workers.dev）。app.reduxdive.com に移すには、その住所にも Access の application を作る必要があり、権限の設定を足すことになるので、別に決める
 - サイト（AquaGate）は見本のまま workers.dev に置いておく（Turnstile の widget の hostname もそのまま）
+- メールのアドレスは公開の repo に書かない（送り主・警報の宛先は secret）
+
+置き直し: `node tools/build-site.mjs` のあと `npx wrangler@4.151.0 deploy -c wrangler.ask.jsonc` と `npx wrangler@4.151.0 deploy`
+
+確かめ方（2026-10-28 に通した）: `ask.reduxdive.com/ask` が 200／MAIL_SENDERS のアドレスから `inbox@reduxdive.com` に予約メールを送る → 名簿に入り予定が 4 つできる → 次の Cron でお願いのメールが届く／Cron のあとに BACKUP の KV に `day:<お店>:<日付>` ができる。届いた記録は GraphQL の `emailRoutingAdaptive` で見られる
 
 ## 置き直したら（2 回目から）
 - 開いているタブを全部読み込み直す（スマホ・PC とも）。古い版の画面が残ったまま保存すると、古い形の名簿を書く

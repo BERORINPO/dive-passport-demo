@@ -6,11 +6,11 @@ import { checkPut, readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { checkRequest, periods } from './read-core.mjs';
 import { checkBooking, addSiteBooking, mailText, senderAllowed, authPassed, markResults, runDue, roomForPublic, claimQueued, claimedBy, releaseStale, SENDING_STALE_MS,
   MAX_MAIL_BYTES, SITE_DAILY_MAX, MAIL_DAILY_MAX, SITE_DAILY_MAX_ALL, MAIL_DAILY_MAX_ALL, unreadWhy, UNREAD_KEEP_DAYS, UNREAD_DAILY_MAX } from './auto-core.mjs';
-import { takeDaily } from './budget.mjs';
+import { takeDaily, takeDailyAll, dropOldCounts } from './limit-db.mjs';
 import { addUnread } from './unread-db.mjs';
 import { dailyBackup } from './backup.mjs';
 import { missingMigrations } from './backup-core.mjs';
-import { listShops, rosterShops } from './shop-db.mjs';
+import { listShops, rosterShops, shopsWhy } from './shop-db.mjs';
 import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName } from './shop-core.mjs';
 import { mailReady, sendOne } from './mail.mjs';
 import { askModel } from './ask.mjs';
@@ -101,32 +101,55 @@ export async function scheduled(env, io) {
       const missing = missingMigrations(await listTables(env.DB));
       if (missing.length) { note.schema = missing.join('+'); throw new Error('schema'); }
       /* 名簿があるお店を 1 つずつ回る。1 店が失敗しても、ほかのお店は止めない */
-      const directory = await listShops(env.DB);
+      const directory = await listShops(env.DB, env);
       const shops = (await rosterShops(env.DB)).filter(shop => knownShop(directory, shop));
       note.shops = shops.length;
       note.queued = 0;
       note.sent = 0;
       for (const shop of shops) {
         const one = {};
-        try { await runAutomation(env, io, one, shop); } catch (e) { one.why = 'crash'; }
+        try { await runAutomation(env, io, one, shop); } catch (e) { one.why = 'crash'; note.err = errName(e); }
+        if (one.why) note.failed = (note.failed || 0) + 1;
         note.queued += one.queued || 0;
         note.sent += one.sent || 0;
         if (one.why) note.why = `${note.why ? `${note.why},` : ''}${shop}:${one.why}`.slice(0, 120);
       }
-      /* 毎日の控えと警報（1 日 1 回。送る物と別に、失敗しても止めない）。名簿の行が消えたお店にも気付けるよう、一覧のお店（一覧が空なら default）も回る */
-      const listed = directory.length ? directory.map(s => s.id) : ['default'];
+      /* 毎日の控えと警報（1 日 1 回。送る物と別に、失敗しても止めない）。名簿の行が消えたお店にも気付けるよう、一覧のお店も回る */
+      const listed = directory.map(s => s.id);
       for (const shop of [...new Set([...shops, ...listed])]) {
         const one = {};
-        try { await dailyBackup(env, io, shop, one); } catch (e) { one.backup = 'crash'; }
+        try { await dailyBackup(env, io, shop, one); } catch (e) { one.backup = 'crash'; note.err = errName(e); }
         if (one.alert) note.alerts = (note.alerts || 0) + 1;
         if (one.backup === 'crash') note.backupFailed = (note.backupFailed || 0) + 1;
       }
       await dropExpired(env.DB, clockOf(io).today);
+      await dropOldCounts(env.DB, clockOf(io).today);
     }
   } catch (e) {
-    note.why = 'crash';
+    note.why = shopsWhy(e, 'crash');
+    note.err = errName(e);
+    note.down = 1;
   }
+  await markCron(env, io, note);
   logLine(note, io, started);
+  /* 全部のお店で失敗した回・Cron そのものが落ちた回は、Cloudflare の Cron の履歴にも「失敗」と残す */
+  if (note.down || (note.shops && note.failed === note.shops)) throw new Error(`cron failed: ${note.why}`);
+}
+
+/* 例外の種類だけを残す（message には名前や本文が入りうるので残さない。点検 2026-10-28 運用 M15） */
+const errName = (e) => String((e && e.name) || 'Error').slice(0, 30);
+
+/* Cron が最後に動いた時刻（redux-ask の /api/health が見る）。数だけで、中身は書かない。書けなくても Cron は止めない。
+   落ちた回・全部のお店で失敗した回は書かない（時刻が古くなり、外の死活監視が鳴る） */
+async function markCron(env, io, note) {
+  if (!env.BUDGET || typeof env.BUDGET.put !== 'function' || note.why === 'config:DB') return;
+  if (note.down || (note.shops && note.failed === note.shops)) return;
+  try {
+    const at = new Date(io.now()).toISOString();
+    await env.BUDGET.put('cron:last', JSON.stringify({ at, shops: note.shops || 0, failed: note.failed || 0 }), { expirationTtl: 7 * 86400 });
+  } catch (e) {
+    note.cronMark = 'kv';
+  }
 }
 
 /* 届いたメールの生の中身を、上限まで読む。バイトは 1 文字ずつ（latin1）にする。超えたら null */
@@ -153,20 +176,23 @@ export async function receiveMail(message, env, io) {
   try {
     await takeMail(message, env, io, note);
   } catch (e) {
-    note.why = 'crash';
+    note.why = shopsWhy(e, 'crash');
+    note.err = errName(e);
   }
+  /* お店が決まる前に止まった（設定が欠けた・落ちた）メールは、黙って捨てずに断る。送り元に返り、どこにも残らないまま消えない（点検 2026-10-28 運用 C4） */
+  if (!note.shop && (note.why === 'config' || note.why === 'crash' || String(note.why).startsWith('shops'))) message.setReject('Temporarily unavailable, please try again later');
   await rememberUnread(env, io, note);
   logLine(note, io, started);
 }
 
 async function rememberUnread(env, io, note) {
   const why = note.shop && !note.added ? unreadWhy(note.why) : null;
-  if (!why || !dbReady(env) || !env.BUDGET) return;
+  if (!why || !dbReady(env)) return;
   const now = io.now();
   const { at, today } = clockOf(io);
   try {
     const before = new Date(now - UNREAD_KEEP_DAYS * 86400000).toISOString();
-    if (!(await takeDaily(env.BUDGET, `unread:${note.shop}:${today}`, UNREAD_DAILY_MAX))) {
+    if (!(await takeDaily(env.DB, { scope: 'unread', shop: note.shop, day: today, max: UNREAD_DAILY_MAX }))) {
       /* 上限を超えた分は 1 行ずつは残さないが、「この日はほかにもあった」を 1 日 1 行だけ残す（画面に何も出ないまま落とさない） */
       note.unread = 'daily';
       await addUnread(env.DB, note.shop, { id: `many${today.replace(/-/g, '')}`, at, why: 'many', before });   // 決まった id なので 1 日 1 行。D1 の不調で書けなくても、次の 1 通でまた書く
@@ -182,18 +208,18 @@ async function rememberUnread(env, io, note) {
 async function takeMail(message, env, io, note) {
   if (!dbReady(env) || !env.ANTHROPIC_API_KEY || !env.BUDGET) { note.why = 'config'; return; }
   /* どのお店の予約かは、届いた宛先（封筒の To）をお店の一覧で引いて決める。送り主はそのお店の送り主の表で確かめる
-     （一覧が空なら MAIL_SENDERS。あるお店の転送元が、別のお店の受け口に予約を入れられないように。ザクのレビュー 2026-10-27） */
-  const shops = await listShops(env.DB);
+     （SINGLE_SHOP の 1 店なら MAIL_SENDERS。あるお店の転送元が、別のお店の受け口に予約を入れられないように。ザクのレビュー 2026-10-27） */
+  const shops = await listShops(env.DB, env);
   const shop = shopForRecipient(shops, message.to);
   if (!shop) { note.why = 'inbox'; message.setReject('Unknown recipient'); return; }
   note.shop = shop;
-  if (!senderAllowed(message.from, sendersOf(shops, shop, env.MAIL_SENDERS))) { note.why = 'sender'; message.setReject('Sender not accepted'); return; }
+  if (!senderAllowed(message.from, sendersOf(shops, shop))) { note.why = 'sender'; message.setReject('Sender not accepted'); return; }
   const results = message.headers.get('authentication-results') || message.headers.get('arc-authentication-results') || '';
   if (!authPassed(results, message.from)) { note.why = 'auth'; message.setReject('Sender not authenticated'); return; }
   if (Number(message.rawSize) > MAX_MAIL_BYTES) { note.why = 'size'; return; }
   /* メールからの予約の 1 日の上限（全店あわせてと、お店ごと）。AI を呼ぶ前に数える（お店の読み取り /api/read の上限を食い尽くさせない） */
   const day = clockOf(io).today;
-  if (!(await takeDaily(env.BUDGET, `mail:${day}`, MAIL_DAILY_MAX_ALL)) || !(await takeDaily(env.BUDGET, `mail:${shop}:${day}`, MAIL_DAILY_MAX))) {
+  if (!(await takeDailyAll(env.DB, { scope: 'mail', shop, day, max: MAIL_DAILY_MAX, maxAll: MAIL_DAILY_MAX_ALL }))) {
     note.why = 'mail-daily';
     return;
   }
@@ -205,12 +231,14 @@ async function takeMail(message, env, io, note) {
   const checked = checkRequest({ doc: 'mail', text: mail.text }, today);
   if (!checked.ok) { note.why = `input-${checked.error}`.slice(0, 40); return; }
   Object.assign(note, { size: checked.ask.size, redacted: checked.ask.redacted });
-  const got = await askModel(checked.ask, env, io, note);
+  const got = await askModel(checked.ask, env, io, note, shop);
   if (!got.ok) { note.why = note.why || 'ai'; return; }
   /* 画面の「メールを貼る」と同じく、日付が読めた予約だけを自動で入れる（日付が無いものはお店が画面で入れる） */
   if (!got.reading.booking || !got.reading.booking.date) { note.why = 'no-date'; return; }
   const { at, nowJst } = clockOf(io);
-  const added = await changeRoster(env, io, s => R.rosterAuto.addFromReading(s, { reading: got.reading, lang: '', at, nowJst, newId }),
+  const reading = R.rosterAuto.trustMailEmail(got.reading, mail.text);
+  if (reading !== got.reading) note.email = 'dropped';
+  const added = await changeRoster(env, io, s => R.rosterAuto.addFromReading(s, { reading, lang: '', at, nowJst, newId }),
     { fromOutside: true, shop, name: nameOf(shops, shop, '') });
   if (!added.ok) { note.why = `add-${added.why}`; return; }
   note.added = 1;   // お願いの連絡は次の Cron で送る
@@ -222,7 +250,14 @@ export async function takeSiteBooking(given, env, io, note, shop = SHOP_DEFAULT,
   const { at, nowJst, today } = clockOf(io);
   const checked = checkBooking(given, { today });
   if (!checked.ok) { note.why = `input-${checked.error}`.slice(0, 40); return { status: 400, body: { error: 'input' } }; }
-  if (!(await takeDaily(env.BUDGET, `site:${today}`, SITE_DAILY_MAX_ALL)) || !(await takeDaily(env.BUDGET, `site:${shop}:${today}`, SITE_DAILY_MAX))) {
+  let taken;
+  try {
+    taken = await takeDailyAll(env.DB, { scope: 'site', shop, day: today, max: SITE_DAILY_MAX, maxAll: SITE_DAILY_MAX_ALL });
+  } catch (e) {
+    note.why = 'limit-db';
+    return { status: 503, body: { error: 'db' } };
+  }
+  if (!taken) {
     note.why = 'site-daily';
     return { status: 429, body: { error: 'limit' } };
   }

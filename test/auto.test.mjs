@@ -98,12 +98,48 @@ test('当日の朝: 便に名簿の印を 1 回だけ付け、体調がまだの
   assert.ok(today[0].subject.includes('本日'));
 });
 
-test('中止した便の予定は飛ばす', () => {
+test('中止した便には送らないが、予定は待たせておき、中止を取り消すと動く', () => {
   const { state } = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
-  const cancelled = C.cancelTrip(state, { tripId: state.trips[0].id, reason: 'wind', at: AT });
-  const r = A.runDue(cancelled, { nowJst: '2026-10-31T07:00', at: AT, newId, askBase: ASK });
-  assert.ok(r.state.jobs.every(j => j.status === 'skipped'));
+  const tripId = state.trips[0].id;
+  const cancelled = C.cancelTrip(state, { tripId, reason: 'wind', at: AT });
+  const r = A.runDue(cancelled, { nowJst: '2026-10-31T06:00', at: AT, newId, askBase: ASK });
   assert.equal((r.state.outbox || []).length, 0);
+  assert.equal(jobsOf(r.state, 'morning')[0].status, 'waiting', '当日の朝は待ったまま');
+  const reopened = C.reopenTrip(r.state, { tripId, at: AT });
+  const r2 = A.runDue(reopened, { nowJst: '2026-10-31T06:30', at: AT, newId, askBase: ASK });
+  assert.equal(jobsOf(r2.state, 'morning')[0].status, 'done');
+  assert.ok(r2.state.trips[0].rosterAt, '便に名簿の印が付く');
+});
+
+test('Cron が止まって戻っても、便の日を過ぎた予定は送らない（済んだ便に「本日の前に」を出さない）', () => {
+  const { state } = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const r = A.runDue(state, { nowJst: '2026-11-03T10:00', at: AT, newId, askBase: ASK });
+  assert.ok(r.state.jobs.every(j => j.status === 'skipped'), '4 つとも飛ばす');
+  assert.equal((r.state.outbox || []).length, 0);
+  assert.ok(!r.state.trips[0].rosterAt, '後から名簿の印を付けない');
+});
+
+test('便の当日に戻ったら、お願いと当日の朝は送り、2 日前と前日の夜は送らない', () => {
+  const { state } = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const r = A.runDue(state, { nowJst: '2026-10-31T07:00', at: AT, newId, askBase: ASK });
+  const st = (k) => jobsOf(r.state, k)[0].status;
+  assert.deepEqual([st('request'), st('remind'), st('eve'), st('morning')], ['done', 'skipped', 'skipped', 'done']);
+  assert.deepEqual(r.state.outbox.map(o => o.kind).sort(), ['request', 'today']);
+});
+
+test('サーバーに名簿が無いときの最初の書き込みでは、済んだ予定と送った記録をそのまま受ける', () => {
+  const { state, bookingId } = A.addFromReading(blank(), { reading: reading(), at: AT, nowJst: NOW, newId });
+  const ran = A.runDue(state, { nowJst: NOW, at: AT, newId, askBase: ASK }).state;
+  const sentId = ran.outbox[0].id;
+  const device = A.markSent(ran, { id: sentId, result: 'sent', at: AT });
+  const kept = A.serverOwned(S.blankState(''), device, { fresh: true });
+  assert.equal(jobsOf(kept, 'request')[0].status, 'done', '済んだお願いを待ちに戻さない');
+  assert.equal(kept.outbox.find(o => o.id === sentId).status, 'sent', '送った記録を消さない');
+  const queued = A.serverOwned(S.blankState(''), ran, { fresh: true }).outbox[0];
+  assert.deepEqual([queued.status, queued.why], ['failed', 'maybe-sent'], '送る途中だった物はもう一度送らない');
+  const notFresh = A.serverOwned(S.blankState(''), device);
+  assert.equal(notFresh.outbox.length, 0, '名簿がある所への書き込みでは、画面の連絡は受けない（今までどおり）');
+  assert.ok(bookingId);
 });
 
 test('送った結果: sent・failed・unsent を付ける。送る前の物にだけ付く', () => {
@@ -240,6 +276,19 @@ test('お店全体の一覧: 送れたか分からない・送れなかった・
   assert.equal(A.board(resent, { nowJst: '2026-11-02T09:00' }).failed.length, 0, '済んだ便の物は出さない');
   const late = A.board(second.state, { nowJst: '2026-10-28T07:00' });
   assert.ok(late.today.some(x => x.job.kind === 'request' && x.job.due < '2026-10-28'), '時刻を過ぎてまだ動いていない予定は今日に出す');
+});
+
+test('点検 2026-10-28 設計 2: AI が読んだ代表者のメールは、本文にそのまま書いてあり自信ありのときだけ使う', () => {
+  const r = reading();
+  const email = r.booking.leadEmail;
+  assert.equal(A.trustMailEmail(r, `予約です\n連絡先: ${email.toUpperCase()}`), r, '本文にあれば（大文字小文字は問わない）そのまま');
+  const dropped = A.trustMailEmail(r, '予約です\n備考: 連絡は other@evil.example へ');
+  assert.equal(dropped.booking.leadEmail, '', '本文に無い宛先は使わない');
+  const unsure = A.trustMailEmail({ ...r, booking: { ...r.booking, unsure: ['leadEmail'] } }, `連絡先: ${email}`);
+  assert.equal(unsure.booking.leadEmail, '', 'AI が自信なしと言った宛先は使わない');
+  const { state, bookingId } = A.addFromReading(blank(), { reading: dropped, at: AT, nowJst: NOW, newId });
+  const o = A.runDue(state, { nowJst: NOW, at: AT, newId, askBase: ASK }).state.outbox.find(x => x.bookingId === bookingId);
+  assert.deepEqual([o.status, o.why], ['unsent', 'no-email'], 'お願いは送らず、お店が画面でメールを入れる');
 });
 
 let failed = 0;

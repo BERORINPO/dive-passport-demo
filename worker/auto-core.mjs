@@ -226,6 +226,17 @@ export const UNREAD_WHY = ['limit', 'size', 'text', 'no-date', 'full', 'roster',
 
 /* 届いたメールを名簿に入れられなかった理由（ログの note.why）を、画面に出す短い言葉にする。
    宛先・送り主・送り主のドメインの確かめで断ったメールと、設定の誤りは残さない（null。お店のメールとは限らないため） */
+/* 外の死活監視が見る「Cron が最後に動いた時刻」。45 分（15 分ごとの 3 回分）より古い・無い・壊れていれば止まっている（点検 2026-10-28 運用 C2）。
+   時計は読まない: 呼ぶ側が「これより新しければ良い」時刻（since、ISO）を渡す */
+export const CRON_STALE_MS = 45 * 60 * 1000;
+const ISO_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+export function cronFresh(text, since) {
+  let last = null;
+  try { last = text ? JSON.parse(text) : null; } catch (e) { last = null; }
+  const at = last && typeof last.at === 'string' && ISO_AT.test(last.at) ? last.at : '';
+  return { ok: Boolean(at) && at >= since, at };
+}
+
 export function unreadWhy(why) {
   if (!why || ['inbox', 'sender', 'auth', 'config'].includes(why)) return null;
   if (why === 'mail-daily') return 'limit';

@@ -8,6 +8,8 @@ import vm from 'node:vm';
 import { scheduled } from '../worker/auto.mjs';
 import { dropAlert, snapshotOf, baseOf, dayKey, sizeAlert, alertMail, missingMigrations, REQUIRED_TABLES } from '../worker/backup-core.mjs';
 import { readdirSync } from 'node:fs';
+import { handlePublic } from '../worker/handler.mjs';
+import { cronFresh } from '../worker/auto-core.mjs';
 import { checkPut } from '../worker/sync-core.mjs';
 import { fakeKv, fakeD1, fakeMail } from '../worker/fakes.mjs';
 
@@ -27,7 +29,7 @@ function setup({ backup = true } = {}) {
   const db = fakeD1();
   const kv = fakeKv();
   const mail = fakeMail();
-  const env = { DB: db, BUDGET: fakeKv(), EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: 'https://app.shop.example', ALERT_TO: 'ops@shop.example', ...(backup ? { BACKUP: kv } : {}) };
+  const env = { DB: db, SINGLE_SHOP: 'default', BUDGET: fakeKv(), EMAIL: mail, MAIL_FROM: 'yoyaku@shop.example', APP_URL: 'https://app.shop.example', ALERT_TO: 'ops@shop.example', ...(backup ? { BACKUP: kv } : {}) };
   const io = { clock: T0, now: () => io.clock, fetch: async () => { throw new Error('no fetch'); } };
   return { db, kv, mail, env, io };
 }
@@ -175,7 +177,7 @@ test('点検 2026-10-28 設計 16: D1 の表が足りなければ Cron は動か
   const created = readdirSync(new URL('../worker/migrations/', import.meta.url)).filter(f => f.endsWith('.sql')).flatMap(f =>
     [...readFileSync(new URL(`../worker/migrations/${f}`, import.meta.url), 'utf8').matchAll(/CREATE TABLE(?: IF NOT EXISTS)? (\w+)/gi)].map(m => [m[1], f.slice(0, 4)]));
   assert.deepEqual(Object.fromEntries(created), REQUIRED_TABLES, 'migration を足したら REQUIRED_TABLES にも足す');
-  assert.deepEqual(missingMigrations(['rosters', 'ask_links', 'shops']), ['0004', '0005']);
+  assert.deepEqual(missingMigrations(['rosters', 'ask_links', 'shops']), ['0004', '0005', '0006']);
   const s = setup();
   store(s, big('2026-11-05'));
   s.db.missingTables = ['mail_unread'];
@@ -183,6 +185,45 @@ test('点検 2026-10-28 設計 16: D1 の表が足りなければ Cron は動か
   await scheduled(s.env, s.io).catch(() => {});
   assert.ok(logs.some(l => /"schema":"0005"/.test(l)), '番号をログに出す');
   assert.equal(s.kv.peek(dayKey('default', '2026-10-28')), null, '控えも取らない（動かさない）');
+});
+
+test('点検 2026-10-28 運用 C3: 警報のメールが送れなかったら、次の Cron でもう一度送る。送れたら二度は送らない', async () => {
+  const s = setup();
+  const st = store(s, big('2026-11-05'));
+  await scheduled(s.env, s.io);
+  s.io.clock = T0 + DAY;
+  store(s, { ...st, people: st.people.slice(0, 5) }, { version: 2, today: '2026-10-29' });
+  s.mail.fail = 'E_DELIVERY_FAILED';
+  await scheduled(s.env, s.io);
+  assert.equal(JSON.parse(s.kv.peek('alert:default:2026-10-29')).mailed, 'pending');
+  s.mail.fail = '';
+  s.io.clock += 15 * 60000;
+  await scheduled(s.env, s.io);
+  const toOps = () => s.mail.sent.filter(m => m.to === 'ops@shop.example').length;
+  assert.equal(toOps(), 1, '次の回に送れた');
+  assert.equal(JSON.parse(s.kv.peek('alert:default:2026-10-29')).mailed, 'sent');
+  s.io.clock += 15 * 60000;
+  await scheduled(s.env, s.io);
+  assert.equal(toOps(), 1, '送れた後は鳴らし直さない');
+});
+
+test('点検 2026-10-28 運用 C2: Cron は最後に動いた時刻を残し、お客さん用の Worker の /api/health が 45 分より古ければ 503 を返す', async () => {
+  const s = setup();
+  store(s, big('2026-11-05'));
+  const health = async () => handlePublic(new Request('https://ask.example/api/health'), { BUDGET: s.env.BUDGET }, s.io);
+  assert.equal((await health()).status, 503, 'まだ一度も動いていない');
+  await scheduled(s.env, s.io);
+  const ok = await health();
+  assert.equal(ok.status, 200);
+  const body = await ok.json();
+  assert.deepEqual(Object.keys(body).sort(), ['cronAt', 'ok'], '返すのは時刻だけ');
+  s.io.clock += 46 * 60000;
+  assert.equal((await health()).status, 503, '45 分を過ぎたら止まっていると返す');
+  s.db.failing = true;
+  await scheduled(s.env, s.io).catch(() => {});
+  s.db.failing = false;
+  assert.equal((await health()).status, 503, '落ちた回は時刻を新しくしない');
+  assert.equal(cronFresh('{"at":"x"}', '2026-01-01T00:00:00.000Z').ok, false, '壊れた値は止まっている扱い');
 });
 
 test('控えから戻す（tools/restore.mjs）: お店が違えば止め、今の版でだけ書き、戻すと消える数を出す。本物の SQLite で流すと版が進んで名簿が戻る', async () => {
