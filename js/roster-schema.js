@@ -5,7 +5,7 @@
   'use strict';
 
   const R = (globalThis.REDUX = globalThis.REDUX || {});
-  const VERSION = 1;
+  const VERSION = 2;   // 2: 記録の 1 件に rx（サーバーが受けた時刻）と by（ログインしたメール）が付く
   const KINDS = ['dive', 'snorkel'];
   const SOURCES = ['mail', 'form', 'phone', 'partner'];        // 予約の出どころ: 予約サイトのメール / 自社のフォーム / 電話など / 乗り合いの他店
   const FIELD_SRC = ['mail', 'paper', 'ccard', 'guest', 'staff', 'passport', 'partner'];   // その項目を入れたもの
@@ -269,7 +269,8 @@
       ['trip', 'booking', 'person', 'state'].includes(e.kind) && isStr(e.id, 40) &&
       isList(e.fields, 30, f => isStr(f, 20)) && isObj(e.before) && isObj(e.after) && sentOk(e.sent) &&
       (e.kind !== 'person' || (logHealthOk(e.before.health) && logHealthOk(e.after.health))) &&   // 印刷・受け取りの health は「健康の欄を出したか」の真偽
-      (e.demo === undefined || e.demo === true);   // demo: デモで「当日として」答えた印
+      (e.demo === undefined || e.demo === true) &&   // demo: デモで「当日として」答えた印
+      (e.rx === undefined || isStr(e.rx, 40)) && (e.by === undefined || isStr(e.by, 254));   // rx・by: サーバーだけが付ける（版 2 から。それ以前の行には無い）
   }
 
   /* ---------- 名簿の形の版を上げる（ジンのレビュー 2026-10-27 HIGH 7） ----------
@@ -277,12 +278,13 @@
      bumpAll で上げられる）。読む所（端末の loadRoster・別のタブの保存・サーバーの readStored・済んだ便の行）は、検査の前に upgradeState を通す。
      古い版の画面から届いた名簿は、サーバーが上げずに断る（新しい欄を、それを知らない画面の名簿で消さないため。sync-core.mjs の checkPut）。
      端末の保存場所の名前（redux-roster-v1）は版が変わっても変えない（変えると、前の名簿を読まなくなる） */
-  const MIGRATIONS = {};
   const bumpAll = (s, to) => {
     const up = (x) => (isObj(x) ? { ...x, v: to } : x);
     return { ...s, v: to, trips: (s.trips || []).map(up), bookings: (s.bookings || []).map(up), people: (s.people || []).map(up),
       ...(s.jobs ? { jobs: s.jobs.map(up) } : {}), ...(s.outbox ? { outbox: s.outbox.map(up) } : {}) };
   };
+  /* 版 1 → 2: 記録に rx・by の欄が増えただけ。前の版の行には付けない（受けた時刻と誰かは、そのとき記録していないので作らない） */
+  const MIGRATIONS = { 1: (s) => bumpAll(s, 2) };
   /* steps は { 版: 名簿 → 次の版の名簿 }。target まで順に上げる。上げる道が無い（新しすぎる・途中が欠けた・形が違う）ときは元のまま返す
      （検査に落ちて、呼ぶ側が「読めない」として扱う）。テストは steps を渡して確かめる */
   function upgradeWith(s, steps, target) {
@@ -291,7 +293,8 @@
     while (cur.v < target) {
       const step = steps[cur.v];
       if (typeof step !== 'function') return s;
-      const next = step(cur);
+      let next;
+      try { next = step(cur); } catch (e) { return s; }   // 形が壊れていて移せない名簿は元のまま返す（検査に落ちて「読めない」になる。退避の道へ）
       if (!isObj(next) || next.v !== cur.v + 1) return s;
       cur = next;
     }
