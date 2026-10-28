@@ -38,7 +38,7 @@ function setup() {
   const db = fakeD1();
   const clock = { now: NOW };
   const env = { ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db };
+    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, SINGLE_SHOP: 'default' };
   const io = {
     fetch: async (url, init) => {
       checkRedirect(init);

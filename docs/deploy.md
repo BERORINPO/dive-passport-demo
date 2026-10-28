@@ -88,7 +88,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 d1 create redux-rosters
    ```
-3. 表を作る（worker/migrations/ の 0001〜0005。表は、それを使う Worker を置く前に作る。0004（済んだ便）が無いと便が済んで 7 日を過ぎた日の書き込みが 503 になり、0005（読めなかった予約メール）が無いと、読めなかったことを残せない（ログには残る））
+3. 表を作る（worker/migrations/ の 0001〜0006。表は、それを使う Worker を置く前に作る。0004（済んだ便）が無いと便が済んで 7 日を過ぎた日の書き込みが 503 になり、0005（読めなかった予約メール）が無いと、読めなかったことを残せない（ログには残る）。0006（1 日の件数）が無いと、サイトの予約が 503 になる（件数を D1 で数えるため）。0006 は足すだけなので、前の版の Worker が動いたままでも先に流せる）
    ```bash
    npx wrangler@4.151.0 d1 migrations apply redux-rosters --remote
    ```
@@ -104,6 +104,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    - お店の Worker: `/` は Access のログインへ、`/api/roster` も止まる
    - お客さんの Worker: `/ask` は開ける。`/api/roster`・`/api/ask-link` は 404。`/api/ask` に間違った鍵を送ると 404
    - 2 台の端末で同じ名簿がそろう。「お客さんに聞くリンク」で作ったリンクを、ログインしていないスマホで開いて入れると、お店の画面に出る
+- お店の一覧（D1 の shops）が空・表が無いとき、Worker は 503（shops-empty・shops-no-table をログに出す）。今の 1 店の動き（名簿の行 = default）で動かすには、wrangler.jsonc と wrangler.ask.jsonc の vars に `SINGLE_SHOP: "default"` を入れる（入れてある）。shops に行を足したら行が先になる（足す前に default の行も入れる: tools/shop.mjs keep-sample）。置く順は 0006 を流す → redux-ask → お店の Worker
 - Cron（15 分ごとの予定）はまだ入れていない。アカウントの無料の枠（5 本）をほかの Worker が使い切っているため。入れるまでは、お店の画面を開いている間に画面が予定を動かす
 - 2026-10-27 に置いた: お店の Worker と redux-ask（https://redux-ask.cibimaro-yousuke.workers.dev）。D1 は画面で作り、表はコンソールで 0001・0002 と同じ文を流した（wrangler の login に D1 の権限が付かなかったため）
 - サイトの予約フォーム（/api/bookings）は、Access の無い redux-ask が受ける（2026-10-27）。redux-ask の secret: SITE_ORIGINS（https://aquagate-demo.cibimaro-yousuke.workers.dev）と TURNSTILE_SECRET（Turnstile の widget「aquagate-demo booking form」。サイトキーはサイト側に）。お店の Worker の /api/bookings は Access の中なので使わない

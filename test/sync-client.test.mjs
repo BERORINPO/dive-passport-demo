@@ -35,7 +35,7 @@ function server() {
   resetAccessCache();
   const db = fakeD1();
   const env = { ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db };
+    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, SINGLE_SHOP: 'default' };
   const io = { fetch: async (url, init) => { checkRedirect(init); return new Response(JSON.stringify({ keys: access.keys }), { status: 200 }); }, now: () => NOW };
   const srv = { db, down: false, calls: 0 };
   /* ブラウザの fetch の代わり。Access と同じ場所からの呼び出しの印を足して、本物の handler に渡す */

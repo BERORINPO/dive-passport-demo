@@ -72,7 +72,8 @@ AquaGate（仲村さんのサイト）の予約フォームから届く予約を
 | `SITE_ORIGINS` | var | 予約フォームを置くサイトの origin（「,」区切り） | /api/bookings は 503 |
 | `TURNSTILE_SECRET` | secret | Turnstile の秘密の鍵（サイト側にサイトキー）。サイト側の widget は `data-action="booking"`。答えの hostname が SITE_ORIGINS のどれかでないと通さない | 同上 |
 | `BOOKING_LIMIT` | ratelimits binding | `{ "name": "BOOKING_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } }` | 同上 |
-| `BUDGET` | KV binding（今ある物） | サイトの予約とメールの予約の 1 日の件数（各 30 件）も数える | /api/bookings は 503 |
+| `BUDGET` | KV binding（今ある物） | AI を呼ぶ 1 日の回数と今月の費用の目安（お店ごと）。サイトの予約とメールの予約の 1 日の件数（各 30 件）は D1 の daily_counts（0006）で数える | AI の読み取りは 503 |
+| `SINGLE_SHOP` | var | 1 店で動かすときのお店の id（`default`）。D1 の shops が空・表が無いときに、これを書いた場合だけ 1 店で動く | shops が空なら全部 503（shops-empty・shops-no-table） |
 | `ASK_LIMIT` | ratelimits binding | お客さんのリンク（/api/ask）の 1 つの IP の回数。`{ "name": "ASK_LIMIT", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } }` | /api/ask は 503 |
 | Access の Bypass | ダッシュボード | `/ask`・`/ask.html`・`/api/ask`・`/js/*`・`/css/*`（plan/meibo.md「お客さんのリンク」） | お客さんがリンクを開けない |
 | `SHOP_NAME` | var | 名簿がまだ無いときのお店の名前（送るメールの差出人名） | 空 |

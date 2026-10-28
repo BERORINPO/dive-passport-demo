@@ -7,7 +7,7 @@
 |---|---|
 | shared | js/pass-schema.js js/roster-schema.js js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
 | core | js/roster-core.js js/roster-guest.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/past-core.mjs worker/backup-core.mjs worker/auto-core.mjs worker/ask-core.mjs worker/shop-core.mjs |
-| adapter | js/ai-reader.js js/roster-sync.js js/ask-api.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/unread-db.mjs worker/mail.mjs worker/site-guard.mjs worker/ask-db.mjs worker/shop-db.mjs worker/fakes.mjs |
+| adapter | js/ai-reader.js js/roster-sync.js js/ask-api.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/unread-db.mjs worker/mail.mjs worker/site-guard.mjs worker/ask-db.mjs worker/shop-db.mjs worker/limit-db.mjs worker/fakes.mjs |
 | entry | index.html pass.html ask.html js/ask-page.js js/app.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/turtle3d.js js/auto-flow.js js/booking.js js/intake-photo.js js/guest-ask.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs worker/backup.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
@@ -27,7 +27,8 @@
 | js/roster-sync.js | 同じ場所の Worker `/api/roster`（お店の名簿の正本、D1）と `/api/roster/past`（済んだ便、読むだけ） | 無し（test/sync-client.test.mjs は本物の worker/handler.mjs と fakeD1 につなぐ） | — | Access のログイン（Cookie） | お店の名簿。版の番号つきで、ぶつかったら最新を返す |
 | worker/anthropic.mjs | Claude API（claude-haiku-5-5、/v1/messages） | `fakeAnthropic`（worker/fakes.mjs） | AI の読み取り試験 2026-10-21 の答え（予約の項目は試験していない。置いたあとに確かめる） | `ANTHROPIC_API_KEY`（この Worker 専用の 1 本、並行 1 本。Anthropic のこの Worker 専用ワークスペースで発行し、そこで月の上限） | なし |
 | worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS` は secret） | なし |
-| worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | 1 日の回数と今月の費用（目安）だけ |
+| worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | AI を呼ぶ 1 日の回数と今月の費用（目安）だけ。キーはお店ごと（`day:<お店>:<日>`） |
+| worker/limit-db.mjs | Cloudflare D1（`DB`、表 daily_counts） | `fakeD1`。SQL は test/d1-sql.test.mjs が node:sqlite でも流す | — | Worker の binding | サイトの予約・届いた予約メール・読めなかったメールの 1 日の件数（お店ごとと全店あわせ、正確）。「上限未満のときだけ 1 足す」1 文 |
 | worker/roster-db.mjs | Cloudflare D1（`DB`、表は worker/migrations/） | `fakeD1`（使う文だけを読む）。済んだ便の SQL は test/past.test.mjs が node:sqlite でも流す | — | Worker の binding | お店の名簿の正本（1 お店 1 行、版の番号つき）と、済んで 7 日を過ぎた便（roster_past、便ごとに 1 行。本体と同じ batch で書く）。plan/server.md |
 | worker/backup.mjs（KV `BACKUP`） | Workers KV（名簿の毎日の控え・警報の記録） | `fakeKv` | — | Worker の binding | お店ごと 1 日 1 つの名簿の控え（1 年）、済んだ便の行の写し、警報。plan/server.md |
 | worker/unread-db.mjs | Cloudflare D1（`DB`、表 mail_unread） | `fakeD1` | — | Worker の binding | 読めなかった予約メールの届いた時刻と理由だけ（件名・本文・送り主は残さない。30 日）。plan/auto.md |
@@ -41,7 +42,7 @@
 - Worker の外への通信の先は、arch.check の 9 番がファイルごとに完全一致で見る。検査で追えない形（`io.fetch(env.X)`・文字を足して作った URL）は、テストの io.fetch が知らない先で例外を出すことで止める
 - Worker が画面を信じる所: 申込書の写真を塗ったか（`masked: true` は画面の photo-prep.js の申告で、Worker は確かめられない）。spec/meibo.md の「本物の前に」21
 - /api は `Sec-Fetch-Site: same-origin` と JSON を求め、CORS のヘッダは出さない。画面のファイルは Static Assets が `dist/_headers` の CSP を付けて配る（tools/build-site.mjs が作る）
-- 監視: Worker は回数と費用だけを KV に数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える。ログは 1 要求 1 行で、道・状態・doc・量・時間・理由の短い言葉だけ。Cloudflare の observability は切る
+- 監視: Worker は AI を呼ぶ回数と費用を KV に、外からの 1 日の件数を D1 に、お店ごとに数える（中身は残さない）。上限を超えたら 429、画面は見本の読み取りに切り替える。ログは 1 要求 1 行で、道・状態・doc・量・時間・理由の短い言葉だけ。Cloudflare の observability は切る
 - 他のお店のスマホで開くパスポート（pass.html）は、GitHub Pages の公開版に置いたまま。Worker 版の画面の QR は公開版の pass.html を指す（Worker は Access の中なので、他のお店は開けない）
 
 ### 外から読む先（test/arch.check.mjs の 8 番はこの表だけを読む）
@@ -67,6 +68,7 @@
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
 |---|---|---|---|
+| 2026-10-28 shops-fail-closed | お店の一覧（shops）が空・表が無いときは、1 店に倒さず 503（理由の名前だけをログに出す）。1 店で動くのは env の `SINGLE_SHOP`（お店の id）を書いたときだけで、行があれば行が先。2 店が同じ受け口・メール・サイトを持つ一覧は、形の壊れた行と同じく例外（受け口は D1 の一意索引でも止める）。AI の上限（KV のキー）はお店の id を含め、サイトの予約・メールの 1 日の件数は D1 の daily_counts で正確に数える（お店ごと + 全店あわせ） | 空の一覧で全員が default の名簿を共有する開いた側の穴（設計の不足 4・15、セキュリティ SEC-19、正確さ M3）。KV は同じキーへ 1 秒に 1 回しか書けず、続けて届いた予約が「上限」として落ちた。却下: 一覧が空のときの default を残す（穴が残る）・件数を Durable Object で数える（今は D1 の 1 文で足りる）・枠を超えた予約を「お店の確かめ待ち」に回す（SEC-19 の残り。別の作業） | 有: test/shops.test.mjs（空・表なし・重なりで 503、SINGLE_SHOP だけ 1 店）・test/d1-sql.test.mjs（上限ちょうどで止まる、受け口の一意） |
 | 2026-10-28 server-builds-messages | お客さんへの連絡を作り、予定を動かすのは Worker の Cron だけ。サーバーにつながっている画面は予定を動かさず、送り直しは印（requestResend）を付けるだけ。PUT で届いた名簿の送る連絡（outbox）と予定の状態はサーバーの物に戻し（serverOwned。受けるのは「届いていた」と「送り直しを頼む」だけ）、送る直前に宛先と本文を今の予約から作り直す（rebuildOut） | ジンのレビュー 2026-10-28 H1（画面が作った連絡のリンクが Access の中を指し、お客さんが開けない）と H2（ログインした端末が outbox に任意の宛先・本文を書くと、会社のドメインから送られる）。却下: 画面の askBase だけ直す（H2 が残る）・outbox を別の表に分ける（大きな作り直し） | test/sync.test.mjs（画面が足した連絡を置かない）・test/auto-worker.test.mjs（作り直して送る・送り直しは 1 通） |
 | 2026-10-28 server-owns-jobs-and-text | 決まった文面に入れる名前・ツアー・お店の名前は、改行とリンクらしい物（://・www.・ドメインやメールアドレスの並び）を外して短く切る（名前 30 字・ツアーとお店 40 字。plain）。PUT で届いた予定は、今ある物はサーバーの物をそのまま使い、新しい物はサーバーに同じ予約・同じ種類の予定が無いときだけ受ける。版が合うのに保存済みの名簿が読めなければ 500 | ザクのレビュー 2026-10-28 MEDIUM-1・2・LOW。決まった文面に偽の案内を書かせない・画面から何度でもお願いを送らせない・空の名簿を元に画面の物を通さない。却下: 名前に URL を書けないよう入力で断る（今ある名簿と他の入口が残る） | 有（test/sync.test.mjs・test/auto-worker.test.mjs のザク 2026-10-28 の 3 本） |
 | 2026-10-27 build-all | 既存のサービス（OKABAN・OMUSUBI）の機能を全部そろえ、その上に船から先（条例の名簿・乗り合い・帰船確認）を載せる。順番は 6 段階（土台 → 船の日 → 予約と書類 → 決済と連絡 → 運営 → 予約サイトの在庫連動）。2026-10-21 の「予約管理では張り合わない（横に付ける）」を置き換える | Yosuke「時間がかかっても全部を作る」。既存 35 製品を一次情報で比べた結果（条例の 13 項目の名簿・乗り合いで他店の客の名前・店ごとの帰船確認はどこにも無い）。却下: 船から先だけを作り予約まわりはつなぐ（A。日数は 3〜4 分の 1 で済むが、店が 1 つの道具で済まない） | 無 |

@@ -1,12 +1,15 @@
 // 何店でも扱える作り（worker/shop-core.mjs・shop-db.mjs と、それを使う handler・auto・ask-route）を、外との境目を見本に差し替えて確かめる。
 // お店の一覧（D1 の shops）があると、スタッフはログインしたメールのお店の名簿だけを見て書き、サイトの予約は送ってきたサイトのお店へ、
-// お客さんのリンクは鍵と一緒に置いたお店へ、Cron は名簿があるお店を全部回る。一覧が空（表が無い）なら今までどおり 1 店。
+// お客さんのリンクは鍵と一緒に置いたお店へ、Cron は名簿があるお店を全部回る。
+// 一覧が空・表が無いときは、env の SINGLE_SHOP を書いたときだけ 1 店で動く。書いていなければ 503（開いた側に倒さない）。
+// 2 店が同じ受け口・メール・サイトを持つ一覧も、形の壊れた行と同じく 503。1 日の件数（サイトの予約・メール）はお店ごとに D1 で正確に数える。
 // 実行: node test/shops.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
 import { handle, handlePublic } from '../worker/handler.mjs';
 import { scheduled } from '../worker/auto.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
-import { shopForEmail, shopForOrigin, shopForRecipient, shopsFromRows } from '../worker/shop-core.mjs';
+import { shopForEmail, shopForOrigin, shopForRecipient, shopsFromRows, shopsProblem, singleShop, knownShop } from '../worker/shop-core.mjs';
+import { listShops, shopsWhy } from '../worker/shop-db.mjs';
 import { fakeKv, fakeAccess, fakeD1, fakeTurnstile, fakeRateLimit, fakeMail, checkRedirect } from '../worker/fakes.mjs';
 
 const ORIGIN = 'https://dive-passport-demo.example.workers.dev';
@@ -22,11 +25,12 @@ const NOW = Date.parse('2026-10-27T01:00:00Z');
 const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 const REAL_LOG = console.log;
-console.log = () => {};
+const logs = [];
+console.log = (line) => logs.push(String(line));
 const access = await fakeAccess(TEAM);
 const jwtFor = (email) => access.sign({ iss: `https://${TEAM}`, aud: [AUD], email, exp: NOW / 1000 + 3600, iat: NOW / 1000 - 10, nbf: NOW / 1000 - 10, type: 'app' });
 
-function setup({ shops = true } = {}) {
+function setup({ shops = true, single = '' } = {}) {
   resetAccessCache();
   const db = fakeD1();
   if (shops) {
@@ -37,7 +41,8 @@ function setup({ shops = true } = {}) {
   const env = {
     ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: [A_STAFF, B_STAFF, NOBODY].join(','),
     DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, ASK_LIMIT: fakeRateLimit(100), BOOKING_LIMIT: fakeRateLimit(100),
-    TURNSTILE_SECRET: 'turnstile-test-secret', SITE_ORIGINS: SITE_A, ASK_ORIGIN: PUBLIC, EMAIL: fakeMail(), MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN
+    TURNSTILE_SECRET: 'turnstile-test-secret', SITE_ORIGINS: SITE_A, ASK_ORIGIN: PUBLIC, EMAIL: fakeMail(), MAIL_FROM: 'yoyaku@shop.example', APP_URL: ORIGIN,
+    ...(single ? { SINGLE_SHOP: single } : {})
   };
   const io = {
     clock: NOW,
@@ -65,11 +70,11 @@ const stored = (s, shop) => JSON.parse(s.db.rows.get(shop).state);
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
 
-test('振り分けの決まり: 一覧が空なら 1 店、あればメール・サイト・宛先で引く。壊れた行は捨てる', () => {
-  assert.equal(shopForEmail([], 'x@example.com'), 'default');
-  assert.equal(shopForOrigin([], SITE_A, `${SITE_A}, ${SITE_B}`), 'default');
-  assert.equal(shopForOrigin([], 'https://evil.example.com', SITE_A), '');
-  assert.equal(shopForRecipient([], 'any@x.example'), 'default');
+test('振り分けの決まり: 一覧が空ならどこにも振り分けない。あればメール・サイト・宛先で引く。壊れた行は捨てる', () => {
+  assert.equal(shopForEmail([], 'x@example.com'), '', '空の一覧で 1 店に倒さない');
+  assert.equal(shopForOrigin([], SITE_A), '');
+  assert.equal(shopForRecipient([], 'any@x.example'), '');
+  assert.equal(knownShop([], 'default'), false);
   const shops = shopsFromRows([
     { id: 'shop-a', name: 'A', members: JSON.stringify(['A.Staff@Example.com']), sites: JSON.stringify([SITE_A]), inbox: 'A@Yoyaku.example' },
     { id: 'Bad Id', name: 'x', members: '[]', sites: '[]', inbox: '' },
@@ -78,9 +83,30 @@ test('振り分けの決まり: 一覧が空なら 1 店、あればメール・
   assert.deepEqual(shops.map(x => x.id), ['shop-a', 'shop-c']);
   assert.equal(shopForEmail(shops, 'a.staff@example.com'), 'shop-a');
   assert.equal(shopForEmail(shops, 'other@example.com'), '');
-  assert.equal(shopForOrigin(shops, SITE_A, ''), 'shop-a');
-  assert.equal(shopForOrigin(shops, SITE_B, SITE_B), '', '一覧があるときは SITE_ORIGINS を見ない');
+  assert.equal(shopForOrigin(shops, SITE_A), 'shop-a');
+  assert.equal(shopForOrigin(shops, SITE_B), '');
   assert.equal(shopForRecipient(shops, 'a@yoyaku.example'), 'shop-a');
+});
+
+test('1 店の動き（singleShop）: 明示した id の形が合うときだけ。誰がログインしても・どの宛先でも・SITE_ORIGINS のサイトだけ、その 1 店', () => {
+  for (const bad of [undefined, '', '  ', 'Bad Id', 'x'.repeat(41)]) assert.equal(singleShop(bad, {}), null, String(bad));
+  const one = [singleShop(' default ', { siteOrigins: `${SITE_A}, ${SITE_B}`, mailSenders: 'fwd@shop.example' })];
+  assert.equal(shopForEmail(one, 'anyone@example.com'), 'default');
+  assert.equal(shopForRecipient(one, 'any@x.example'), 'default');
+  assert.equal(shopForOrigin(one, SITE_B), 'default');
+  assert.equal(shopForOrigin(one, 'https://evil.example.com'), '');
+  assert.equal(knownShop(one, 'default'), true);
+  assert.equal(knownShop(one, 'shop-a'), false);
+});
+
+test('一覧の重なり（shopsProblem）: 同じ受け口・メール・サイトを 2 店が持つと理由を返す。空の受け口と、1 店の中の重複は重なりでない', () => {
+  const row = (id, over) => ({ id, name: id, members: '[]', sites: '[]', inbox: '', senders: '[]', ...over });
+  const check = (...rows) => shopsProblem(shopsFromRows(rows));
+  assert.equal(check(row('a'), row('b')), '', '空の受け口は何店でもよい');
+  assert.equal(check(row('a', { members: '["x@e.com","X@e.com"]' }), row('b', { members: '["y@e.com"]' })), '', '1 店の中の重複は重なりでない');
+  assert.equal(check(row('a', { inbox: 'in@y.example' }), row('b', { inbox: ' IN@Y.example ' })), 'inbox', '大文字小文字・前後の空白は同じ受け口');
+  assert.equal(check(row('a', { members: '["Staff@E.com"]' }), row('b', { members: '["staff@e.com"]' })), 'member');
+  assert.equal(check(row('a', { sites: `["${SITE_A}"]` }), row('b', { sites: `["${SITE_A}"]` })), 'site');
 });
 
 test('スタッフは自分のお店の名簿だけを読み書きする。どのお店にもいない人は 403。名前は一覧の名前にそろう', async () => {
@@ -109,8 +135,40 @@ test('サイトの予約は送ってきたサイトのお店へ。一覧に無�
   assert.deepEqual(stored(s, 'shop-a').bookings.map(x => x.leadName), ['見本 一郎']);
   assert.deepEqual(stored(s, 'shop-b').bookings.map(x => x.leadName), ['見本 二郎']);
   assert.equal(stored(s, 'shop-a').shop.name, 'A ダイブ');
-  assert.equal(s.env.BUDGET.peek('site:shop-a:2026-10-27'), '1');
-  assert.equal(s.env.BUDGET.peek('site:shop-b:2026-10-27'), '1');
+  assert.equal(s.db.daily.get('site\nshop-a\n2026-10-27'), 1);
+  assert.equal(s.db.daily.get('site\nshop-b\n2026-10-27'), 1);
+  assert.equal(s.db.daily.get('site\n*\n2026-10-27'), 2, '全店あわせた数も数える');
+});
+
+test('1 日の件数はお店ごと: 1 店が上限に届いても、ほかのお店は受ける。上限に届いたお店は全店の枠を使わない', async () => {
+  const s = setup();
+  s.db.setCount('site', 'shop-a', '2026-10-27', 30);
+  s.turnstile.hostname = 'shop-a.example.com';
+  assert.equal((await siteBooking(s, SITE_A, '見本 一郎')).status, 429, 'A は 1 日 30 件まで');
+  s.turnstile.hostname = 'shop-b.example.com';
+  assert.equal((await siteBooking(s, SITE_B, '見本 二郎')).status, 202, 'B は A の上限に巻き込まれない');
+  assert.equal(s.db.daily.get('site\n*\n2026-10-27'), 1, '断られた A の分は全店の枠を使わない');
+  assert.equal(s.env.BUDGET.puts.length, 0, '外からの件数は KV に書かない');
+});
+
+test('AI の上限はお店ごと: キーにお店の id が入り、A が使い切っても B は読める。どのお店にもいない人は AI も使えない', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fakeAnthropic } = await import('../worker/fakes.mjs');
+  const s = setup();
+  s.env.DAILY_LIMIT = '1';
+  const api = fakeAnthropic();
+  const realFetch = s.io.fetch;
+  s.io.fetch = (url, init) => (url === 'https://api.anthropic.com/v1/messages' ? api.respond(init) : realFetch(url, init));
+  const text = readFileSync(new URL('../assets/samples/e1.txt', import.meta.url), 'utf8');
+  assert.equal((await staff(s, A_STAFF, '/api/read', 'POST', { doc: 'mail', text })).status, 200);
+  assert.equal((await staff(s, A_STAFF, '/api/read', 'POST', { doc: 'mail', text })).status, 429, 'A は 1 日 1 回まで');
+  assert.equal((await staff(s, B_STAFF, '/api/read', 'POST', { doc: 'mail', text })).status, 200, 'B は A の上限に巻き込まれない');
+  assert.equal(s.env.BUDGET.peek('day:shop-a:2026-10-27'), '1');
+  assert.equal(s.env.BUDGET.peek('day:shop-b:2026-10-27'), '1');
+  assert.equal(s.env.BUDGET.peek('day:2026-10-27'), null, 'お店の無いキーは作らない');
+  const h = await (await staff(s, B_STAFF, '/api/healthz', 'GET')).json();
+  assert.equal(h.left.today, 0, 'healthz はログインしたお店の残り');
+  assert.equal((await staff(s, NOBODY, '/api/read', 'POST', { doc: 'mail', text })).status, 403);
 });
 
 test('お客さんのリンク: 作れるのは自分のお店の予約だけ。開くと鍵のお店の名簿に入る', async () => {
@@ -149,14 +207,62 @@ test('Cron は名簿があるお店を全部回る。1 店で失敗してもほ�
   assert.deepEqual(keys, ['shop-a', 'shop-b'], 'リンクの鍵はそれぞれのお店に置く');
 });
 
-test('一覧が空（表が無い D1）なら、今までどおり 1 店（default）で動く', async () => {
-  const s = setup({ shops: false });
+test('一覧が空・表が無いとき、SINGLE_SHOP が無ければ 503（開いた側に倒さない）。理由の名前だけをログに出し、何も書かない', async () => {
   const blank = { v: 1, shop: { name: '見本' }, trips: [], bookings: [], people: [], log: [] };
+  for (const [label, why, prep] of [['表が無い', 'shops-no-table', () => {}], ['表はあるが空', 'shops-empty', (s) => { s.db.shopsTable = true; }]]) {
+    const s = setup({ shops: false });
+    prep(s);
+    logs.length = 0;
+    const r = await staff(s, NOBODY, '/api/roster', 'PUT', { base: 0, state: blank });
+    assert.deepEqual([r.status, (await r.json()).error], [503, 'shops'], label);
+    s.turnstile.hostname = 'shop-a.example.com';
+    assert.equal((await siteBooking(s, SITE_A, '見本 一郎')).status, 503, label);
+    assert.equal((await staff(s, NOBODY, '/api/read', 'POST', { doc: 'mail', text: 'x' })).status, 503, label);
+    assert.deepEqual(logs.map(l => JSON.parse(l).why), [why, why, why], `${label}: ログには理由の名前だけ`);
+    assert.ok(logs.every(l => !l.includes(NOBODY) && !l.includes('見本')), 'ログに中身を出さない');
+    assert.equal(s.db.rows.size, 0, `${label}: 名簿は書かれない`);
+    assert.equal(s.db.daily.size, 0, `${label}: 件数も数えない`);
+    logs.length = 0;
+    await scheduled(s.env, s.io);
+    assert.equal(JSON.parse(logs[0]).why, why, `${label}: Cron も理由を残して何もしない`);
+  }
+});
+
+test('SINGLE_SHOP を書くと、表が無い・空でも、その 1 店で動く（今までの default）。id の形が合わなければ 503。行があれば行が先', async () => {
+  const blank = { v: 1, shop: { name: '見本' }, trips: [], bookings: [], people: [], log: [] };
+  const s = setup({ shops: false, single: 'default' });
   assert.equal((await staff(s, NOBODY, '/api/roster', 'PUT', { base: 0, state: blank })).status, 200);
   assert.deepEqual([...s.db.rows.keys()], ['default']);
   s.turnstile.hostname = 'shop-a.example.com';
   assert.equal((await siteBooking(s, SITE_A, '見本 一郎')).status, 202);
   assert.equal(stored(s, 'default').bookings.length, 1);
+  assert.equal(s.db.daily.get('site\ndefault\n2026-10-27'), 1);
+  assert.equal((await siteBooking(s, SITE_B, '見本 二郎')).status, 403, '1 店でも、SITE_ORIGINS に無いサイトは断る');
+  s.db.shopsTable = true;   // 表はあるが空でも同じ
+  assert.equal((await staff(s, NOBODY, '/api/roster', 'GET')).status, 200);
+  const odd = setup({ shops: false, single: 'Bad Id' });
+  assert.equal((await staff(odd, NOBODY, '/api/roster', 'GET')).status, 503, '形の合わない id は明示と見なさない');
+  const rows = setup({ single: 'default' });
+  assert.equal((await staff(rows, NOBODY, '/api/roster', 'GET')).status, 403, '行があれば SINGLE_SHOP は使わない（行に無い人は入れない）');
+  assert.equal((await staff(rows, A_STAFF, '/api/roster', 'GET')).status, 200);
+});
+
+test('一覧の重なり: 2 店が同じ受け口・メール・サイトを持つと listShops が例外にし、全道が 503。理由の名前だけが出る', async () => {
+  const dup = [['shops-dup-inbox', { inbox: 'A@yoyaku.example ' }], ['shops-dup-member', { members: [A_STAFF.toUpperCase()] }], ['shops-dup-site', { sites: [SITE_A] }]];
+  for (const [why, over] of dup) {
+    const s = setup({ single: 'default' });
+    s.db.addShop({ id: 'shop-c', name: 'C', members: ['c.staff@example.com'], sites: ['https://shop-c.example.com'], inbox: 'c@yoyaku.example', ...over });
+    await assert.rejects(listShops(s.db, s.env), (e) => e.message === why && shopsWhy(e, 'db') === why);
+    logs.length = 0;
+    assert.equal((await staff(s, A_STAFF, '/api/roster', 'GET')).status, 503, why);
+    s.turnstile.hostname = 'shop-a.example.com';
+    assert.equal((await siteBooking(s, SITE_A, '見本 一郎')).status, 503, why);
+    assert.deepEqual(logs.map(l => JSON.parse(l).why), [why, why]);
+    assert.equal(s.db.rows.size, 0, '名簿は書かれない');
+  }
+  const down = setup();
+  down.db.failing = true;
+  await assert.rejects(listShops(down.db, down.env), (e) => shopsWhy(e, 'db') === 'db', 'D1 の不調は一覧の問題と見分ける');
 });
 
 /* 届いたメールの見本（Email Routing が渡す形）。SPF も DKIM も送り主のドメインで通った印つき */
@@ -194,7 +300,7 @@ test('ザクのレビュー: 届いたメールは、宛先のお店の送り主
   await receiveMail(ok, s.env, s.io);
   assert.equal(ok.rejected, '');
   assert.equal(stored(s, 'shop-b').bookings.length, 1);
-  s.env.BUDGET.put('mail:2026-10-27', '60');
+  s.db.setCount('mail', '*', '2026-10-27', 60);
   await receiveMail(mail('fwd@shop-a.example', 'a@yoyaku.example'), s.env, s.io);
   assert.equal(api.calls.length, 1, '全店あわせて 60 件を超えたら AI を呼ばない');
 });

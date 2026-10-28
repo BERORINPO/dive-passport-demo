@@ -27,7 +27,7 @@ function setup() {
   const db = fakeD1();
   const api = fakeAnthropic();
   const env = { ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
-    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, MAIL_SENDERS: 'forward@shop.example', SHOP_NAME: 'B マリン（見本）' };
+    DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, MAIL_SENDERS: 'forward@shop.example', SHOP_NAME: 'B マリン（見本）', SINGLE_SHOP: 'default' };
   const io = {
     clock: NOW,
     fetch: async (url, init) => {
@@ -102,7 +102,7 @@ test('30 日を過ぎた行は、次に足すときに消え、口も渡さな�
   assert.ok(!s.db.unread.has('default\nold'), '足すときに消えた');
   assert.ok(s.db.unread.has('shop-b\nb1'), '他のお店の行には触らない');
   assert.deepEqual((await api(s, 'GET')).body.items.map(x => x.why), ['text']);
-  s.env.BUDGET.put('unread:default:2026-10-27', '60');
+  s.db.setCount('unread', 'default', '2026-10-27', 60);
   await receiveMail(message(''), s.env, s.io);
   await receiveMail(message(''), s.env, s.io);
   s.db.failing = true;

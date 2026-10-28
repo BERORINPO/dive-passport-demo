@@ -12,6 +12,7 @@ import { getRoster, putRoster, getPast, getMovedSince } from '../worker/roster-d
 import { putLink, findLink, countLinks, useLink, dropExpired } from '../worker/ask-db.mjs';
 import { listShops, rosterShops } from '../worker/shop-db.mjs';
 import { addUnread, listUnread, dropUnread } from '../worker/unread-db.mjs';
+import { takeDaily, takeDailyAll, dropOldCounts } from '../worker/limit-db.mjs';
 import { checkPut } from '../worker/sync-core.mjs';
 import { handle } from '../worker/handler.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
@@ -76,6 +77,16 @@ async function scenario(db) {
   await log('unread-drop', dropUnread(db, 'shop-a', 'u1'));
   await log('unread-drop-again', dropUnread(db, 'shop-a', 'u1'));
   await log('unread-old-gone', addUnread(db, 'shop-a', { id: 'u3', at: '2026-10-27T04:00:00.000Z', why: 'ai', before: '2026-10-27T03:00:00.000Z' }).then(() => listUnread(db, 'shop-a', '', 50)));
+  for (let i = 0; i < 4; i += 1) await log(`daily-${i}`, takeDaily(db, { scope: 'site', shop: 'shop-a', day: TODAY, max: 3 }));
+  await log('daily-other-shop', takeDaily(db, { scope: 'site', shop: 'shop-b', day: TODAY, max: 3 }));
+  await log('daily-other-scope', takeDaily(db, { scope: 'mail', shop: 'shop-a', day: TODAY, max: 3 }));
+  await log('daily-next-day', takeDaily(db, { scope: 'site', shop: 'shop-a', day: '2026-10-28', max: 3 }));
+  await log('daily-zero-max', takeDaily(db, { scope: 'site', shop: 'shop-c', day: TODAY, max: 0 }));
+  for (let i = 0; i < 3; i += 1) await log(`daily-all-${i}`, takeDailyAll(db, { scope: 'mail', shop: 'shop-b', day: TODAY, max: 2, maxAll: 1 }));
+  await log('daily-all-shop-full', takeDaily(db, { scope: 'mail', shop: 'shop-b', day: TODAY, max: 2 }));
+  await log('daily-drop', dropOldCounts(db, '2026-10-28'));
+  await log('daily-after-drop', takeDaily(db, { scope: 'site', shop: 'shop-a', day: TODAY, max: 1 }));
+  await log('daily-keep-today', takeDaily(db, { scope: 'site', shop: 'shop-a', day: '2026-10-28', max: 1 }));
   return out;
 }
 
@@ -86,6 +97,32 @@ test('fakeD1 と本物の SQLite に同じ操作を流すと、答えが全部�
   const b = await scenario(real);
   assert.equal(a.length, b.length);
   a.forEach(([label, got], i) => assert.deepEqual(got, b[i][1], `${label}: fakeD1 と SQLite で答えが違う`));
+});
+
+test('1 日の回数（0006）: 上限ちょうどで止め、お店・scope・日で別に数える。同時に何件来ても上限を超えない', async () => {
+  const db = await sqliteD1();
+  const take = (shop, max = 30, day = TODAY) => takeDaily(db, { scope: 'site', shop, day, max });
+  const burst = await Promise.all(Array.from({ length: 50 }, () => take('shop-a')));
+  assert.equal(burst.filter(Boolean).length, 30, '50 件を一度に呼んでも通るのは 30 件（読んでから書く 2 手ではなく 1 文なので、間に別の呼び出しが入っても超えない）');
+  assert.equal(db.raw.prepare("SELECT n FROM daily_counts WHERE scope = 'site' AND shop = 'shop-a'").get().n, 30, '数えた値は上限と同じ（超えて書かない）');
+  assert.equal(await take('shop-b'), true, '別のお店は別に数える');
+  assert.equal(await take('shop-a', 30, '2026-10-28'), true, '日が変われば戻る');
+  assert.equal(await take('shop-a', 31), true, '上限が上がれば通る');
+  assert.equal(await take('shop-a', 31), false);
+  assert.equal(await take('shop-z', 0), false, '上限 0 は何も通さず、行も作らない');
+  assert.equal(db.raw.prepare("SELECT COUNT(*) AS n FROM daily_counts WHERE shop = 'shop-z'").get().n, 0);
+  const failing = fakeD1();
+  failing.failing = true;
+  await assert.rejects(takeDaily(failing, { scope: 'site', shop: 'x', day: TODAY, max: 1 }), /d1 down/, 'D1 の不調は「上限に届いた」と見分けて例外にする');
+});
+
+test('migration 0006: 2 店が同じ受け口（大文字小文字・空白違いも）を持つ行は入らない。空の受け口は何店でもよい', async () => {
+  const db = await sqliteD1();
+  db.addShop({ id: 'shop-a', name: 'A', inbox: 'a@yoyaku.example' });
+  db.addShop({ id: 'shop-b', name: 'B', inbox: '' });
+  db.addShop({ id: 'shop-c', name: 'C', inbox: '  ' });
+  assert.throws(() => db.addShop({ id: 'shop-d', name: 'D', inbox: ' A@Yoyaku.example' }), /UNIQUE/);
+  assert.equal((await listShops(db, {})).length, 3);
 });
 
 test('adapter（worker/*-db.mjs）の SQL は、全部 SQLite で流れた', async () => {
@@ -116,7 +153,7 @@ test('名簿・済んだ便・読めなかった予約メールを、本物の h
   const access = await fakeAccess(TEAM);
   const jwt = await access.sign({ iss: `https://${TEAM}`, aud: [AUD], email: EMAIL, exp: NOW / 1000 + 3600, iat: NOW / 1000 - 10, nbf: NOW / 1000 - 10, type: 'app' });
   const db = await sqliteD1();
-  const env = { ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL, DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db };
+  const env = { ANTHROPIC_API_KEY: 'sk-test-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL, DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: fakeKv(), DB: db, SINGLE_SHOP: 'default' };
   const io = { fetch: async (url, init) => { checkRedirect(init); return new Response(JSON.stringify({ keys: access.keys }), { status: 200 }); }, now: () => NOW };
   const call = async (method, path, body) => {
     const h = { 'sec-fetch-site': 'same-origin', 'cf-access-jwt-assertion': jwt, ...(body ? { 'content-type': 'application/json' } : {}) };
