@@ -131,8 +131,11 @@ test('ジンのレビュー 2026-10-28 H1・H2: 送る連絡と予定の動き�
   const first = await put(s, 0, { ...base, jobs: [job], outbox: [out('evil', { to: 'victim@attacker.example', body: '本文を差し替えた' })] });
   assert.equal(first.status, 200);
   let st = JSON.parse(s.db.rows.get('default').state);
-  assert.deepEqual(st.outbox, [], '画面が足した連絡は置かない');
-  assert.deepEqual(st.jobs.map(j => j.status), ['waiting'], '画面が予定を済んだにしても、待つのまま（送るのは Cron）');
+  /* 名簿が無い所への最初の書き込み（base 0）は、端末の送った記録を残す（ジンの点検 2026-10-28 H2）。ただし宛先と本文はサーバーが作り直し、
+     送る途中の物は「送れたか分からない」にして送らない。済んだと来た予定は済んだのまま（送らない向きは信じる） */
+  assert.ok(st.outbox.every(o => o.status !== 'queued'), '画面が足した連絡を送る形では置かない（作り直せなければ捨てる。見本の予約はメールが無いので捨てる）');
+  assert.ok(st.outbox.every(o => o.to !== 'victim@attacker.example' && !o.body.includes('差し替え')), '宛先と本文は画面の物を使わない');
+  assert.deepEqual(st.jobs.map(j => j.status), ['done'], '済んだと来た予定を待ちに戻して送り直さない');
   /* 2. サーバー（Cron）が送った結果を置いた形: o1 は送れたか分からない、o2 は送れなかった */
   const serverState = { ...st, outbox: [out('o1', { status: 'failed', why: 'maybe-sent' }), out('o2', { status: 'failed', why: 'send' })] };
   assert.ok((await putRoster(s.db, 'default', 1, JSON.stringify(serverState), AT, { parts: [], today: TODAY })).ok);

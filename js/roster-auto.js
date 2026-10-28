@@ -188,6 +188,14 @@
     };
   }
 
+  /* 便の日から見て、もう送っても意味の無い予定か。お願いは便の日まで、2 日前と前日の夜は前日まで、当日の朝は当日だけ。日付の無い便は今までどおり */
+  function tooLate(kind, tripDate, today) {
+    if (!tripDate) return false;
+    if (kind === 'request') return tripDate < today;
+    if (kind === 'morning') return tripDate !== today;
+    return tripDate <= today;
+  }
+
   /* nowJst までに時刻が来た予定を、時刻の順に動かす。{ state, queued: 送る連絡の id } */
   function runDue(state0, { nowJst, at, newId, askBase }) {
     if (!S().isJst(nowJst)) throw new Error(`runDue: nowJst は YYYY-MM-DDTHH:MM (${nowJst})`);
@@ -201,10 +209,15 @@
     const outbox = [...(state.outbox || [])];
     const queued = [...fromAsks];
     const finished = new Map();   // job id → 'done' / 'skipped'
+    const today = nowJst.slice(0, 10);
     for (const j of due) {
       const booking = bookingOf(state, j.bookingId);
       const trip = booking ? trips.find(t => t.id === booking.tripId) : null;
-      if (!booking || !trip || trip.cancel) { finished.set(j.id, 'skipped'); continue; }
+      if (!booking || !trip) { finished.set(j.id, 'skipped'); continue; }
+      /* Cron が止まって戻ったとき、もう意味の無い連絡は送らない（済んだ便に「本日の前に」を出さない。ジンの点検 2026-10-28 H1） */
+      if (tooLate(j.kind, trip.date, today)) { finished.set(j.id, 'skipped'); continue; }
+      /* 中止の便は送らないが、予定は待たせたままにする（中止を取り消したら動く。H10） */
+      if (trip.cancel) continue;
       const push = (kind, people) => {
         const o = outItem(state, { kind, booking, trip, people, at, newId, askBase });
         outbox.push(o);
@@ -318,11 +331,12 @@
        サーバーの名簿に同じ予約・同じ種類の予定が無いときに限り、状態は「待つ」から受ける。済んだ予定を消して足し直しても受けない
        （画面から何度でもお願いを送らせない。ザクのレビュー 2026-10-28 MEDIUM-2）。画面が予定を消すのはよい（送らない向き）
      - 予約が消えた連絡は残さない（名簿の形を保つ） */
-  function serverOwned(stored, incoming) {
+  function serverOwned(stored, incoming, { fresh = false } = {}) {
     const before = new Map((stored.outbox || []).map(o => [o.id, o]));
     const seen = new Map((incoming.outbox || []).map(o => [o.id, o]));
     const bookings = new Set((incoming.bookings || []).map(b => b.id));
-    const outbox = (stored.outbox || []).filter(o => bookings.has(o.bookingId)).map(o => {
+    const kept = fresh ? freshOutbox(incoming, bookings) : (stored.outbox || []);
+    const outbox = kept.filter(o => bookings.has(o.bookingId)).map(o => {
       const n = seen.get(o.id);
       if (!n) return o;
       const confirm = o.status === 'failed' && o.why === 'maybe-sent' && n.status === 'sent' && n.why === CONFIRMED;
@@ -338,13 +352,26 @@
       const key = `${j.bookingId}\n${j.kind}`;
       if (planned.has(key)) return [];
       planned.add(key);
-      return [{ ...j, status: 'waiting', doneAt: '' }];
+      /* 新しい予定は待ちで受ける。ただし済んだ・飛ばしたと来た物はそのまま（送らない向きは信じてよい。名簿の行が消えた後に端末から入れ直したとき、
+         済んだ予定が全部待ちに戻ってまとめて送られないように。ジンの点検 2026-10-28 H2） */
+      return ['done', 'skipped'].includes(j.status) ? [j] : [{ ...j, status: 'waiting', doneAt: '' }];
     });
     return {
       ...incoming,
       ...(incoming.jobs || stored.jobs ? { jobs } : {}),
       ...(incoming.outbox || stored.outbox ? { outbox } : {})
     };
+  }
+
+  /* サーバーに名簿が無いときの最初の書き込み（fresh）では、端末が持っていた連絡の記録を残す（送った記録を消さない）。
+     ただし宛先と本文は画面の物を信じず、今の名簿から作り直す（作れない物は捨てる）。送る途中だった物は「送れたか分からない」にして、
+     もう一度は送らない（お店が確かめるか送り直しを頼む） */
+  function freshOutbox(incoming, bookings) {
+    return (incoming.outbox || []).filter(o => bookings.has(o.bookingId)).flatMap(o => {
+      const fresh = rebuildOut(incoming, o);
+      if (!fresh) return [];
+      return [o.status === 'queued' ? { ...fresh, status: 'failed', why: 'maybe-sent', sentAt: '' } : fresh];
+    });
   }
 
   /* 送る直前に、連絡の宛先と本文を今の名簿から作り直す（名簿に書いてある宛先と本文は信じない。Worker の Cron）。
