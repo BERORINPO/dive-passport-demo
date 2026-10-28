@@ -32,7 +32,7 @@ function tidy(state, { today, at }) {
    記録の before / after の中身は、まだ項目を絞っていない。お客さんのリンク（/ask）を Access の外に出す前に絞る（plan/server.md） */
 const STATE_KEYS = ['v', 'shop', 'trips', 'bookings', 'people', 'log', 'jobs', 'outbox'];
 const SHOP_KEYS = ['name', 'health'];
-const LOG_KEYS = ['at', 'who', 'act', 'kind', 'id', 'fields', 'before', 'after', 'sent', 'demo'];
+const LOG_KEYS = ['at', 'who', 'act', 'kind', 'id', 'fields', 'before', 'after', 'sent', 'demo', 'rx', 'by'];
 const onlyKeys = (o, keys) => Object.keys(o).every(k => keys.includes(k));
 const unique = (list) => new Set(list.map(x => x.id)).size === list.length;
 function strictProblem(s) {
@@ -58,20 +58,32 @@ export function shrinkProblem(prev, next) {
 /* 記録（log）は足すだけ。サーバーに置いてある記録が、届いた名簿から消えていたり書き換わっていたら、置いてある方を戻す
    （古い画面・不具合のある画面・乗っ取られた端末が、条例の「いつ・誰が・どの項目を」の記録を消せないように。点検 2026-10-28 正しさ H8・設計 1）。
    比べるのは健康の答えを外した形（scrubLog の後）。書き換えた行は、元の行を戻したうえで新しい行として残る（書き換えたことが分かる）。
-   期限で消える分は、このあと checkPut の tidy が消す */
-export function keepLog(stored, incoming) {
-  if (!stored || !Array.isArray(stored.log) || !incoming || !Array.isArray(incoming.log)) return incoming;
+   期限で消える分は、このあと checkPut の tidy が消す。
+   stamp = { rx, by } を渡すと、新しく足された行にだけ rx（サーバーが受けた時刻）と by（ログインしたメール）を付ける。画面が付けてきた rx・by は捨てる
+   （at は操作した時刻のまま残す。オフラインで直した分は、あとで届いても at が操作した時刻）。置いてある行は rx・by ごと比べるので、付けた後の行も次の書き込みで同じ行として戻る。
+   メールは名簿の中にだけ置く（名簿はもともとスタッフの名前を持つ）。ログ（console.log）には出さない */
+export function keepLog(stored, incoming, stamp) {
+  if (!incoming || !Array.isArray(incoming.log)) return incoming;
+  const mark = (e) => {
+    if (!stamp || !e || typeof e !== 'object' || Array.isArray(e)) return e;
+    const { rx, by, ...rest } = e;
+    return { ...rest, rx: stamp.rx, by: stamp.by };
+  };
+  if (!stored || !Array.isArray(stored.log)) return stamp ? { ...incoming, log: incoming.log.map(mark) } : incoming;
   const key = (e) => JSON.stringify(e);
   const given = R.rosterCore.scrubLog(incoming).log;
   const had = new Set(stored.log.map(key));
   const added = given.filter(e => !had.has(key(e)));
-  if (added.length === given.length - stored.log.length && given.every((e, i) => i >= stored.log.length || key(e) === key(stored.log[i]))) return incoming;
-  return { ...incoming, log: [...stored.log, ...added] };
+  if (added.length === given.length - stored.log.length && given.every((e, i) => i >= stored.log.length || key(e) === key(stored.log[i]))) {
+    return stamp ? { ...incoming, log: incoming.log.map((e, i) => (i < stored.log.length ? e : mark(e))) } : incoming;
+  }
+  return { ...incoming, log: [...stored.log, ...added.map(mark)] };
 }
 
 /* 画面から届いた名簿の、送る連絡と予定の動きを、サーバーが持つ名簿に合わせる（無ければ空の名簿）。決まりは js/roster-auto.js の serverOwned。
-   記録は keepLog で足すだけにする */
-export const serverOwned = (stored, incoming, opts) => keepLog(stored, R.rosterAuto.serverOwned(stored || R.roster.blankState(''), incoming, opts));
+   記録は keepLog で足すだけにする。opts.rx・opts.by（受けた時刻とログインしたメール）があれば、足された行に付ける */
+export const serverOwned = (stored, incoming, opts = {}) => keepLog(stored, R.rosterAuto.serverOwned(stored || R.roster.blankState(''), incoming, opts),
+  typeof opts.rx === 'string' ? { rx: opts.rx, by: typeof opts.by === 'string' ? opts.by : '' } : undefined);
 
 /* PUT の本文 { base, state, allowShrink? } を確かめる。返すのは { ok, base, state, text, parts, allowShrink } か { ok: false, error }。
    state と text は名簿の本体、parts は分けた済んだ便（past-core.mjs の splitPast。roster-db.mjs の putRoster が一緒に書く） */

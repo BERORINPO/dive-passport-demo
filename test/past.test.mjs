@@ -237,7 +237,10 @@ test('ジンのレビュー: 一度移した便の行は、古い写しで上書
   const p = await pastOf(s, '2026-10-01', '2026-10-01');
   assert.equal(p.body.state.trips[0].site, '最新', '先に移した最新の中身が残る');
   const ai = p.body.state.log.filter(e => e.id === '');
-  assert.equal(ai.length, 2, '前の記録も、遅れて届いた記録も残る（同じ物は 1 つ）');
+  /* 古い写しの記録は、サーバーが rx・by を付け直す（画面が付けた値は信じない）。同じ操作（at が同じ）の行が、受け直した時刻違いで 1 行増える */
+  assert.equal(ai.length, 3, '前の記録も、遅れて届いた記録も残る');
+  assert.deepEqual([...new Set(ai.map(e => e.at))].sort(), ['2026-10-01T05:00:00.000Z', '2026-10-01T09:00:00.000Z'], '操作は 2 つ（at は変わらない）');
+  assert.ok(ai.every(e => typeof e.rx === 'string' && typeof e.by === 'string'));
   /* 便の id が log: で始まっても、記録の行と重ならない */
   const odd = { ...stale, trips: stale.trips.map(t => ({ ...t, id: 'log:2026-10-01' })), bookings: stale.bookings.map(x => ({ ...x, tripId: 'log:2026-10-01' })) };
   const parts = splitPast(odd, { today: TODAY, tag: 'v9' }).parts.map(x => x.part);

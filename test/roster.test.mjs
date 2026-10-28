@@ -324,6 +324,23 @@ test('保存期間を過ぎた便は、予約・人・記録ごと消え、消�
   assert.ok(S.validateState(after).ok);
 });
 
+test('記録の rx・by（版 2）: 文字なら通り、無い行（前の版）も通る。文字でなければ通らない。版 1 の名簿は 1 つ上げると通る', () => {
+  const e = { at: AT, who: 'staff', act: 'add', kind: 'trip', id: 't1', fields: [], before: {}, after: {}, sent: null };
+  const withLog = (x) => ({ ...base, log: [x] });
+  assert.ok(S.validateState(withLog(e)).ok, '前の版の行（rx・by なし）');
+  assert.ok(S.validateState(withLog({ ...e, rx: AT, by: 'staff@example.com' })).ok);
+  assert.ok(S.validateState(withLog({ ...e, rx: AT, by: '' })).ok, 'メールが分からない行は by が空');
+  for (const bad of [{ rx: 5 }, { rx: AT.repeat(3) }, { by: null }, { by: 'a'.repeat(255) }, { by: ['x'] }]) assert.ok(!S.validateState(withLog({ ...e, ...bad })).ok, JSON.stringify(bad).slice(0, 30));
+  const v1 = S.bumpAll(withLog(e), 1);
+  assert.ok(!S.validateState(v1).ok, '版 1 のまま検査すると版が違う');
+  const up = S.upgradeState(v1);
+  assert.equal(up.v, 2);
+  assert.ok(S.validateState(up).ok);
+  assert.deepEqual(up.log, [e], '前の行には rx・by を作らない');
+  const broken = { v: 1, shop: { name: '' }, trips: 'x', bookings: [], people: [], log: [] };
+  assert.equal(S.upgradeState(broken), broken, '形が壊れた版 1 の名簿は、上げる途中で例外にせず元のまま返す（呼ぶ側が「読めない」にする）');
+});
+
 test('消すときは種類と id の組で照合する。どの便にも付かない記録は 1 日の余裕を見る', () => {
   const kept = { ...S.blankTrip(), id: 't2', date: '2027-09-01', start: '08:30', createdAt: AT };
   const s = { ...base, trips: [trip, kept], log: [
@@ -730,7 +747,7 @@ test('cancelBooking: 予約・人・その予定と送る連絡を外し、ほ�
   const st = twoBookings();
   const [a, b] = st.bookings;
   assert.ok(st.jobs.length > 0 && st.jobs.every(j => j.bookingId === a.id));
-  const queued = { ...st, outbox: [{ v: 1, id: 'o1', kind: 'request', bookingId: a.id, tripId: a.tripId, to: 'ichiro@mail.example', lang: 'ja', subject: 's', body: 'b',
+  const queued = { ...st, outbox: [{ v: S.VERSION, id: 'o1', kind: 'request', bookingId: a.id, tripId: a.tripId, to: 'ichiro@mail.example', lang: 'ja', subject: 's', body: 'b',
     people: [], status: 'queued', why: '', at: AT, sentAt: '' }] };
   const after = C.cancelBooking(queued, { bookingId: a.id, reason: 'guest', at: AT });
   assert.deepEqual(after.bookings.map(x => x.id), [b.id]);

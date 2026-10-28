@@ -117,7 +117,7 @@ test('一覧の重なり（shopsProblem）: 同じ受け口・メール・サイ
 
 test('スタッフは自分のお店の名簿だけを読み書きする。どのお店にもいない人は 403。名前は一覧の名前にそろう', async () => {
   const s = setup();
-  const blank = { v: 1, shop: { name: '端末の見本' }, trips: [], bookings: [], people: [], log: [] };
+  const blank = { v: globalThis.REDUX.roster.VERSION, shop: { name: '端末の見本' }, trips: [], bookings: [], people: [], log: [] };
   assert.equal((await staff(s, A_STAFF, '/api/roster', 'PUT', { base: 0, state: blank })).status, 200);
   assert.equal(stored(s, 'shop-a').shop.name, 'A ダイブ', 'お店の名前は一覧の名前にそろえる');
   assert.equal((await staff(s, B_STAFF, '/api/roster', 'PUT', { base: 0, state: blank })).status, 200);
@@ -214,7 +214,7 @@ test('Cron は名簿があるお店を全部回る。1 店で失敗してもほ�
 });
 
 test('一覧が空・表が無いとき、SINGLE_SHOP が無ければ 503（開いた側に倒さない）。理由の名前だけをログに出し、何も書かない', async () => {
-  const blank = { v: 1, shop: { name: '見本' }, trips: [], bookings: [], people: [], log: [] };
+  const blank = { v: globalThis.REDUX.roster.VERSION, shop: { name: '見本' }, trips: [], bookings: [], people: [], log: [] };
   for (const [label, why, prep] of [['表が無い', 'shops-no-table', () => {}], ['表はあるが空', 'shops-empty', (s) => { s.db.shopsTable = true; }]]) {
     const s = setup({ shops: false });
     prep(s);
@@ -235,7 +235,7 @@ test('一覧が空・表が無いとき、SINGLE_SHOP が無ければ 503（開�
 });
 
 test('SINGLE_SHOP を書くと、表が無い・空でも、その 1 店で動く（今までの default）。id の形が合わなければ 503。行があれば行が先', async () => {
-  const blank = { v: 1, shop: { name: '見本' }, trips: [], bookings: [], people: [], log: [] };
+  const blank = { v: globalThis.REDUX.roster.VERSION, shop: { name: '見本' }, trips: [], bookings: [], people: [], log: [] };
   const s = setup({ shops: false, single: 'default' });
   assert.equal((await staff(s, NOBODY, '/api/roster', 'PUT', { base: 0, state: blank })).status, 200);
   assert.deepEqual([...s.db.rows.keys()], ['default']);
