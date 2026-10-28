@@ -148,6 +148,18 @@
     return { ...state, jobs: [...(state.jobs || []), ...jobs] };
   }
 
+  /* 届いた予約メールを AI が読んだ代表者のメールは、本文にそのまま書いてあり、AI が自信ありと言ったときだけ使う。
+     そうでなければ空にする（お願いは「送っていない（メールが無い）」になり、お店が画面で入れる）。備考に書いた指示で、
+     AI に別の宛先を読ませて、リンク付きのメールを送らせない（点検 2026-10-28 設計 2・SEC-23） */
+  function trustMailEmail(reading, text) {
+    const b = reading.booking || {};
+    const email = String(b.leadEmail || '');
+    if (!email) return reading;
+    const seen = String(text || '').toLowerCase().includes(email.toLowerCase());
+    const unsure = (b.unsure || []).includes('leadEmail');
+    return seen && !unsure ? reading : { ...reading, booking: { ...b, leadEmail: '', unsure: (b.unsure || []).filter(u => u !== 'leadEmail') } };
+  }
+
   /* AI の読み取り（予約メール）から予約を入れ、予定を作る。同じ日・時刻の便が無ければ作る。{ state, bookingId } */
   function addFromReading(state, { reading, lang, at, nowJst, newId }) {
     const b = reading.booking || {};
@@ -414,5 +426,5 @@
   }
 
   R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS,
-    RESENT, CONFIRMED, RESEND_ASKED, resendProblem, resend, requestResend, serverOwned, rebuildOut, confirmSent, board };
+    RESENT, CONFIRMED, RESEND_ASKED, resendProblem, resend, requestResend, serverOwned, rebuildOut, confirmSent, board, trustMailEmail };
 })();
