@@ -119,7 +119,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    - 予約のリンクの画面（「QR を見せる」から開く）: 「QR を見せる」で大きな QR が出て、お客さんのスマホで読める。「SMS で送る」が iPhone と Android の両方で、宛先と本文が入った SMS の作成画面を開く（電話番号が無い予約には出ない）。「LINE で送る」が LINE の共有先の選択画面を開く。送るのはスタッフが押す
 - お店の一覧（D1 の shops）が空・表が無いとき、Worker は 503（shops-empty・shops-no-table をログに出す）。今の 1 店の動き（名簿の行 = default）で動かすには、wrangler.jsonc の vars に `SINGLE_SHOP: "default"` を入れる（入れてある。お店の一覧を引くのはお店の Worker だけなので、wrangler.ask.jsonc には要らない）。shops に行を足したら行が先になる（足す前に default の行も入れる: tools/shop.mjs keep-sample）。置く順は migration（0008 まで）を流す → お店の Worker → redux-ask
 - Cron（`*/15 * * * *`）は 2026-10-28 に入れた（Workers Paid。9 節）。予定を動かして連絡を送るのは Cron だけ。**Cron が止まると、連絡も毎日の控えも何も動かない**（お店の画面は予定を動かさない）。止まったときは、Cloudflare の画面でお店の Worker に Cron が付いているかを見る
-- 2026-10-27 に置いた: お店の Worker と redux-ask（https://redux-ask.cibimaro-yousuke.workers.dev）。D1 は画面で作り、表はコンソールで 0001・0002 と同じ文を流した（wrangler の login に D1 の権限が付かなかったため）
+- 2026-10-27 に置いた: お店の Worker と redux-ask（今の住所は https://ask.reduxdive.com。workers.dev の住所は 2026-10-29 に閉じた）。D1 は画面で作り、表はコンソールで 0001・0002 と同じ文を流した（wrangler の login に D1 の権限が付かなかったため）
 - サイトの予約フォーム（/api/bookings）は、Access の無い redux-ask が受ける（2026-10-27）。secret は、お店の Worker に SITE_ORIGINS（https://reduxdive.com。お店の一覧を引く側。移行が済むまでは古い workers.dev の住所も「,」で並べておく）、redux-ask に TURNSTILE_SECRET（Turnstile の widget。サイトキーはサイト側に。許す hostname に reduxdive.com が要る）。お店の Worker の /api/bookings は Access の中なので使わない
 - メールの送り受けは 2026-10-28 に入れた（9 節）。設定が欠けると止まる作り（送らず unsent、受けずに断る）。入れる物の一覧は plan/auto.md の「置くときの設定」
 - 中身は見本だけ。本物のお客さんの情報を入れる前に、spec/meibo.md の「本物のお客さんの情報を入れる前に」と、試用のお店ごとの Worker を決める
@@ -177,7 +177,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 | 外の死活監視 | UptimeRobot（Yosuke のアカウント、無料）が `https://ask.reduxdive.com/api/health` を 5 分ごとに見る。Cron が 45 分動かないと 503 になり、Yosuke の Gmail に知らせが来る（Cloudflare と別の系統） | uptimerobot.com |
 
 - 名前の変更（2026-10-28、REDUX に統一）: サイトは https://reduxdive.com（Worker redux-site。team-pivot の prototype/leisure-site-motion）、お店の画面は https://app.reduxdive.com（この Worker の Custom Domain。wrangler.jsonc の routes と vars の APP_URL）、お客さんのリンクは ask.reduxdive.com のまま。`www.reduxdive.com` → `https://reduxdive.com` の 301 は、ダッシュボードの Redirect Rules で付ける（静的サイトの Worker の `_redirects` は host を指定できない）
-- 古い aquagate-demo の Worker（workers.dev のサイト）は、reduxdive.com が開き、予約フォームが 1 件通るのを確かめてから消す。移行のあいだ workers_dev は true のまま（お店の画面の workers.dev も、app.reduxdive.com で入れるのを確かめてから false にする）
+- 古いサイトの Worker（aquagate-demo）は 2026-10-29 に消した。住所は reduxdive.com・app.reduxdive.com・ask.reduxdive.com だけで、3 つの Worker の workers.dev は閉じた
 - app.reduxdive.com を使い始める前に、Cloudflare 側で次が要る（権限の設定を足すので、Yosuke が画面で行う）:
   1. Zero Trust → Access で、app.reduxdive.com にも 4 節と同じポリシー（許す人だけ）を付ける。別の application を作ると AUD tag が変わる。ACCESS_AUD は 1 つの値しか受けないので、同じ application の宛先に足して AUD を変えないか、作り直して `ACCESS_AUD` を入れ直す
   2. お店の Worker の secret `SITE_ORIGINS` に `https://reduxdive.com` を足す。redux-ask の Turnstile の widget の hostname に `reduxdive.com` を足す
