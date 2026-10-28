@@ -73,6 +73,8 @@ const trip = { ...S.blankTrip(), id: 't1', date: '2026-10-24', start: '08:30', k
 const reading = JSON.parse(JSON.stringify(SAMPLE_READINGS.e1));
 const base = C.addBooking({ ...S.blankState(OWN), trips: [trip] }, { trip, booking: { source: 'mail', people: 2 }, reading, src: 'mail', at: AT, newId });
 const withPartner = X.addPartner(base, { tripId: 't1', name: PARTNER, at: AT }).state;
+/* サーバーが置くと、記録の新しい行に rx（受けた時刻）と by（ログインしたメール）が付く */
+const stamped = (st, rx = AT, by = EMAIL) => ({ ...st, log: st.log.map(e => ({ ...e, rx, by })) });
 const guideOf = (st) => st.trips.find(t => t.id === 't1').guides;
 
 const tests = [];
@@ -84,9 +86,9 @@ test('はじめは名簿が無い（版 0）。base 0 で置くと版 1 にな�
   const r = await put(s, 0, base);
   assert.equal(r.status, 200);
   assert.equal(r.body.version, 1);
-  assert.deepEqual(r.body.state, base);
+  assert.deepEqual(r.body.state, stamped(base));
   const g = await get(s);
-  assert.deepEqual(g.body, { version: 1, state: base, shop: 'default' });
+  assert.deepEqual(g.body, { version: 1, state: stamped(base), shop: 'default' });
   assert.equal(g.headers.get('cache-control'), 'no-store');
 });
 
@@ -96,7 +98,7 @@ test('古い版を元にした書き込みは断り、最新を返す（409）�
   const stale = await put(s, 0, withPartner);
   assert.equal(stale.status, 409);
   assert.deepEqual([stale.body.error, stale.body.version], ['conflict', 1]);
-  assert.deepEqual(stale.body.state, base);
+  assert.deepEqual(stale.body.state, stamped(base));
   const ok = await put(s, 1, withPartner);
   assert.deepEqual([ok.status, ok.body.version], [200, 2]);
   assert.equal(s.db.writes, 2);
@@ -344,6 +346,86 @@ test('点検 2026-10-28 H8: 記録は足すだけ。画面が記録を消した�
   const more = R.rosterCore.editPerson(JSON.parse(s.db.rows.get('default').state), { id: pid, who: 'staff', src: 'staff', at: AT, patch: { phone: '090-3333-4444' } });
   assert.equal((await put(s, 3, more)).status, 200);
   assert.equal(JSON.parse(s.db.rows.get('default').state).log.length, log.length + 1);
+});
+
+const OTHER = 'mihon.other@example.com';
+const LATER = Date.parse('2026-10-27T02:30:00Z');
+const AT_LATER = '2026-10-27T02:30:00.000Z';
+const storedState = (s) => JSON.parse(s.db.rows.get(SHOP_DEFAULT).state);
+
+test('記録の rx・by: 新しい行にサーバーが受けた時刻とログインしたメールを付ける。at は操作した時刻のまま、画面が付けた rx・by は捨てる', async () => {
+  const s = setup();
+  const pid = base.people[0].id;
+  /* オフラインで直して、あとで送る: 操作した時刻（at）は古いまま。画面は rx・by を自分で付けて送ってくる */
+  const OFFLINE = '2026-10-26T20:15:00.000Z';
+  const edited = C.editPerson(base, { id: pid, who: 'staff', src: 'staff', at: OFFLINE, patch: { phone: '090-1111-2222' } });
+  const last = edited.log[edited.log.length - 1];
+  const forged = { ...edited, log: [...edited.log.slice(0, -1), { ...last, rx: '2020-01-01T00:00:00.000Z', by: 'someone.else@example.com' }] };
+  assert.ok(S.validateState(forged).ok, '画面の検査は通る形');
+  const r = await put(s, 0, forged);
+  assert.equal(r.status, 200);
+  const log = storedState(s).log;
+  assert.ok(log.length >= 2 && log.every(e => e.rx === AT && e.by === EMAIL), '足した行は全部、サーバーの受けた時刻とログインしたメール');
+  assert.equal(log[log.length - 1].at, OFFLINE, 'at は操作した時刻のまま');
+  assert.ok(!JSON.stringify(log).includes('someone.else') && !JSON.stringify(log).includes('2020-01-01'), '画面が付けた rx・by は残らない');
+  assert.deepEqual(r.body.state.log, log, '画面には、付けた後の記録を返す');
+});
+
+test('記録の rx・by: 置いてある行は付けたまま変わらない。次の書き込み（別の人・別の時刻）は新しい行にだけ付き、書き換えた rx・by は新しい行として残る', async () => {
+  const s = setup();
+  const pid = base.people[0].id;
+  assert.equal((await put(s, 0, base)).status, 200);
+  const first = storedState(s).log;
+  /* 別の人（OTHER）が、1 時間半あとに直す。画面は GET で受けた記録（rx・by 付き）にそのまま 1 行足して送る */
+  s.env.ALLOWED_EMAILS = `${EMAIL},${OTHER}`;
+  s.io.now = () => LATER;
+  const otherJwt = await access.sign({ iss: `https://${TEAM}`, aud: [AUD], email: OTHER, exp: LATER / 1000 + 3600, iat: LATER / 1000 - 10, nbf: LATER / 1000 - 10, type: 'app' });
+  const edited = C.editPerson(storedState(s), { id: pid, who: 'staff', src: 'staff', at: AT_LATER, patch: { phone: '090-3333-4444' } });
+  const r = await call(s, req('PUT', { body: { base: 1, state: edited }, jwt: otherJwt }));
+  assert.equal(r.status, 200);
+  const log = storedState(s).log;
+  assert.deepEqual(log.slice(0, first.length), first, '前の行は rx・by ごとそのまま（比べても外れない）');
+  assert.deepEqual(log.slice(first.length).map(e => [e.rx, e.by]), [[AT_LATER, OTHER]], '足した行だけ、今の時刻と今の人');
+  /* 置いてある行の rx・by を書き換えて送る: 元の行が戻り、書き換えた行は新しい行（本人の rx・by）として残る */
+  const cur = storedState(s);
+  const tampered = { ...cur, log: cur.log.map((e, i) => (i === 0 ? { ...e, rx: '2020-01-01T00:00:00.000Z', by: 'someone.else@example.com' } : e)) };
+  assert.equal((await call(s, req('PUT', { body: { base: 2, state: tampered }, jwt: otherJwt }))).status, 200);
+  const after = storedState(s).log;
+  assert.deepEqual(after.slice(0, cur.log.length), cur.log, '元の行はそのまま');
+  assert.equal(after.length, cur.log.length + 1);
+  assert.deepEqual([after[after.length - 1].rx, after[after.length - 1].by], [AT_LATER, OTHER], '書き換えた行は、書き換えた人と時刻で新しい行になる');
+  /* 何も足さない書き込みは、記録を変えない */
+  assert.equal((await call(s, req('PUT', { body: { base: 3, state: storedState(s) }, jwt: otherJwt }))).status, 200);
+  assert.deepEqual(storedState(s).log, after);
+});
+
+test('記録の rx・by: メール（個人情報）は名簿の中だけ。console.log の行には出ない', async () => {
+  const s = setup();
+  logs.length = 0;
+  assert.equal((await put(s, 0, base)).status, 200);
+  assert.ok(storedState(s).log.every(e => e.by === EMAIL));
+  assert.ok(logs.length > 0 && !logs.join('\n').includes(EMAIL) && !/mihon\.member|@/.test(logs.join('\n')), logs.join('\n'));
+});
+
+test('版 1 → 2: 置いてある版 1 の名簿は読むときに版 2 へ上がり、前の行に rx・by は作らない。そのあと足した行にだけ付く。版 1 の画面は 426', async () => {
+  assert.equal(S.VERSION, 2);
+  assert.equal(typeof S.MIGRATIONS[1], 'function');
+  const s = setup();
+  const pid = base.people[0].id;
+  const v1 = S.bumpAll(base, 1);
+  assert.ok(v1.log.length > 0 && v1.log.every(e => e.rx === undefined && e.by === undefined));
+  s.db.rows.set(SHOP_DEFAULT, { version: 4, state: JSON.stringify(v1), updated_at: AT });
+  const g = await get(s);
+  assert.equal(g.status, 200);
+  assert.equal(g.body.state.v, 2);
+  assert.deepEqual(g.body.state.log, base.log, '前の行はそのまま（受けた時刻も誰かも、そのとき記録していないので作らない）');
+  assert.equal((await put(s, 4, v1)).status, 426, '版 1 の画面からの書き込みは断る');
+  const edited = C.editPerson(g.body.state, { id: pid, who: 'staff', src: 'staff', at: AT, patch: { phone: '090-5555-6666' } });
+  assert.equal((await put(s, 4, edited)).status, 200);
+  const log = storedState(s).log;
+  assert.deepEqual(log.slice(0, base.log.length), base.log, '前の行に rx・by は付かない');
+  assert.deepEqual(log.slice(base.log.length).map(e => [e.rx, e.by]), [[AT, EMAIL]]);
+  assert.equal(storedState(s).v, 2);
 });
 
 test('core: checkPut と readStored は時計を読まず、渡した今日で期限を決める', () => {

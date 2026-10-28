@@ -120,7 +120,8 @@ async function roster(request, env, io, note, who) {
     given = rest;
   }
   /* 送る連絡と予定の動きはサーバーの物。画面が足した・書き換えた連絡は、今の名簿の物に戻してから検査にかける
-     （ログインした端末から任意の宛先・本文のメールを送らせない。ジンのレビュー 2026-10-28 H2。js/roster-auto.js の serverOwned） */
+     （ログインした端末から任意の宛先・本文のメールを送らせない。ジンのレビュー 2026-10-28 H2。js/roster-auto.js の serverOwned）。
+     記録の新しい行には、サーバーが受けた時刻 rx とログインしたメール by を付ける（sync-core.mjs の keepLog。メールは名簿の中だけで、ログには出さない） */
   if (given && typeof given === 'object' && given.state && typeof given.state === 'object' && Number.isInteger(given.base)) {
     let base = null;
     try {
@@ -131,7 +132,7 @@ async function roster(request, env, io, note, who) {
         if (now.version === given.base) base = now.state;
       }
     } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
-    given = { ...given, state: serverOwned(base, given.state, { fresh: given.base === 0 }) };
+    given = { ...given, state: serverOwned(base, given.state, { fresh: given.base === 0, rx: at, by: who.email }) };
   }
   const checked = checkPut(given, { today, at });
   if (!checked.ok) {

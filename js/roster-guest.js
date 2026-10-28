@@ -1,6 +1,7 @@
 /* お客さんが自分で入れる所（純ロジック）。保存・通信・画面・時計は知らない。
    お店が送ったリンクから開いた人が、その予約の人の「まだ」の所だけを入れる。パスポートからも入れられる。
-   お店や AI が入れた所は書き換えない。一部だけ入っている欄（緊急時の連絡先・C カード）は、空の所だけを入れる。
+   お店や AI が入れた所は書き換えない。名前も同じで、空の人（同伴者）にだけ入れられ、入っている名前は書き換えられない
+   （聞く項目に 'name' が出るのは名前が空の人だけ）。一部だけ入っている欄（緊急時の連絡先・C カード）は、空の所だけを入れる。
    健康の答え（既往症・当日の体調）は、同意のうえで入れ、同意した日と同意の文の版を名簿に残す。AI には渡さない
    （AI に渡す物は roster-schema.js が決める） */
 (() => {
@@ -27,11 +28,16 @@
   /* 「当日の健康状態」は入力の欄でなく、当日の朝に別に答える */
   const TODAY_KEY = 'today';
 
+  /* 名前はお客さんへのメールの文面に入る。改行・制御文字・URL やドメインらしい字は断る。worker/auto-core.mjs の NAME_BAD（サイトの予約フォームの名前）と
+     同じ式で、test/guest.test.mjs が同じことを確かめる */
+  const NAME_BAD = /[\u0000-\u001f\u007f\u2028\u2029]|:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}/i;
+
   const DAY = /^\d{4}-\d{2}-\d{2}$/;
   const MONTH_ONLY = /^\d{4}-\d{2}$/;
   const isDay = (v) => typeof v === 'string' && DAY.test(v) && S().realDate(v);
   const isMonth = (v) => typeof v === 'string' && (MONTH_ONLY.test(v) || DAY.test(v)) && S().realDate(v);
   const text = (v, max) => typeof v === 'string' && v.trim() !== '' && v.length <= max;
+  const nameOk = (v) => text(v, NAME_MAX) && v.trim().length <= NAME_MAX && !NAME_BAD.test(v.trim());
   const blank = (v) => !String(v == null ? '' : v).trim();
 
   /* 日付の数（1970-01-01 からの日数）。時計を使わずに数える（暦の式） */
@@ -109,6 +115,7 @@
     const course = courseOpen ? c.course : open.course;
     const dives = divesIn(x, ask, open);
     return [
+      wants('name') && !nameOk(x.name) && 'personName',
       wants('birthDate') && !isDay(x.birthDate) && 'birthDate',
       wants('address') && !text(x.address, ADDRESS_MAX) && 'address',
       wants('emergency') && !((!openE('name') || text(e.name, NAME_MAX)) && (!openE('phone') || text(e.phone, PHONE_MAX)) &&
@@ -130,6 +137,7 @@
     const x = input;
     const open = parts || { emergency: S().SUB.emergency, cert: ['course', 'date'], course: '' };
     const patch = {};
+    if (ask.includes('name')) patch.name = x.name.trim().replace(/\s+/g, ' ');
     if (ask.includes('birthDate')) patch.birthDate = x.birthDate;
     if (ask.includes('address')) patch.address = x.address.trim();
     if (ask.includes('emergency') && open.emergency.length) {
@@ -150,11 +158,14 @@
   }
 
   /* お客さんが入れた。形が合わなければ { problems } を返し、state は変えない。
-     only は受ける項目を絞る（Worker のリンク: 予約のリンクは健康以外、1 人ずつのリンクは健康だけ。plan/meibo.md） */
+     only は受ける項目を絞る（Worker のリンク: 予約のリンクは健康以外、1 人ずつのリンクは健康だけ。plan/meibo.md）。
+     入力が { name } だけのときは名前だけを入れる（同伴者の名前を先に伝えられるように。他の項目は聞いたまま残る） */
   function applyGuest(state, { id, input, today, at, only }) {
     if (!DAY.test(today)) throw new Error(`applyGuest: today は YYYY-MM-DD (${today})`);
     const entry = entryOf(state, id);
-    const ask = Array.isArray(only) ? entry.ask.filter(k => only.includes(k)) : entry.ask;
+    const scoped = Array.isArray(only) ? entry.ask.filter(k => only.includes(k)) : entry.ask;
+    const nameOnly = !!input && typeof input === 'object' && Object.keys(input).join() === 'name';
+    const ask = nameOnly ? scoped.filter(k => k === 'name') : scoped;
     if (!ask.length) return { state, problems: ['nothing'] };
     const problems = guestProblems(input, ask, entry.parts);
     if (problems.length) return { state, problems };
