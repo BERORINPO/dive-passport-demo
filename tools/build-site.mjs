@@ -13,7 +13,7 @@ const out = join(root, 'dist');
 const outAsk = join(root, 'dist-ask');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
-const KEEP = [/^index\.html$/, /^pass\.html$/, /^ask\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
+const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
   /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.glb$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/, /^audio\/[^/]+\.mp3$/];
 
 export function siteFiles() {
@@ -35,7 +35,7 @@ const CDN = ['https://cdn.jsdelivr.net/npm/three@0.160.0/', 'https://cdnjs.cloud
 
 export function headers(indexHtml) {
   const index = [`default-src 'none'`, `script-src 'self' '${importmapHash(indexHtml)}' ${CDN.join(' ')}`, `style-src 'self'`, `font-src 'self'`,
-    `img-src 'self' blob: data:`, `connect-src 'self' blob:`, `media-src 'self'`, `worker-src 'none'`, `manifest-src 'none'`,
+    `img-src 'self' blob: data:`, `connect-src 'self' blob:`, `media-src 'self'`, `worker-src 'self'`, `manifest-src 'none'`,
     `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
   /* pass.html（他のお店のスマホで開くパスポート）は字体も画像も読まず、どこにもつながない */
   const pass = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`,
@@ -53,6 +53,8 @@ export function headers(indexHtml) {
     /* どの束を取ったかで画面の字が分かるので、長くためて取りに来る回数を減らす（Worker を通らないので path はログに出ない） */
     block(['/fonts/*'], ['Cache-Control: public, max-age=31536000, immutable']),
     block(['/js/*', '/css/*'], ['Cache-Control: no-cache']),
+    /* 電波の無い所でも画面を開くための Service Worker（sw.js）。中から読むのは同じ場所だけ。毎回確かめて、新しい版をすぐ入れる */
+    block(['/sw.js'], [`Content-Security-Policy: default-src 'none'; connect-src 'self'`, 'Cache-Control: no-cache']),
     ''
   ].join('\n');
 }
@@ -74,7 +76,20 @@ function build() {
   writeFileSync(join(out, 'index.html'), index.replace(REFERRER_META,
     `${REFERRER_META}\n<meta name="redux-pass-base" content="${PASS_BASE}">\n<meta name="redux-worker" content="1">`));
   writeFileSync(join(out, '_headers'), headers(index));
+  writeFileSync(join(out, 'sw.js'), swFor(files.map(f => [f, readFileSync(join(out, f))])));
   console.log(`dist/: ${files.length} files + _headers`);
+}
+
+/* sw.js に、最初に写しておく画面の骨組み（SHELL）と版（VERSION）を書き込む。版は置く物の中身の hash（置き直すと変わり、前の写しが消える）。
+   字（fonts）と亀（assets）は重いので最初には取らず、使ったときに写す（sw.js の shell） */
+const SHELL_FILES = /^(js\/[^/]+\.js|css\/[^/]+\.css|favicon\.svg)$/;
+export function swFor(entries, template = readFileSync(join(root, 'sw.js'), 'utf8')) {
+  const hash = createHash('sha256');
+  for (const [f, body] of [...entries].sort((a, b) => (a[0] < b[0] ? -1 : 1))) hash.update(f).update(body);
+  const shell = ['/', ...entries.map(([f]) => f).filter(f => SHELL_FILES.test(f)).sort().map(f => `/${f}`)];
+  const version = hash.digest('hex').slice(0, 16);
+  if (!template.includes("'__REDUX_SW_SHELL__'") || !template.includes('__REDUX_SW_VERSION__')) throw new Error('sw.js に書き込む印が無い');
+  return template.replace("'__REDUX_SW_SHELL__'", shell.map(p => `'${p}'`).join(', ')).replace('__REDUX_SW_VERSION__', version);
 }
 
 /* ask.html が読む js と css（script の src と stylesheet の href）。これ以外はお客さん用の Worker に置かない */
