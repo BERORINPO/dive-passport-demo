@@ -83,6 +83,8 @@ const TEXT_7 = [['ink', 'bg'], ['ink', 'surface'], ['muted', 'bg'], ['muted', 's
   ['muted', 'accent-soft'], ['ink', 'accent-soft'], ['ink', 'warn-bg'], ['ink', 'ok-bg'], ['ink', 'info-bg'],
   ['accent-ink', 'warn'], ['ok', 'warn-bg']];   // 中止を知らせるボタン・中止の帯の「確かめた」
 const LINE_3 = [['control', 'surface'], ['control', 'bg']];
+/* 見本の帯（js/demo-band.js）。店員画面は屋外なので 7:1。お客さん画面の暗い設定でも、取り違えが事故になるので 4.5:1 ではなく 7:1 */
+const DEMO_7 = [['demo-ink', 'demo-bg']];
 /* 紙（画面にも出す）の薄い字。印刷の紙なので 4.5:1 */
 const PAPER_45 = [['paper-ink', 'paper-bg'], ['paper-faint', 'paper-bg'], ['paper-ink', 'paper-head']];
 const DISABLED_45 = [['disabled-ink', 'disabled-bg'], ['disabled-ink', 'bg'], ['disabled-ink', 'surface']];
@@ -160,12 +162,26 @@ if (!hasDark) problems.push(`暗い画面設定が見つからない。店員画
 misuse.forEach(p => problems.push(`暗い画面設定の中に「${p}」がある（${DARK_ROOT} の変数だけにする）`));
 problems.push(...contrastProblems(light, TEXT_7, 7, '明るい・字', report));
 problems.push(...contrastProblems(light, LINE_3, 3, '明るい・枠', report));
+problems.push(...contrastProblems(light, DEMO_7, 7, '明るい・見本の帯', report));
+problems.push(...contrastProblems(dark, DEMO_7, 7, '暗い・見本の帯', report));
 problems.push(...contrastProblems(light, PAPER_45, 4.5, '紙・字', report));
 problems.push(...contrastProblems(light, DISABLED_45, 4.5, '明るい・押せない', report));
 problems.push(...contrastProblems(dark, DARK_45, 4.5, '暗い・字', report));
 problems.push(...contrastProblems(dark, DARK_LINE_3, 3, '暗い・枠', report));
 sizeProblems(css).forEach(p => problems.push(`字の大きさ: ${p}`));
 rawColorProblems(css).forEach(p => problems.push(`変数の外に色を直書き: ${p}`));
+
+/* 見本の帯の字と地が、明るい画面・暗い画面の両方で定義され、位置が貼り付き・印刷でも出る形で書かれていること */
+const bandRule = parseCss(css).find(r => r.prelude === '.demo-band' && r.ancestors.length === 0);
+if (!bandRule) problems.push('見本の帯の規則 .demo-band が無い');
+else {
+  const decl = (prop) => (bandRule.decls.find(d => d.prop === prop) || {}).value;
+  if (decl('color') !== 'var(--demo-ink)' || decl('background') !== 'var(--demo-bg)') problems.push('.demo-band は --demo-ink と --demo-bg だけで塗る（地と字の組を検査しているため）');
+  if (!/^sticky$/.test(decl('position') || '')) problems.push('.demo-band は画面の上に貼り付ける（position: sticky）');
+  if (!/double/.test(decl('border-bottom') || '')) problems.push('.demo-band は色だけで区別しない（下の二重線）');
+  if (Number.parseFloat(decl('font-size')) < 16) problems.push('.demo-band の字は 16px 以上');
+}
+if (!/body\.print-roster > \.demo-band/.test(css) || !/body\.print-poster > \.demo-band/.test(css)) problems.push('名簿・貼り紙の印刷でも見本の帯を残す規則が無い');
 
 /* ---------- わざと違反を入れた見本（検査そのものが甘くなっていないか） ---------- */
 const probe = (name, cond) => { if (!cond) problems.push(`検査が甘い: ${name}`); };
@@ -185,6 +201,8 @@ probe('印刷の中の 12px は通す', sizes('@media print {\n  .x { font-size:
 probe('印刷の後ろの 12px は落とす', sizes('@media print {\n  .x { font-size: 12px; }\n}\n.y { font-size: 12px; }') === 1);
 probe('注釈の中の 12px は通す', sizes('/* 前は\n font-size: 12px だった */\n.x { font-size: 16px; }') === 0);
 probe('行の番号', /^3行/.test(sizeProblems('.a {}\n\n.b { font-size: 12px; }')[0] || ''));
+probe('低い組は落とす', contrastProblems({ a: 'oklch(60% 0 0)', b: 'oklch(65% 0 0)' }, [['a', 'b']], 7, 'x').length === 1);
+probe('見本の帯の変数が無ければ落とす', contrastProblems({}, DEMO_7, 7, 'x').length === 1);
 probe('色の直書き', raws(':root {\n  --a: oklch(50% 0 0);\n}\n.x { color: oklch(40% 0 0); }') === 1);
 probe('変数の中の色は通す', raws(':root {\n  --a: oklch(50% 0 0);\n}\n.x { color: var(--a); }') === 0);
 probe('暗い設定の変数の中の色は通す', raws(`@media (prefers-color-scheme: dark) {\n  ${DARK_ROOT} {\n    --a: oklch(50% 0 0);\n  }\n}`) === 0);
