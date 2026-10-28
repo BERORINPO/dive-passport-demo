@@ -13,7 +13,7 @@
   "js/roster-auto.js": 1,
   "js/roster-schema.js": 2,
   "js/roster-share.js": 1,
-  "js/share-roster.js": 2,
+  "js/share-roster.js": 1,
   "js/shop.js": 1,
   "worker/auto-core.mjs": 1,
   "worker/handler.mjs": 1,

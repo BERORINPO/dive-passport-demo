@@ -172,9 +172,11 @@
     if (!trip.cancel) return null;
     const n = trip.cancel.acked.filter(s => trip.partners.includes(s)).length;
     const acked = trip.partners.length ? `相乗りのお店 ${n}/${trip.partners.length} が確かめた` : '';
+    const c = R.rosterShare.confirmations(R.rosterStore.get(), trip.id);   // 船を出す店には、まだのお店の名前を出す（乗り合いの画面で連絡先を見る）
+    const rest = c && c.own && c.waiting.length ? `まだ: ${c.waiting.map(x => x.name).join('・')}` : '';
     return el('div', { class: 'act' },
       el('p', { class: 'act__title', text: `! 中止（${reasonJa(trip.cancel.reason)}）` }),
-      el('p', { text: [`${shortTime(trip.cancel.at)} に知らせた`, acked].filter(Boolean).join('。') }),
+      el('p', { text: [`${shortTime(trip.cancel.at)} に知らせた`, acked, rest].filter(Boolean).join('。') }),
       el('p', { class: 'reset' }, button('中止を取り消す', () => {
         const r = ui.save('core.reopenTrip', { tripId: trip.id, at: nowIso() });
         ui.go('day', r.error ? { tripId: trip.id, warn: '取り消せませんでした' } : { tripId: trip.id, saved: r.saved, notice: '中止を取り消しました' });

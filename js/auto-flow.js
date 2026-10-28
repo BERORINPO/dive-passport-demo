@@ -44,7 +44,7 @@
   /* ---------- 一覧の 1 行に足す言葉 ---------- */
   const OUT_JA = { request: 'お願いを送る', remind: 'もう一度お願いを送る', today: '当日の体調の質問を送る', staff: 'お店への知らせ' };
   function rowNote(state, bookingId) {
-    const outs = (state.outbox || []).filter(o => o.bookingId === bookingId);
+    const outs = (state.outbox || []).filter(o => o.bookingId === bookingId && !A().isPartnersNotice(o));   // 相乗りのお店の確認待ちの知らせは、乗り合いの画面に出す
     if (outs.some(o => o.kind === 'staff')) return { warn: true, text: '前日の夜までに名簿の項目が届かなかった。当日の受付で聞く' };
     const last = outs[outs.length - 1];
     if (!last) return null;
@@ -66,7 +66,8 @@
   const ADDED_JA = { ai: '予約メールが届き、AI が読んで便に入れた', guest: 'お客さんが自社の予約フォームから入れた', staff: 'お店が予約を入れた', system: '予約が入った' };
   const PLAN_JA = { request: 'お願いを送る', remind: 'まだなら、もう一度お願いを送る', eve: 'まだなら、お店に知らせる', morning: '名簿を作り、当日の体調の質問を送る' };
   function outLine(o) {
-    const what = o.kind === 'staff' ? 'お店に知らせた: 名簿の項目が届いていない人がいる'
+    const what = A().isPartnersNotice(o) ? 'お店に知らせた: 相乗りのお店の確認待ち（乗り合いの画面で見る）'
+      : o.kind === 'staff' ? 'お店に知らせた: 名簿の項目が届いていない人がいる'
       : `${o.status === 'sent' ? '送った' : o.status === 'queued' ? '送る準備ができた' : o.status === 'failed' ? '送れなかった' : '送っていない'}: ${OUT_JA[o.kind]}`;
     const why = o.status === 'failed' && o.why === 'maybe-sent' ? '（送れたか分からない。お客さんに届いたか確かめてください）'
       : o.why === A().RESENT ? '（送り直した）' : o.why === A().CONFIRMED ? '（届いたのをお店が確かめた）'

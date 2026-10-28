@@ -233,9 +233,54 @@
     return tripDate <= today;
   }
 
-  /* nowJst までに時刻が来た予定を、時刻の順に動かす。{ state, queued: 送る連絡の id } */
-  function runDue(state0, { nowJst, at, newId, askBase }) {
-    if (!S().isJst(nowJst)) throw new Error(`runDue: nowJst は YYYY-MM-DDTHH:MM (${nowJst})`);
+  /* nowJst までに時刻が来た予定を、時刻の順に動かし、相乗りのお店の確認待ちを知らせる。{ state, queued: 送る連絡の id } */
+  function runDue(state, opts) {
+    if (!S().isJst(opts.nowJst)) throw new Error(`runDue: nowJst は YYYY-MM-DDTHH:MM (${opts.nowJst})`);
+    const r = runJobs(state, opts);
+    return { ...r, state: remindPartners(r.state, opts) };
+  }
+
+  /* ---------- 相乗りのお店の確認待ちを、船を出す店に知らせる（決定ログ shared-trip-reminders） ----------
+     前日の夜（eve の予定と同じ EVE_AT）を過ぎても確認していないお店があれば、船を出す店への知らせ（staff, notice）を便ごとに 1 つ足す。
+     確認の意味は roster-share.js の confirmations。中止の便は、中止の知らせを確かめていないお店を同じ時刻に知らせる（中止の時刻ごとに 1 つ）。
+     お客さんには送らない。相乗りのお店には、宛先（メールアドレス）を持たないので送らない。知らせの中に「連絡してください」と出す。
+     健康の答えと、お客さんの名前は入れない（お店の名前と便だけ）。知らせは予約に付く形なので、船を出す店のお客さんの予約（無ければ先頭の予約）に付ける */
+  const PARTNERS_WHY = 'partners:';
+  const partnersKey = (trip) => (trip.cancel ? `${PARTNERS_WHY}cancel:${trip.cancel.at.slice(0, 16)}` : `${PARTNERS_WHY}join`);
+  const isPartnersNotice = (o) => o.kind === 'staff' && String(o.why).startsWith(PARTNERS_WHY);
+
+  function partnersNotice({ c, booking, at, newId }) {
+    const { trip, waiting } = c;
+    const when = `${md(trip.date, 'ja')}${trip.start ? ` ${plain(trip.start, 5)}` : ''} ${plain(trip.tour, TOUR_MAX)}`.trim();
+    const names = waiting.map(x => plain(x.name, SHOP_MAX) || '（名前の無いお店）');
+    const head = c.scope === 'cancel' ? '中止の知らせをまだ確かめていないお店があります' : 'まだ確認していないお店があります（名簿が渡されていません）';
+    const tail = c.scope === 'cancel' ? 'お客さんへの連絡はそのお店からです。電話か LINE で連絡してください。' : '電話か LINE で連絡してください。';
+    return {
+      v: S().VERSION, id: newId(), kind: 'staff', bookingId: booking.id, tripId: trip.id, to: '', lang: 'ja',
+      subject: `確認待ち ${names.length} 店: ${when}`.slice(0, 200),
+      body: [`${when}`, `${head}:`, ...names.map(n => `・${n}に連絡してください`), tail].join('\n').slice(0, 4000),
+      people: [], status: 'notice', why: partnersKey(trip), at, sentAt: ''
+    };
+  }
+
+  function remindPartners(state, { nowJst, at, newId }) {
+    const today = nowJst.slice(0, 10);
+    const out = [];
+    state.trips.forEach(trip => {
+      if (!trip.date || !trip.partners.length || nowJst < `${dayAdd(trip.date, -1)}T${EVE_AT}`) return;
+      if (trip.cancel ? trip.date < today : trip.date <= today) return;   // 中止の便は当日まで、中止でない便は前日まで（eve の予定と同じ）
+      const c = R.rosterShare.confirmations(state, trip.id);
+      if (!c.own || !c.waiting.length) return;
+      const key = partnersKey(trip);
+      if ((state.outbox || []).some(o => o.tripId === trip.id && o.kind === 'staff' && o.why === key)) return;
+      const mine = C().bookingsOf(state, trip.id);
+      const booking = mine.find(b => !C().isPartnerBooking(b)) || mine[0];
+      if (booking) out.push(partnersNotice({ c, booking, at, newId }));
+    });
+    return out.length ? { ...state, outbox: [...(state.outbox || []), ...out] } : state;
+  }
+
+  function runJobs(state0, { nowJst, at, newId, askBase }) {
     /* お店が画面で頼んだ送り直し（requestResend）を、送る側（Worker の Cron、試作では画面）が連絡に作り直す */
     const state = takeResendAsks(state0, { nowJst, at, newId, askBase });
     const before = new Set((state0.outbox || []).map(o => o.id));
@@ -480,6 +525,6 @@
     return items.sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : 0));
   }
 
-  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, moveBooking, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS,
+  R.rosterAuto = { REMIND_AT, EVE_AT, MORNING_AT, LINK_MARK, dayAdd, missingPeople, needToday, message, planJobs, addFromReading, addFromForm, moveBooking, runDue, markSent, nextDue, timeline, compactPast, KEEP_DONE_DAYS, isPartnersNotice, remindPartners,
     RESENT, CONFIRMED, RESEND_ASKED, resendProblem, resend, requestResend, serverOwned, rebuildOut, confirmSent, board, trustMailEmail };
 })();
