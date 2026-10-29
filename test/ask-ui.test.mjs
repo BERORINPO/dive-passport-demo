@@ -186,6 +186,22 @@ test('ツアーの名前: お店のツアーの一覧にある名前は、英語
   assert.match(byClass(other.root, 'page__sub')[0].textContent, /^11\/3 09:00 体験ダイビング\. /, '一覧に無い名前（お店が付けた名前）は、そのまま');
 });
 
+test('入力欄: 緊急時の連絡先は section-emergency で区切り（続柄は自動入力しない）、電話は電話のキーボード。どの欄も Enter は「次へ」', () => {
+  const { R, root } = boot();
+  const p = person('p1', '見本 花子', ['birthDate', 'address', 'emergency']);
+  p.parts = { emergency: ['name', 'relation', 'phone'], cert: [] };
+  R.guestAsk.remote(source([p]));
+  const inputs = all(root, n => n.tagName === 'INPUT');
+  const by = (ac) => inputs.find(i => i.getAttribute('autocomplete') === ac);
+  assert.ok(by('bday') && by('street-address'));
+  assert.equal(by('section-emergency name').getAttribute('type'), 'text');
+  const tel = by('section-emergency tel');
+  assert.equal(tel.getAttribute('type'), 'tel');
+  assert.equal(tel.getAttribute('inputmode'), 'tel');
+  assert.equal(inputs.filter(i => i.getAttribute('autocomplete') === 'off').length, 1, '続柄だけ');
+  assert.ok(inputs.every(i => i.getAttribute('enterkeyhint') === 'next'));
+});
+
 let failed = 0;
 for (const t of tests) {
   try {
