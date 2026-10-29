@@ -69,7 +69,7 @@ test('お客さんの Worker の /trial: 日本から入れ、フランスから
   const jp = await quiet(() => handlePublic(req('https://ask.example.test/trial', 'JP'), env, io));
   assert.ok((await jp.text()).includes(BEACON.src));
   assert.equal(jp.headers.get('content-security-policy'), PAGE.trial[0][1]);
-  assert.equal(jp.headers.get('cache-control'), 'no-store');
+  assert.equal(jp.headers.get('cache-control'), 'no-store, no-transform', 'Cloudflare に書き換えさせない（自動の差し込みを止める）');
   const fr = await quiet(() => handlePublic(req('https://ask.example.test/trial.html', 'FR'), env, io));
   assert.ok(!(await fr.text()).includes('cloudflareinsights'));
   for (const p of ['/ask', '/walkin']) assert.equal((await quiet(() => handlePublic(req(`https://ask.example.test${p}`, 'JP'), env, io))).status, 404);
