@@ -56,8 +56,8 @@
   function outputs(x, b, shopName, url, rerender) {
     const L = R.contactLink;
     /* この人ご本人に送るリンクなので、代表者の電話は入れない（代表者に届くと、この人の住所などが見える）。宛先はスタッフが選ぶ */
-    const sms = L.smsHrefNoNumber(shopName, url);
-    const line = L.lineHref(shopName, url);
+    const sms = L.smsHrefNoNumber(shopName, url, b.lang);
+    const line = L.lineHref(shopName, url, b.lang);
     const showQr = qrFor === x.personId;
     return [
       el('div', { class: 'sendrow' },

@@ -517,6 +517,9 @@ test('SMS・LINE の文: 入るのはお店の名前・決まった 1 行・そ�
   const text = L.messageText('B マリン', LINK);
   assert.equal(text, `B マリン：ご予約の前にお名前などの入力をお願いします\n${LINK}`);
   assert.equal(L.messageText('', LINK), `ご予約の前にお名前などの入力をお願いします\n${LINK}`);
+  assert.equal(L.messageText('B マリン', LINK, 'ja'), `B マリン：${L.ASK_LINE}\n${LINK}`, '日本語の予約は日本語だけ');
+  for (const lang of ['en', 'ko', 'zh']) assert.equal(L.messageText('B マリン', LINK, lang), `B マリン：${L.ASK_LINE}\n${L.ASK_LINE_EN}\n${LINK}`, `${lang} の予約は英語の 1 行を足す`);
+  assert.ok(L.lineHref('B マリン', LINK, 'en').endsWith(encodeURIComponent(LINK)) && L.smsHref('09012345678', 'B', LINK, 'zh').includes('Please%20fill%20in'));
   assert.equal(L.messageText('あ'.repeat(60), LINK).split('：')[0].length, 24);
   assert.equal([...L.ASK_LINE].length + 1 + LINK.length >= 70, true, 'リンクだけで 75 字あり、70 字には収まらない（PR に書く）');
   for (const bad of ['', 'https://evil.example/', `https://ask.reduxdive.com/ask#k=short`, `https://ask.reduxdive.com/other#k=${KEY43}`, `ftp://ask.reduxdive.com/ask#k=${KEY43}`,

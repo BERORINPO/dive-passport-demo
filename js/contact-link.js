@@ -11,6 +11,8 @@
   const R = (globalThis.REDUX = globalThis.REDUX || {});
   const LINE_SHARE = 'https://line.me/R/share?text='; // arch-allow: 画面から開くだけの LINE 公式の URL scheme（通信はしない）
   const ASK_LINE = 'ご予約の前にお名前などの入力をお願いします';
+  /* 予約の連絡の言葉（lang）が日本語でなければ、英語の 1 行を足す（お願いのメールも日本語でなければ英語。js/roster-auto.js） */
+  const ASK_LINE_EN = 'Please fill in your details for the diver list before your tour';
   const SHOP_MAX = 24;
   /* お店のリンク（置いた形では https、手元の確かめでは localhost の http）。/ask と # の後ろの鍵だけ */
   const ASK_URL = /^(?:https:\/\/[A-Za-z0-9.-]{1,120}|http:\/\/(?:localhost|127\.0\.0\.1)(?::\d{1,5})?)\/ask#k=[A-Za-z0-9_-]{43}$/; // arch-allow: リンクの形の検査
@@ -20,11 +22,13 @@
   /* encodeURIComponent が残す ! ' ( ) * も % にする（LINE の文書の例は ! も %21） */
   const enc = (t) => encodeURIComponent(t).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
-  /* 送る本文。お店の名前（長ければ切る）+ 決まった 1 行 + リンク（改行して、リンクが自分の行になるように） */
-  function messageText(shopName, url) {
+  /* 送る本文。お店の名前（長ければ切る）+ 決まった 1 行 + リンク（改行して、リンクが自分の行になるように）。
+     lang が日本語以外（en・ko・zh）なら、日本語の行の下に英語の 1 行。lang の無い予約（電話で聞いていない）は日本語だけ */
+  function messageText(shopName, url, lang) {
     if (!askUrlOk(url)) return '';
     const shop = String(shopName || '').replace(/\s+/g, ' ').trim().slice(0, SHOP_MAX);
-    return `${shop ? `${shop}：` : ''}${ASK_LINE}\n${url}`;
+    const en = lang && lang !== 'ja' ? `\n${ASK_LINE_EN}` : '';
+    return `${shop ? `${shop}：` : ''}${ASK_LINE}${en}\n${url}`;
   }
 
   /* 電話番号を sms: に入れる形にする。全角の数字を半角に、空白・ハイフン・括弧を除く。先頭の + は残す。数字が 7〜15 でなければ ''（ボタンを出さない） */
@@ -35,22 +39,22 @@
   }
 
   /* 番号が使えないか、リンクがその形でなければ '' */
-  function smsHref(phone, shopName, url) {
+  function smsHref(phone, shopName, url, lang) {
     const num = smsNumber(phone);
-    const text = messageText(shopName, url);
+    const text = messageText(shopName, url, lang);
     return num && text ? `sms:${num}?&body=${enc(text)}` : '';
   }
 
   /* 宛先を入れない sms:（1 人ずつのリンク用。代表者の番号を入れると、代表者にその人のリンクが届く）。スタッフが送り先を選ぶ */
-  function smsHrefNoNumber(shopName, url) {
-    const text = messageText(shopName, url);
+  function smsHrefNoNumber(shopName, url, lang) {
+    const text = messageText(shopName, url, lang);
     return text ? `sms:?&body=${enc(text)}` : '';
   }
 
-  function lineHref(shopName, url) {
-    const text = messageText(shopName, url);
+  function lineHref(shopName, url, lang) {
+    const text = messageText(shopName, url, lang);
     return text ? `${LINE_SHARE}${enc(text)}` : '';
   }
 
-  R.contactLink = { ASK_LINE, askUrlOk, messageText, smsNumber, smsHref, smsHrefNoNumber, lineHref };
+  R.contactLink = { ASK_LINE, ASK_LINE_EN, askUrlOk, messageText, smsNumber, smsHref, smsHrefNoNumber, lineHref };
 })();

@@ -379,8 +379,8 @@
      本文に入るのはお店の名前・決まった 1 行・この予約のリンクだけ。電話番号の無い予約には SMS のボタンを出さない */
   function sendSheet(b, shopName, url) {
     const L = R.contactLink;
-    const sms = L.smsHref(b.leadPhone, shopName, url);
-    const line = L.lineHref(shopName, url);
+    const sms = L.smsHref(b.leadPhone, shopName, url, b.lang);
+    const line = L.lineHref(shopName, url, b.lang);
     return el('div', { class: 'sheet' },
       el('p', { class: 'sheet__title' }, 'スマホで送る', el('small', { text: '送るのはスタッフ' })),
       el('p', { class: 'sheet__note', text: 'リンクを入れた文を作って、この端末の SMS か LINE を開きます。宛先と送信は、開いた先で確かめて押します。' }),
