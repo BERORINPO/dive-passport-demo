@@ -13,7 +13,7 @@
 
   const line = (s) => el('li', { class: `gsteps__${s.kind}${s.field ? ' gsteps__field' : ''}`, text: s.text });
   /* 横の案内役。進み中は「考え中」、終わったら呼ぶ側が決めた表情（答えた・ごめんね・できた。決定ログ 2026-10-29 chara-faces） */
-  const face = (name) => el('img', { class: 'gsteps__chara', src: R.CHARA[name] || R.CHARA.thinking, alt: '', width: 44, height: 44 });
+  const face = (name) => el('img', { class: 'gsteps__chara', src: R.CHARA[name] || R.CHARA.thinking, alt: '', width: 60, height: 60 });
   const box = (list, name) => el('div', { class: 'gsteps' }, face(name), list);
 
   /* 手順の並び（state）から描く。[{ kind: 'doing' | 'done' | 'note', text, field }]。end: 終わったときの表情 */

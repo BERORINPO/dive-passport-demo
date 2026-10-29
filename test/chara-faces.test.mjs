@@ -71,6 +71,17 @@ test('向きと使う所: 左右を返すのは元の chara.png だけ。画面�
   }
 });
 
+test('大きさ: あいさつは 88〜112px、答え・手順の横は 48〜60px（決定ログ 2026-10-29 chara-size）。256px の絵が 2 倍の画面でも足りる。一覧の中の答えは小さいまま', () => {
+  const css = readFileSync(new URL('../css/app.css', import.meta.url), 'utf8');
+  assert.match(css, /--chara-hello: clamp\(88px, 28vw, 112px\); --chara-face: clamp\(48px, 16vw, 60px\);/);
+  assert.match(css, /\.faq__chara \{ flex: none; width: var\(--chara-hello\);/);
+  assert.match(css, /\.gsteps \{ display: grid; grid-template-columns: var\(--chara-face\) minmax\(0, 1fr\);/);
+  assert.match(css, /\.gsteps__chara \{ width: var\(--chara-face\);/);
+  assert.match(css, /\.faq__log \.faq__mark \{ width: var\(--chara-face\); \}/);
+  assert.match(css, /^\.faq__mark \{ width: 30px; height: auto; \}/m, '質問の一覧の中は 30px のまま');
+  assert.ok(112 * 2 <= 256, '2 倍の画面で粗くならない');
+});
+
 let failed = 0;
 for (const t of tests) {
   try { await t.fn(); console.log(`ok   ${t.name}`); } catch (e) { failed += 1; console.log(`FAIL ${t.name}\n     ${e.stack.split('\n').slice(0, 3).join('\n     ')}`); }

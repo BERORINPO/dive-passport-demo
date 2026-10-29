@@ -162,7 +162,7 @@
     form.addEventListener('submit', (e) => { e.preventDefault(); const q = input.value; input.value = ''; input.focus(); ask(q); });
     root.replaceChildren(
       el('div', { class: 'faq__head' },
-        el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 56, height: 56 }),
+        el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 112, height: 112 }),
         el('h2', { class: 'h2', text: L(R.T.faqTitle) })),
       form,
       el('p', { class: 'faq__note', text: L(R.T.faqNote) }),
