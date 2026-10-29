@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>データの扱いと外部送信について（REDUX）</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- 公表ページ（決定ログ 2026-10-29 web-analytics）。総務省の外部送信規律（電気通信事業法 27 条の 12）の考え方に合わせ、
+     送る先の名前・送る情報・目的を書く。お客さまの画面（index.html）と試し版（trial.html）の一番下からたどる。
+     スクリプトも字体も画像も読まない。書いてある中身を変えたら、決定ログの行も直す -->
+<header class="bar">
+  <div class="brand">
+    <span class="brand__name">REDUX</span>
+  </div>
+</header>
+<main class="wrap wrap--narrow">
+<article lang="ja">
+<h1 class="page__h1">データの扱いと外部送信について</h1>
+<p class="note">2026 年 10 月 29 日。REDUX（ダイビングのお店の受付と名簿の試作）のページで、どの情報をどこへ送るかを書いています。</p>
+
+<h2 class="h2">見られ方と速さの計測（Cloudflare Web Analytics）</h2>
+<dl class="facts">
+  <div class="rd"><dt class="rd__k">送る先</dt><dd class="rd__v">Cloudflare, Inc.（Cloudflare Web Analytics）</dd></div>
+  <div class="rd"><dt class="rd__k">送る情報</dt><dd class="rd__v">見たページ（アドレスの「?」と「#」から後ろは送りません）・どこから来たか・国・端末とブラウザの種類・画面の表示にかかった時間</dd></div>
+  <div class="rd"><dt class="rd__k">目的</dt><dd class="rd__v">ページがどれくらい使われているか、表示が遅くないかを確かめるため</dd></div>
+  <div class="rd"><dt class="rd__k">送らない物</dt><dd class="rd__v">入力した内容・名前・メールアドレス・電話番号・健康の答え。計測のために cookie や端末の保存領域は使わず、個人を特定しません</dd></div>
+  <div class="rd"><dt class="rd__k">送るページ</dt><dd class="rd__v">お客さまの画面（予約の前に）と、お店の試し版のページだけ。お店から届いたリンクで名簿の項目を入れるページと、店頭の QR から入れるページでは送りません</dd></div>
+</dl>
+
+<h2 class="h2">AI に送る文（Anthropic の Claude）</h2>
+<dl class="facts">
+  <div class="rd"><dt class="rd__k">送る先</dt><dd class="rd__v">Anthropic, PBC（AI の Claude）。REDUX のサーバー（Cloudflare Workers）から送ります</dd></div>
+  <div class="rd"><dt class="rd__k">送る情報</dt><dd class="rd__v">「聞きたいことを、そのまま」に書いた質問の文と、お店が書いた答えの一覧。「まとめて書いて、入れてもらう」に貼った文。お店が使う画面では、転送された予約メールの文と申込書の写真</dd></div>
+  <div class="rd"><dt class="rd__k">目的</dt><dd class="rd__v">お店の答えから合う物を選んで訳す・申し込みの欄を読み取る・名簿の項目を読み取るため。AI は答えを自分で作らず、送るのは人が押したときだけです</dd></div>
+  <div class="rd"><dt class="rd__k">送らない物</dt><dd class="rd__v">体や病気のことに触れた質問は、AI に送る前に止めます。貼った文や予約メールの健康に触れた行は外し、申込書の写真は健康の欄を塗ってから送ります</dd></div>
+</dl>
+</article>
+
+<article lang="en">
+<h1 class="page__h1">How your data is handled and sent</h1>
+<p class="note">29 October 2026. This page lists what the REDUX pages (a prototype check-in and diver list for dive shops) send, and where.</p>
+
+<h2 class="h2">Visit and speed measurement (Cloudflare Web Analytics)</h2>
+<dl class="facts">
+  <div class="rd"><dt class="rd__k">Sent to</dt><dd class="rd__v">Cloudflare, Inc. (Cloudflare Web Analytics)</dd></div>
+  <div class="rd"><dt class="rd__k">What</dt><dd class="rd__v">The page you viewed (nothing after "?" or "#" in the address), where you came from, country, device and browser type, and how long the page took to show</dd></div>
+  <div class="rd"><dt class="rd__k">Why</dt><dd class="rd__v">To see how much the pages are used and whether they load slowly</dd></div>
+  <div class="rd"><dt class="rd__k">Not sent</dt><dd class="rd__v">Anything you type, names, email addresses, phone numbers or health answers. The measurement uses no cookies or device storage, and you are not identified</dd></div>
+  <div class="rd"><dt class="rd__k">Pages</dt><dd class="rd__v">Only the booking page for guests and the shops' trial pages. Nothing is sent from the page you open from the shop's link to fill in the diver list, or from the in-shop QR page</dd></div>
+</dl>
+
+<h2 class="h2">Text sent to an AI (Anthropic's Claude)</h2>
+<dl class="facts">
+  <div class="rd"><dt class="rd__k">Sent to</dt><dd class="rd__v">Anthropic, PBC (the Claude AI), from the REDUX server (Cloudflare Workers)</dd></div>
+  <div class="rd"><dt class="rd__k">What</dt><dd class="rd__v">The question you type in "Ask in your own words" with the shop's list of answers, and the text you paste into "Write it all at once". On the shop's own screens, forwarded booking emails and photos of application forms</dd></div>
+  <div class="rd"><dt class="rd__k">Why</dt><dd class="rd__v">To pick and translate the shop's matching answer, to fill in the booking fields, and to read the diver list items. The AI does not write its own answers, and nothing is sent until a person presses the button</dd></div>
+  <div class="rd"><dt class="rd__k">Not sent</dt><dd class="rd__v">Questions about health or illness are stopped before they reach the AI. Lines about health are removed from pasted text and booking emails, and the health part of a form photo is blacked out before it is sent</dd></div>
+</dl>
+</article>
+</main>
+</body>
+</html>

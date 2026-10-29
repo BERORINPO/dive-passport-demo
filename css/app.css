@@ -439,6 +439,9 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 /* 幅 320px では長い名前（「この文面を AI で読む」など）が半分の幅に入らない。はみ出させず、ボタンの中で 2 行に折る（56px に 2 行が入る） */
 .dock .btn { min-height: 56px; width: 100%; padding: 4px 10px; line-height: 1.25; text-wrap: balance; word-break: auto-phrase; }   /* auto-phrase: 日本語を文節で折る（「確かめ済 / みにする」にしない） */
 .dock--one { grid-template-columns: minmax(0, 1fr); }
+/* 一番下の「データの扱いと外部送信について」へのリンク（data.html。決定ログ 2026-10-29 web-analytics）。印刷には出さない */
+.foot { margin-top: 40px; padding-top: 16px; padding-bottom: 32px; border-top: 1px solid var(--line); }
+@media print { .foot { display: none; } }
 .dock .errors { grid-column: 1 / -1; font-size: 14px; }
 
 /* 定義の並び（読み取り・確かめる） */

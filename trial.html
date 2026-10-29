@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js/; style-src 'self'; img-src 'self'; connect-src 'self' https://cloudflareinsights.com/cdn-cgi/; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>REDUX の試し版</title>
 <meta name="robots" content="noindex, nofollow">
@@ -21,6 +21,7 @@
   </div>
 </header>
 <main class="wrap wrap--narrow"><div id="trial"></div></main>
+<footer class="foot wrap wrap--narrow"><a class="linkbtn linkbtn--muted" href="data.html">データの扱いと外部送信について / How data is handled</a></footer>
 
 <script src="js/core.js"></script>
 <script src="js/data.js"></script>
@@ -29,5 +30,7 @@
 <script src="js/guest-steps.js"></script>
 <script src="js/ask-api.js"></script>
 <script src="js/trial-page.js"></script>
+<!-- 見られ方と速さの計測（決定ログ 2026-10-29 web-analytics）。版を決めて integrity で中身を確かめる。送るのは見たページ（? と # の後ろは外す）・国・端末・速さだけ -->
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" crossorigin="anonymous" data-cf-beacon='{"token": "d5a7a1a0b5134ee296b105a84f22d926", "spa": false}'></script>
 </body>
 </html>

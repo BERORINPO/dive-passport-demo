@@ -13,7 +13,7 @@ const out = join(root, 'dist');
 const outAsk = join(root, 'dist-ask');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
-const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^walkin\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
+const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^walkin\.html$/, /^data\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
   /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.png$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/];
 
 export function siteFiles() {
@@ -24,10 +24,15 @@ export function siteFiles() {
 /* CDN を残す間は、サイト名だけで許さずパスまで書く（中身は integrity で確かめる）。自前で配ったら 'self' だけにする */
 const CDN = ['https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/'];
 
+/* 見られ方と速さの計測（Cloudflare Web Analytics。決定ログ 2026-10-29 web-analytics）。読むのは計測のスクリプトだけ、送るのは計測の受け口だけ。
+   app.reduxdive.com はダッシュボードの自動の差し込み（版の付いた /beacon.min.js/v…）、試し版は版を決めて自分で置く（trial.html。integrity 付き） */
+export const ANALYTICS_SCRIPT = 'https://static.cloudflareinsights.com/beacon.min.js/';
+export const ANALYTICS_SEND = 'https://cloudflareinsights.com/cdn-cgi/rum';
+
 /* HTML の中に直に書くスクリプトは無いので、script-src に hash は要らない（importmap をやめた 2026-10-28） */
 export function headers() {
-  const index = [`default-src 'none'`, `script-src 'self' ${CDN.join(' ')}`, `style-src 'self'`, `font-src 'self'`,
-    `img-src 'self' blob: data:`, `connect-src 'self' blob:`, `worker-src 'self'`, `manifest-src 'none'`,
+  const index = [`default-src 'none'`, `script-src 'self' ${CDN.join(' ')} ${ANALYTICS_SCRIPT}`, `style-src 'self'`, `font-src 'self'`,
+    `img-src 'self' blob: data:`, `connect-src 'self' blob: ${ANALYTICS_SEND}`, `worker-src 'self'`, `manifest-src 'none'`,
     `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
   /* pass.html（他のお店のスマホで開くパスポート）は字体も画像も読まず、どこにもつながない */
   const pass = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`,
@@ -36,8 +41,13 @@ export function headers() {
      Access の外に出す道（plan/meibo.md） */
   const ask = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'self'`,
     `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
-  /* trial.html（実在のお店の試し版。決定ログ 2026-10-29 trial-shops）は ask と同じで、案内役の絵とロゴだけ同じ場所から読む */
-  const trial = ask.replace(`img-src 'none'`, `img-src 'self'`);
+  /* trial.html（実在のお店の試し版。決定ログ 2026-10-29 trial-shops）は ask と同じで、案内役の絵とロゴだけ同じ場所から読む。
+     計測（web-analytics）のスクリプトと受け口だけを足す。ask.html・walkin.html（名前などが出る）には足さない */
+  const trial = ask.replace(`img-src 'none'`, `img-src 'self'`).replace(`script-src 'self'`, `script-src 'self' ${ANALYTICS_SCRIPT}`)
+    .replace(`connect-src 'self'`, `connect-src 'self' ${ANALYTICS_SEND}`);
+  /* data.html（データの扱いと外部送信についての公表ページ）は CSS だけを読む */
+  const data = [`default-src 'none'`, `script-src 'none'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`,
+    `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
   const block = (paths, lines) => paths.map(p => [p, ...lines.map(l => `  ${l}`)].join('\n')).join('\n');
   return [
     block(['/*'], ['X-Content-Type-Options: nosniff', 'Referrer-Policy: no-referrer', 'X-Robots-Tag: noindex, nofollow',
@@ -46,6 +56,7 @@ export function headers() {
     block(['/pass.html', '/pass'], [`Content-Security-Policy: ${pass}`, 'Cache-Control: no-cache']),
     block(['/ask.html', '/ask', '/walkin.html', '/walkin'], [`Content-Security-Policy: ${ask}`, 'Cache-Control: no-store']),
     block(['/trial.html', '/trial'], [`Content-Security-Policy: ${trial}`, 'Cache-Control: no-store']),
+    block(['/data.html', '/data'], [`Content-Security-Policy: ${data}`, 'Cache-Control: no-cache']),
     /* どの束を取ったかで画面の字が分かるので、長くためて取りに来る回数を減らす（Worker を通らないので path はログに出ない） */
     block(['/fonts/*'], ['Cache-Control: public, max-age=31536000, immutable']),
     block(['/js/*', '/css/*'], ['Cache-Control: no-cache']),
@@ -97,7 +108,7 @@ export function swFor(entries, template = readFileSync(join(root, 'sw.js'), 'utf
 }
 
 /* お客さん用の Worker に置くページ: お店が送ったリンクの ask.html と、店頭の QR の walkin.html と、実在のお店の試し版の trial.html */
-export const ASK_PAGES = ['ask.html', 'walkin.html', 'trial.html'];
+export const ASK_PAGES = ['ask.html', 'walkin.html', 'trial.html', 'data.html'];
 /* trial.html が読む絵（案内役と、css/app.css の --logo-mark のロゴ） */
 export const ASK_ASSETS = ['assets/chara.png', 'assets/logo-mark.png', 'assets/logo-mark-light.png'];
 

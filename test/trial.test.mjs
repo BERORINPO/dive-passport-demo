@@ -118,11 +118,14 @@ test('置く物: trial.html は redux-ask だけに置き、noindex・公式で�
   for (const shopOnly of ['index.html', 'js/ai-reader.js', 'js/roster-sync.js', 'js/booking.js', 'js/intake.js', 'js/chat.js']) assert.ok(!files.includes(shopOnly), shopOnly);
   assert.deepEqual(ASK_ASSETS, ['assets/chara.png', 'assets/logo-mark.png', 'assets/logo-mark-light.png']);
   const h = askHeaders();
-  assert.ok(h.includes("/trial\n  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'"));
+  assert.ok(h.includes("/trial\n  Content-Security-Policy: default-src 'none'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js/; style-src 'self'; " +
+    "img-src 'self'; connect-src 'self' https://cloudflareinsights.com/cdn-cgi/rum;"), '計測のスクリプトと受け口だけを足す（決定ログ 2026-10-29 web-analytics）');
   assert.ok(h.includes('X-Robots-Tag: noindex, nofollow'));
   const html = readFileSync(new URL('../trial.html', import.meta.url), 'utf8');
   assert.ok(html.includes('<meta name="robots" content="noindex, nofollow">') && html.includes('お店の公式ページではありません'));
-  assert.ok(!/https?:\/\//.test(html.replace(/<!--[\s\S]*?-->/g, '')), '外を読まない');
+  assert.deepEqual([...html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/https?:\/\/[^\s"';]+/g)].map(m => m[0].replace(/\/v[0-9a-f]+$/, '/v…')),
+    ['https://static.cloudflareinsights.com/beacon.min.js/', 'https://cloudflareinsights.com/cdn-cgi/', 'https://static.cloudflareinsights.com/beacon.min.js/v…'],
+    '外から読むのは計測のスクリプトだけ');
   const page = readFileSync(new URL('../js/trial-page.js', import.meta.url), 'utf8');
   assert.ok(!/rosterStore|store\.update|askLink|\/api\/(roster|ask|bookings)/.test(page), '名簿・予約に触れない');
 });
