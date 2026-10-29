@@ -70,6 +70,7 @@
     confirmOther: { ja: 'まだ確かめていない項目があります。この方の分は、お店が確かめます:', en: 'Items still to be checked. The shop will check them with this person:' },
     send: { ja: '送る', en: 'Send' },
     sent: { ja: '送りました', en: 'Sent' },
+    sentAll: { ja: '全員の分を送りました', en: 'Sent for everyone' },
     fix: { ja: '確かめてください', en: 'Please check' },
     doneTitle: { ja: 'そろいました', en: 'All set' },
     doneText: { ja: 'お店からの案内どおりに集まってください。', en: 'Please meet as the shop told you.' },
@@ -119,6 +120,7 @@
   let drafts = {};
   let problems = [];
   let flash = null;         // 知らせる文（T のキー）。言語を切り替えても訳が合うように、文でなくキーで持つ
+  let flashWho = null;      // 'sentNext' のときの、送った人と次の人の id: { sent, next }
   let todayDemo = false;
   let passKeys = null;          // パスポートから入れる物の印。null = まだ選んでいない（最初は入れられる物に全部付ける）
   let otherName = false;        // 名前が違っても、この人に入れる
@@ -331,6 +333,21 @@
     }
   }
 
+  /* 送れたら、まだ入れる所（聞く項目か、確かめる項目）が残っている次の人へ移る。
+     「送る」は開いている 1 人分だけなので、2 人以上の予約で次の人を押し忘れて「送りました」だけが残らないように */
+  function afterSent() {
+    const v = remote ? remote.view() : localView();
+    const people = v && Array.isArray(v.people) ? v.people : [];
+    const at = people.findIndex(x => x.person.id === personId);
+    const rest = [...people.slice(at + 1), ...people.slice(0, Math.max(at, 0))];
+    const next = rest.find(x => x.ask.length || (x.confirm || []).length);
+    flash = people.length < 2 ? 'sent' : next ? 'sentNext' : 'sentAll';
+    flashWho = next ? { sent: personId, next: next.person.id } : null;
+    if (next) personId = next.person.id;
+    render();
+    if (next && typeof window.scrollTo === 'function') window.scrollTo({ top: 0 });
+  }
+
   /* 本物のリンク: Worker に送り、Worker が数えた問題を出す */
   async function sendRemote(entry, d) {
     if (entry.ask.length) {
@@ -341,8 +358,7 @@
       const got = await remote.today(entry.person.id, d.today, d.consent);
       if (got.problems.length) { problems = got.problems; render(); return; }
     }
-    flash = 'sent';
-    render();
+    afterSent();
   }
 
   /* 名前が空の人の名前だけを送る（{ name } だけの入力。他の項目は聞いたまま） */
@@ -371,8 +387,7 @@
     if (entry.needsToday && (isTheDay(trip, entry) || demo) && d.today) {
       if (!save('guest.answerToday', { id: entry.person.id, answer: d.today, day: trip.date, consent: d.consent, today: R.today(), demo, at })) { render(); return; }
     }
-    flash = 'sent';
-    render();
+    afterSent();
   }
 
   /* ---------- パスポートから ---------- */
@@ -480,7 +495,7 @@
       el('p', { class: 'note', text: `${v.shop}${L(T.from)}` }),
       el('h2', { class: 'page__title', text: L(trip.kind === 'snorkel' ? T.titleSnorkel : T.titleDive) }),
       el('p', { class: 'page__sub', text: `${[md(trip.date), trip.start, trip.tour].filter(Boolean).join(' ')}${R.lang === 'en' ? '. ' : '。'}${L(T.law)}` }),
-      flash ? el('p', { class: 'flag flag--ok', role: 'status', text: L(T[flash]) }) : null,
+      flash ? el('p', { class: 'flag flag--ok', role: 'status', text: flashText(v) }) : null,
       pass && entry.ask.some(k => ['certDate', 'courses', 'dives', 'lastDive', 'history'].includes(k))
         ? el('div', { class: 'passbar' }, el('span', { text: R.lang === 'en' ? `${L(T.passHere)} (${pass.name})` : `${L(T.passHere)}（${pass.name}）` }),
           el('button', { class: 'btn btn--small', type: 'button', text: L(T.fromPass), onclick: () => { view = 'passport'; flash = null; problems = []; passKeys = null; otherName = false; render(); } }))
@@ -501,10 +516,22 @@
       symptomCard(),
       canSend ? R.dock(
         el('p', { class: 'errors', role: 'alert', text: problemText() }),
-        el('button', { class: 'btn', type: 'button', text: L(T.send), onclick: () => send(entry, trip) })) : null,
+        el('button', { class: 'btn', type: 'button', text: sendLabel(v, entry), onclick: () => send(entry, trip) })) : null,
       backLink()
     ];
   }
+
+  /* 2 人以上の予約では、誰の分を送るのかをボタンに書く */
+  const sendLabel = (v, entry) => {
+    if (v.people.length < 2) return L(T.send);
+    const who = personLabel(v, entry.person);
+    return R.lang === 'en' ? `Send for ${who}` : `${who}の分を送る`;
+  };
+  const flashText = (v) => {
+    if (flash !== 'sentNext' || !flashWho) return L(T[flash]);
+    const who = (id) => personLabel(v, (v.people.find(x => x.person.id === id) || v.people[0]).person);
+    return R.lang === 'en' ? `Sent for ${who(flashWho.sent)}. Next: ${who(flashWho.next)}` : `${who(flashWho.sent)}の分を送りました。次は ${who(flashWho.next)} です`;
+  };
 
   const problemText = () => (problems.length ? `${L(T.fix)}: ${problems.map(k => L(PROBLEM[k] || PROBLEM.save)).join(R.lang === 'en' ? ', ' : '・')}` : '');
 
