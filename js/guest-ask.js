@@ -157,7 +157,10 @@
 
   /* 入力の欄。値は書きかけ（drafts）に置き、送るまで名簿には入れない */
   const field = (label, control) => el('label', { class: 'field' }, el('span', { class: 'label', text: L(label) }), control);
-  const input = (d, key, attrs) => el('input', { class: 'input', value: d[key], ...attrs, oninput: (e) => { d[key] = e.target.value; } });
+  /* スマホのキーボードの Enter を「次へ」にする（enterkeyhint）。送るのは下の帯のボタンだけ */
+  const input = (d, key, attrs) => el('input', { class: 'input', value: d[key], enterkeyhint: 'next', ...attrs, oninput: (e) => { d[key] = e.target.value; } });
+  /* 緊急時の連絡先の欄。本人の名前・電話が自動入力で入らないよう、section-emergency で区切る（続柄は自動入力しない） */
+  const EMERGENCY_FILL = { name: 'section-emergency name', relation: 'off', phone: 'section-emergency tel' };
 
   function formFields(entry, d, items) {
     const ask = entry.ask;
@@ -172,7 +175,7 @@
     if (ask.includes('emergency')) {
       const e = d.emergency;
       const sub = (key, label, type) => el('input', { class: 'input', type, value: e[key], placeholder: L(label), 'aria-label': L(label), maxlength: key === 'relation' ? 20 : 60,
-        oninput: (ev) => { e[key] = ev.target.value; } });
+        autocomplete: EMERGENCY_FILL[key], enterkeyhint: 'next', inputmode: key === 'phone' ? 'tel' : null, oninput: (ev) => { e[key] = ev.target.value; } });
       const open = entry.parts.emergency;
       const parts = [['name', T.eName, 'text'], ['relation', T.eRelation, 'text'], ['phone', T.ePhone, 'tel']];
       out.push(el('fieldset', { class: 'group' }, el('legend', { class: 'label', text: L(T.emergency) }),
