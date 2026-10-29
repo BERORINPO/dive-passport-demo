@@ -34,8 +34,9 @@
   /* 「よく聞かれること」の形（design.md の部品）。質問を罫線の行で並べ、押すと下に答えが開く。
      自由に聞く欄は最後に 1 つ。答えは行の形で、左に案内役の小さい絵（全身のまま。丸く切らない。チャットの吹き出しにしない） */
   const mark = () => el('img', { class: 'faq__mark', src: CHARA, alt: '', width: 30, height: 30 });
-  const answerRow = (text, sub) => {
-    const p = el('p');
+  /* lang: 答えの言葉（訳した答えは質問の言葉）。読み上げと字形（中国語を日本語の字で描かない）のため */
+  const answerRow = (text, sub, lang) => {
+    const p = el('p', lang ? { lang } : {});
     const row = el('div', { class: 'faq__a' }, mark(), el('div', {}, p, sub ? el('small', { text: sub }) : null));
     typeInto(p, text);
     return row;
@@ -76,9 +77,9 @@
   }
 
   /* 日本語以外で聞かれ、AI が訳した答え。元の日本語の文を開いて見られる */
-  function translatedCard(item, text, question) {
-    const row = answerRow(text, `${L(R.T.translated).replace('{q}', item.q.ja)} ・ ${L(R.T.updated)} ${item.updated}`);
-    row.lastChild.append(el('details', { class: 'faq__orig' }, el('summary', { text: L(R.T.original) }), el('p', { text: item.a.ja })),
+  function translatedCard(item, text, question, lang) {
+    const row = answerRow(text, `${L(R.T.translated).replace('{q}', item.q.ja)} ・ ${L(R.T.updated)} ${item.updated}`, lang);
+    row.lastChild.append(el('details', { class: 'faq__orig' }, el('summary', { text: L(R.T.original) }), el('p', { lang: 'ja', text: item.a.ja })),
       el('button', { class: 'linkbtn', type: 'button', text: L(R.T.wrongQuestion),
         onclick: (e) => { e.target.disabled = true; say(L(R.T.notFound)); log.append(handOff(question)); } }));
     return row;
@@ -116,7 +117,7 @@
         if (turn !== asking) return;
         steps.done(L(T.stepTranslated).replace('{lang}', langName));
       }
-      log.append(translate ? translatedCard(item, got.answer, text) : answerCard(item, text));
+      log.append(translate ? translatedCard(item, got.answer, text, got.lang) : answerCard(item, text));
       return;
     }
     steps.done(L(T.stepNone).replace('{n}', R.FAQ.length));

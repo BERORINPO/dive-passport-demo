@@ -137,8 +137,11 @@
     placeholder: { ja: '例: 泳げなくても大丈夫？', en: "e.g. Can I join if I can't swim?" },
     faqTitle: { ja: '聞きたいことを、そのまま', en: 'Ask in your own words' },
     faqMore: { ja: '質問の一覧から探す', en: 'Browse all questions' },
-    faqNote: { ja: '日本語・English・中文・한국어で聞けます。答えはお店が書いた文から選びます。体のことには答えません。',
-               en: 'Ask in Japanese, English, Chinese or Korean. Answers are chosen from what the shop wrote. Health questions are not answered here.' },
+    /* AI だと最初に言う・まちがいうると言い確かめ先を示す（Apple HIG の Generative AI、GOV.UK Chat の最初の案内。決定ログ 2026-10-29 ai-disclosure） */
+    faqNote: { ja: '日本語・English・中文・한국어で聞けます。AI がお店の書いた答えから選び、日本語以外は訳して返します。'
+                 + 'まちがうこともあるので、大事なことはお店に確かめてください。体のことには答えません。',
+               en: 'Ask in Japanese, English, Chinese or Korean. An AI picks the answer from what the shop wrote and translates it if needed. '
+                 + 'It can be wrong, so check anything important with the shop. Health questions are not answered here.' },
     /* 聞けば答えるの手順の行（js/guest-steps.js） */
     stepReading: { ja: '質問を読んでいます…', en: 'Reading your question…' },
     stepRead: { ja: '質問を読みました（{lang}）', en: 'Read your question ({lang})' },
