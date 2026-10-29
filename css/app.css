@@ -219,6 +219,11 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .row { display: grid; gap: 12px; }
 @media (min-width: 560px) { .row { grid-template-columns: 1fr 1fr; } }
 .row--3 { gap: 8px; grid-template-columns: 1fr; }
+/* 生年月日の 3 つの欄（R.dateParts）。年は 4 桁が入る幅、月と日は 2 桁 */
+.dateparts { display: flex; gap: 8px; align-items: end; }
+.dateparts__part { display: block; min-width: 0; }
+.dateparts__part--year { flex: 0 1 112px; }
+.dateparts__part--small { flex: 0 1 72px; }
 @media (min-width: 560px) { .row--3 { grid-template-columns: 2fr 1fr 2fr; } }
 .field { display: block; min-width: 0; }
 /* 選択肢（design.md の部品）。1 つ選ぶ物が 3 つまで = つながった切り替え。それ以外 = 罫線で区切った丸 / 四角の行。1 つずつ箱で囲まない */
