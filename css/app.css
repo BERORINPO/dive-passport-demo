@@ -176,7 +176,25 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .faq__log { display: grid; gap: 4px; margin-top: 10px; }
 .faq__asked { margin: 6px 0 0; font-weight: 700; }
 .faq__note { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
-.faq__wait { margin: 0; color: var(--muted); }
+/* AI がいま何をしているかの行（js/guest-steps.js）。進み中は ● が点滅、終われば ✓。design.md の「動き」の例外 */
+.gsteps { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; align-items: start; margin: 10px 0 6px; }
+.gsteps__chara { width: 44px; height: auto; }
+.gsteps__list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.gsteps__list li { position: relative; padding-left: 24px; line-height: 1.6; color: var(--muted); animation: step-in 0.25s ease-out; }
+.gsteps__list li::before { position: absolute; left: 0; top: 0; width: 18px; text-align: center; }
+.gsteps__doing { color: var(--ink) !important; font-weight: 700; }
+.gsteps__doing::before { content: "●"; color: var(--accent); animation: step-blink 0.9s ease-in-out infinite; }
+.gsteps__done::before { content: "✓"; color: var(--ok); font-weight: 700; }
+.gsteps__done.gsteps__field { color: var(--ink); }
+.gsteps__note { color: var(--accent) !important; font-weight: 700; }
+.gsteps__note::before { content: "→"; color: var(--accent); }
+.faq__log .faq__a { animation: step-in 0.3s ease-out; }
+/* AI が入れた欄を一瞬光らせる */
+.is-glow { animation: step-glow 1.2s ease-out; border-radius: 6px; }
+@keyframes step-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes step-blink { 50% { opacity: 0.25; } }
+@keyframes step-glow { 0% { background: var(--accent-soft); box-shadow: 0 0 0 6px var(--accent-soft); } 100% { background: transparent; box-shadow: 0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .gsteps__list li, .gsteps__doing::before, .faq__log .faq__a, .is-glow { animation: none; } }
 .faq__orig summary { margin-top: 4px; min-height: 44px; display: flex; align-items: center; color: var(--accent); font-size: 14px; cursor: pointer; }
 .faq__orig p { margin: 0 0 4px; font-size: 14px; color: var(--muted); }
 .faq__maybe { display: grid; justify-items: start; gap: 2px; margin: 0 0 6px 38px; }
@@ -187,8 +205,6 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .bulk__text { width: 100%; min-height: 112px; padding: 10px 12px; line-height: 1.6; resize: vertical; }
 .bulk__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; }
 .bulk__go { border-radius: 999px; padding: 0 22px; }
-.bulk__msg { margin: 10px 0 0; }
-.bulk__msg:empty { display: none; }
 .ai-mark { margin-left: 8px; color: var(--accent); font-size: 14px; font-weight: 700; }
 .form { display: grid; gap: 14px; }
 .card.form { margin-top: 16px; }

@@ -103,6 +103,7 @@ modern-minimal を、現場の道具に寄せた形（utilitarian）。お店の
 
 ## 動き
 - 動きは付けない（色の切り替えだけ 160ms）。`prefers-reduced-motion` では切り替えも無し
+- 例外: お客さまの画面の AI の手順の行（1 行ずつ出る・進み中の ● の点滅）と、AI が入れた欄の一瞬の光り（`.gsteps` `.is-glow`、js/guest-steps.js）。何をしているかが見えないと、AI が動いているか分からないため（決定ログ 2026-10-29 guest-ai-steps）。`prefers-reduced-motion` では動かさない
 - 成功は静かに（画面の上に 1 行）。祝う表示は出さない
 
 ## 文言
