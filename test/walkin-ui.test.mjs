@@ -501,6 +501,21 @@ test('お客さんの画面: 空の欄は送る前に知らせる。鍵が無効
   assert.match(none.root.textContent, /この QR は使えません/);
 });
 
+test('予約の行: お客さんの分がそろい、潜水場所・ガイドだけが残るときは、それを言う（書類の自動化の「送った」より先に）', () => {
+  const { R, root } = boot();
+  seed(R);
+  const real = R.rosterCore.bookingRows;
+  const filled = (p) => ({ ...p, ask: [], done: false, unsure: [], heldToday: false });
+  R.rosterCore.bookingRows = (s, tripId) => real(s, tripId).map((row, i) => (i === 0 ? { ...row, done: 0, people: row.people.map(filled) } : row));
+  R.autoFlow.rowNote = () => ({ text: 'お願いを送る: 送った' });
+  R.renderBooking();
+  const rows = all(root, 'li').filter(li => li.className === 'bk');
+  assert.match(rows[0].textContent, /・名簿 0\/1/);
+  assert.match(rows[0].textContent, /お客さんの分はそろった・潜水場所かガイドがまだ/);
+  assert.ok(!rows[0].textContent.includes('送った'), '自動化の知らせで、便の項目の待ちを隠さない');
+  assert.match(rows[1].textContent, /お願いを送る: 送った/, 'お客さんの入力を待つ予約は、自動化の知らせのまま');
+});
+
 let failed = 0;
 for (const t of tests) {
   try { await t.fn(); console.log(`ok   ${t.name}`); } catch (e) { failed += 1; console.log(`FAIL ${t.name}\n     ${e.stack || e.message}`); }

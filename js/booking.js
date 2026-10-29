@@ -163,8 +163,11 @@
       el('button', { class: 'linkbtn', type: 'button', text: '直す', onclick: () => go('bedit', { bookingId: b.id }) }),
       el('button', { class: 'linkbtn', type: 'button', text: '別の便へ', onclick: () => go('bmove', { bookingId: b.id }) }),
       el('button', { class: 'linkbtn linkbtn--warn', type: 'button', text: '取り消す', onclick: () => go('bcancel', { bookingId: b.id }) }));
-    const status = unsure ? '確かめてほしい所がある' : auto ? auto.text : guests ? `${guests} 人分の入力を待っている`
-      : heldToday ? `当日の体調は${b.shop}が便の日に確かめる` : waiting ? '便のポイントかガイドがまだ' : '';
+    /* お客さんの分がそろい、便の項目（潜水場所・ガイド）だけが残るときは、それを先に言う。書類の自動化の「送った」が出たままだと、
+       名簿 0/2 がお客さんの待ちに見えた（11/9 の練習） */
+    const tripOnly = waiting && !guests && !heldToday;
+    const status = unsure ? '確かめてほしい所がある' : tripOnly ? 'お客さんの分はそろった・潜水場所かガイドがまだ' : auto ? auto.text
+      : guests ? `${guests} 人分の入力を待っている` : heldToday ? `当日の体調は${b.shop}が便の日に確かめる` : '';
     return el('li', { class: 'bk' },
       el('span', { class: 'bk__name' }, lead, others > 0 ? el('span', { class: 'nw', text: ` ほか ${others} 人` }) : null),
       el('span', { class: `st st--${st[0]}`, text: st[1] }),
