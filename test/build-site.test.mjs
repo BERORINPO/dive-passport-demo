@@ -10,8 +10,35 @@ const indexCsp = () => headers().match(/^\/index\.html\n(?:  .*\n)*?  Content-Se
 
 test('お店の画面の CSP: script は同じ場所と qrcode-generator だけ。importmap の hash も three.js の CDN も無い', () => {
   const script = indexCsp().split('; ').find(d => d.startsWith('script-src '));
-  assert.equal(script, "script-src 'self' https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/");
+  assert.equal(script, "script-src 'self' https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/ https://static.cloudflareinsights.com/beacon.min.js/",
+    '計測のスクリプト（ダッシュボードの自動の差し込み、版の付いたパス）だけを足す（決定ログ 2026-10-29 web-analytics）');
   assert.ok(!/sha256-|jsdelivr|three/.test(headers()), '_headers のどこにも three.js と hash は残さない');
+});
+
+test('計測（Cloudflare Web Analytics）: 送り先は受け口 1 つだけ。お店の画面と試し版だけで、お客さんのリンク・店頭の受付・パスポート・公表ページには足さない', () => {
+  const h = headers();
+  const lines = h.split(/\r?\n/);
+  const csp = (path) => lines.slice(lines.indexOf(path) + 1).find(l => l.includes('Content-Security-Policy'));
+  assert.ok(indexCsp().includes("connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum;"));
+  assert.ok(csp('/trial').includes("script-src 'self' https://static.cloudflareinsights.com/beacon.min.js/;"));
+  assert.ok(csp('/trial').includes("connect-src 'self' https://cloudflareinsights.com/cdn-cgi/rum;"));
+  for (const p of ['/ask', '/walkin', '/pass', '/data']) assert.ok(!/cloudflareinsights/.test(csp(p)), `${p} には計測を足さない`);
+  const trial = readFileSync(new URL('../trial.html', import.meta.url), 'utf8');
+  const tag = trial.match(/<script[^>]+cloudflareinsights[^>]*>/)[0];
+  assert.match(tag, /integrity="sha512-[^"]+"/);
+  assert.match(tag, /crossorigin="anonymous"/);
+  assert.match(tag, /src="https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js\/v[0-9a-f]+"/, '版を決めた URL（integrity で確かめられる）');
+  for (const f of ['ask.html', 'walkin.html', 'pass.html', 'data.html', 'index.html']) {
+    assert.ok(!readFileSync(new URL(`../${f}`, import.meta.url), 'utf8').includes('cloudflareinsights'), `${f} に計測のスクリプトを書かない`);
+  }
+});
+
+test('公表ページ（data.html）: 置く物に入り、お客さまの画面と試し版の一番下からたどれる。スクリプトを読まない', () => {
+  assert.ok(siteFiles().includes('data.html'));
+  for (const f of ['index.html', 'trial.html']) assert.match(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'), /<footer[^>]*>\s*<a[^>]+href="data\.html"/);
+  const page = readFileSync(new URL('../data.html', import.meta.url), 'utf8');
+  assert.ok(!/<script/.test(page) && page.includes("script-src 'none'"));
+  for (const words of ['Cloudflare, Inc.', 'Anthropic, PBC', 'cookie', '送る先', '目的', 'Sent to', 'Why']) assert.ok(page.includes(words), words);
 });
 
 test('お店の画面の CSP: 音（media-src）は要らない（声をやめた）。画像は同じ場所と blob・data だけ', () => {

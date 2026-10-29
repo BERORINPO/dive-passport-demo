@@ -8,7 +8,7 @@
 | shared | js/pass-schema.js js/roster-schema.js js/guest-ai-schema.js worker/trial-shops.mjs js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
 | core | js/roster-core.js js/roster-guest.js js/contact-link.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/past-core.mjs worker/backup-core.mjs worker/auto-core.mjs worker/ask-core.mjs worker/ask-input.mjs worker/shop-core.mjs worker/walkin-core.mjs worker/intake-core.mjs worker/guest-ai-core.mjs worker/trial-core.mjs |
 | adapter | js/ai-reader.js js/roster-sync.js js/ask-api.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/unread-db.mjs worker/mail.mjs worker/site-guard.mjs worker/ask-db.mjs worker/ask-key.mjs worker/shop-client.mjs worker/shop-db.mjs worker/limit-db.mjs worker/walkin-db.mjs worker/fakes.mjs worker/intake-db.mjs |
-| entry | index.html sw.js pass.html ask.html walkin.html trial.html js/trial-page.js js/ask-page.js js/walkin-page.js js/walkin-staff.js js/person-links.js js/app.js js/demo-band.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/auto-flow.js js/booking.js js/booking-add.js js/booking-edit.js js/intake-photo.js js/guest-ask.js js/guest-steps.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs worker/public-handler.mjs worker/api-http.mjs worker/shop-service.mjs worker/shop-rpc.mjs worker/walkin-route.mjs worker/backup.mjs js/api-keys-staff.js worker/intake-route.mjs |
+| entry | index.html sw.js pass.html ask.html walkin.html trial.html data.html js/trial-page.js js/ask-page.js js/walkin-page.js js/walkin-staff.js js/person-links.js js/app.js js/demo-band.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/auto-flow.js js/booking.js js/booking-add.js js/booking-edit.js js/intake-photo.js js/guest-ask.js js/guest-steps.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs worker/public-handler.mjs worker/api-http.mjs worker/shop-service.mjs worker/shop-rpc.mjs worker/walkin-route.mjs worker/backup.mjs js/api-keys-staff.js worker/intake-route.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - Worker（worker/）は画面と同じ 4 役割で分ける。core の worker/read-core.mjs は js/roster-schema.js と js/health-redact.js を読んで、画面と同じ検査をもう一度かける。worker/fakes.mjs は Worker の adapter の見本（テストだけが読み、置く物には入らない）
@@ -63,7 +63,8 @@
 | pass.html | なし | なし | 読まない |
 | ask.html | なし | なし | 読まない |
 | walkin.html | なし | なし | 読まない |
-| trial.html | なし | なし | 読まない |
+| trial.html | `https://static.cloudflareinsights.com/beacon.min.js/` `https://cloudflareinsights.com/cdn-cgi/` | なし | 読まない |
+| data.html | なし | なし | 読まない |
 | css/app.css | なし | なし | — |
 | css/fonts.css | なし | なし | — |
 
@@ -79,6 +80,7 @@
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
 |---|---|---|---|
+| 2026-10-29 web-analytics | 見られ方と速さを Cloudflare Web Analytics で数える。app.reduxdive.com は、ダッシュボードの自動の差し込み（2026-10-28 から。zone reduxdive.com の site、全ホスト・全パスの規則）に任せ、CSP に計測のスクリプト（`https://static.cloudflareinsights.com/beacon.min.js/`）と受け口（`https://cloudflareinsights.com/cdn-cgi/rum`）だけを足す。ask.reduxdive.com には自動の差し込みが入らないので、試し版（trial.html）だけに版を決めたスクリプトを integrity 付きで自分で置く（同じ site の token）。お客さんのリンク（/ask）・店頭の受付（/walkin）・パスポートには置かず、CSP も緩めない。送るのは見たページ（スクリプトが ? と # の後ろを外す。お客さんのリンクと試し版の鍵は # の後ろ）・どこから来たか・国・端末・速さだけで、cookie と保存領域は使わない（スクリプトの中身で確かめた）。公表ページ data.html（日本語・英語）を、お客さまの画面と試し版の一番下からたどる | Yosuke「使おう」（2026-10-29）。調査報告（UI/UX）の 9 番、総務省の外部送信規律。自動の差し込みを止めて全部自分で置く案は、ダッシュボードの設定を変える必要があり、app の数え方が二重になる時間ができるので採らない。app はお店の画面（名簿）と同じページなので、ページを開いた数には店員の分も入る（名簿の画面だけを外すかは別に決める） | test/build-site.test.mjs・test/trial.test.mjs・test/arch.check.mjs |
 | 2026-10-29 no-guess-after-ai | お客さまの画面の「聞きたいことを、そのまま」で、AI が「合う答えは無い」と答えたときは、決まった計算（match.js）の当たりを答えとして出さず、「もしかして」の候補に留める。AI に届かなかったときは今までどおり当たりを答えにする | 「駐車場に電気自動車の充電器はありますか」に、手順の行で「合う物はありませんでした」と出したすぐ下に、駐車場の料金の答えが出ていた（言葉が似ているだけ）。spec/ai-guest.md の 2（合う物が無ければお店へ） | なし |
 | 2026-10-29 zh-script | 中国語の質問には、質問と同じ字（繁体字・簡体字）で訳させる（聞けば答えるの AI への決まりに 1 行）。画面の答えの段落の lang は、質問と答えの字を数えて zh-Hant・zh-Hans（分からなければ zh）。試し版の決まった文（答えが無い・体のこと・混んでいる）に繁体字の文を足し、質問の字で選ぶ | 調査報告（UI/UX）の 4 番、W3C（lang が zh だけだと字形が端末まかせ）。本番で繁体字の質問に繁体字で答えたが lang は zh で、句読点が日本語の字形で描かれた。AI の答えの形（lang の 4 値）は変えない（契約と Worker の検査をそのままにするため）| test/guest-ai.test.mjs |
 | 2026-10-29 bulk-revert | 「まとめて書いて、入れてもらう」で AI が入れた欄をお客さんが直したら、「AI が入れた・確かめてください」の印を「AI の値に戻す」（下線の字のボタン）に替え、押すと AI が読んだ値と印に戻す。送るのは今までどおり人のボタンだけ | 調査報告（UI/UX）の 2 番、Carbon for AI の「revert to AI」と Shape of AI の Auto-fill。前は直すと印が消えるだけで、AI が読んだ値に戻せなかった | なし |
