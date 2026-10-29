@@ -41,11 +41,15 @@
   }
 
   /* ---------- 聞けば答える ---------- */
-  function answerRow(text, sub, orig) {
+  /* lang: 答えの言葉。読み上げと字形（中国語を日本語の字で描かない）のため */
+  function answerRow(text, sub, orig, lang = 'ja') {
     return el('div', { class: 'faq__a' }, el('img', { class: 'faq__mark', src: CHARA, alt: '', width: 30, height: 30 }),
-      el('div', {}, el('p', { text }), sub ? el('small', { text: sub }) : null,
-        orig ? el('details', { class: 'faq__orig' }, el('summary', { text: '元の文（日本語）' }), el('p', { text: orig })) : null));
+      el('div', {}, el('p', { lang, text }), sub ? el('small', { text: sub }) : null,
+        orig ? el('details', { class: 'faq__orig' }, el('summary', { text: '元の文（日本語）' }), el('p', { lang: 'ja', text: orig })) : null));
   }
+
+  /* 決まった文（SAY）を、AI が見た質問の言葉で。その言葉の文が無ければ画面で見た言葉で */
+  const sayRow = (key, aiLang, pageLang) => (SAY[key][aiLang] ? answerRow(SAY[key][aiLang], '', '', aiLang) : answerRow(SAY[key][pageLang], '', '', pageLang));
 
   let asking = 0;
   async function ask(log, question) {
@@ -59,15 +63,15 @@
     if (touchesHealth(text)) {
       steps.done('質問を読みました');
       steps.note('体のことなので、ここでは答えません');
-      log.append(answerRow(SAY.health[lang]));
+      log.append(answerRow(SAY.health[lang], '', '', lang));
       return;
     }
     const res = await R.askApi.trial({ t: token, kind: 'faq', question: text });
     if (turn !== asking) return;
     const got = res.status === 200 ? G.faqAnswer(res.data, shop.faq.map(f => f.id)) : { ok: false };
-    if (!got.ok) { steps.done('質問を読みました'); log.append(answerRow(SAY.busy[lang])); return; }
+    if (!got.ok) { steps.done('質問を読みました'); log.append(answerRow(SAY.busy[lang], '', '', lang)); return; }
     const a = got.answer;
-    if (a.health) { steps.done('質問を読みました'); steps.note('体のことなので、ここでは答えません'); log.append(answerRow(SAY.health[a.lang] || SAY.health[lang])); return; }
+    if (a.health) { steps.done('質問を読みました'); steps.note('体のことなので、ここでは答えません'); log.append(sayRow('health', a.lang, lang)); return; }
     steps.done(`質問を読みました（${LANG_NAME[a.lang]}）`);
     steps.doing(`お店の答え ${shop.faq.length} 件から探しています…`);
     await S.pause(500);
@@ -75,7 +79,7 @@
     const item = a.faq ? shop.faq.find(f => f.id === a.faq) : null;
     if (!item) {
       steps.done(`お店の答え ${shop.faq.length} 件に、合う物はありませんでした`);
-      log.append(answerRow(SAY.none[a.lang] || SAY.none[lang]));
+      log.append(sayRow('none', a.lang, lang));
       return;
     }
     steps.done(`「${item.q}」の答えを選びました`);
@@ -84,7 +88,7 @@
       await S.pause(600);
       if (turn !== asking) return;
       steps.done(`${LANG_NAME[a.lang]}に訳しました（元の文は下）`);
-      log.append(answerRow(a.answer, `「${item.q}」へのお店の答えを、AI が訳しました`, item.a));
+      log.append(answerRow(a.answer, `「${item.q}」へのお店の答えを、AI が訳しました`, item.a, a.lang));
       return;
     }
     log.append(answerRow(item.a, `「${item.q}」へのお店の答え`));
@@ -106,7 +110,8 @@
       el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: CHARA, alt: '', width: 56, height: 58 }),
         el('h2', { class: 'h2', text: '聞きたいことを、そのまま' })),
       form,
-      el('p', { class: 'faq__note', text: '日本語・English・中文・한국어で聞けます。答えはこのページのお店の情報から選びます。無いことは「お店に確認してください」と返します。体のことには答えません。' }),
+      el('p', { class: 'faq__note', text: '日本語・English・中文・한국어で聞けます。AI がこのページのお店の情報から答えを選び、日本語以外は訳して返します。'
+        + '無いことは「お店に確認してください」と返します。まちがうこともあるので、大事なことはお店に確かめてください。体のことには答えません。' }),
       log,
       el('details', { class: 'faq__more' }, el('summary', { text: `質問の一覧から探す（${shop.faq.length}）` }), el('ul', { class: 'faq' }, shop.faq.map(item))));
   }
