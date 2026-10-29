@@ -94,7 +94,7 @@
     passRest: { ja: '生年月日・住所・緊急時の連絡先は、パスポートに無いので、この画面のあとで入れます。', en: 'Date of birth, address and emergency contact are not on the passport; enter them next.' },
     doneHere: { ja: 'この画面で入れる所はそろいました', en: 'This page is complete' },
     healthBy: { ja: '健康の質問と当日の体調は、1 人ずつのリンクで本人が答えます（お子さんは保護者の方）。', en: 'Health questions and how you feel on the day are answered by each person on their own link (a parent for children).' },
-    personLink: { ja: 'さんのリンクを写す', en: ': copy their link' },
+    personLink: { ja: 'リンクを写す', en: 'Copy their link' },
     personCopied: { ja: 'リンクを写しました。本人に送ってください', en: 'Link copied. Please send it to them' },
     personFail: { ja: '写せませんでした。下のリンクを長押しして写してください', en: 'Could not copy. Press and hold the link below to copy it' }
   };
@@ -473,10 +473,13 @@
       el('p', { class: 'sheet__note', text: L(T.healthBy) }),
       open.map(x => {
         const made = personUrls[x.person.id];
+        /* 定義の並び: 左に誰か、右にリンクを写すボタン（ボタンを左の細い列に入れると、名前が 1 語ずつ折れて読めない） */
         return el('div', { class: 'rd' },
-          el('button', { class: 'linkbtn', type: 'button', text: `${personLabel(v, x.person)}${R.lang === 'en' ? '' : ' '}${L(T.personLink)}`, onclick: () => copy(x) }),
-          made ? el('span', { class: 'rd__sub', text: L(made.copied ? T.personCopied : T.personFail) }) : null,
-          made && !made.copied ? el('p', { class: 'url', text: made.url }) : null);
+          el('span', { class: 'rd__k', text: personLabel(v, x.person) }),
+          el('div', { class: 'rd__v' },
+            el('button', { class: 'linkbtn', type: 'button', text: L(T.personLink), onclick: () => copy(x) }),
+            made ? el('span', { class: 'rd__sub', text: L(made.copied ? T.personCopied : T.personFail) }) : null,
+            made && !made.copied ? el('p', { class: 'url', text: made.url }) : null));
       }));
   }
 
