@@ -278,6 +278,7 @@
   const OPS_KEY = `${ROSTER_KEY}-ops`;            // { v, ops: [{ op, args, id, at, base, shrink }] } まだサーバーに認められていない直し
   const SYNC_TRIES = 5;
   const RETRY_MS = [2000, 5000, 15000, 30000, 60000];   // つながらないとき、この間隔で試し直す（最後の間隔を繰り返す）
+  const FRESH_MS = 30000;   // 画面が見えている間、この間隔で別の端末・サーバーの直し（届いた予約メール・お客さんの答え）を取り込む
   const SHRINK_MIN = 5;      // 手元の人がこれより多く、かつ 3 割より多く消えた名簿は「大きく減った」（worker/sync-core.mjs の shrinkProblem と同じ数）
   const SHRINK_SHARE = 0.3;
   const PAST_DAYS = 7;       // 済んで 7 日を過ぎた便の人は、サーバーが別の表へ移すので数えない
@@ -439,6 +440,19 @@
   function wake() {
     if (!sync || sync.stopped) return Promise.resolve();
     return sync.connected ? flushSync() : connect();
+  }
+
+  /* 開いたままの画面にも、サーバーで足された予約（届いた予約メール・サイトの予約）とお客さんの答えを出す。
+     visible() が true の間だけ FRESH_MS ごとに refresh する（隠れている間は読まない）。読み込み直しが要る（stopped）なら止める */
+  function keepFresh(visible) {
+    if (!sync || sync.fresh) return;
+    sync.fresh = true;
+    const tick = () => {
+      if (!sync || sync.stopped) return;
+      const done = visible() ? refreshSync().catch(() => false) : Promise.resolve();
+      done.then(() => { R.later(tick, FRESH_MS); });
+    };
+    R.later(tick, FRESH_MS);
   }
 
   /* まだ認められていない直しを送る。同時に 2 つは送らない（送っている間の直しは次の回に入る） */
@@ -719,6 +733,7 @@
       /* サーバーの名簿（Worker 版だけ）。startSync はつないだら true、refresh は別の端末の直しの取り込み、whenSynced は送り終わるまで待つ */
       startSync,
       refresh: refreshSync,
+      keepFresh,
       whenSynced: flushSync,
       synced: () => !!sync,
       /* サーバーが決めたお店の id（つなぐ前・サーバーを使わないときは null）。見本のお店の名前を出さないときの代わりの名前 */

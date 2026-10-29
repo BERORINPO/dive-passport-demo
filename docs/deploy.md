@@ -118,7 +118,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
      ```
    - 予約のリンクの画面（「QR を見せる」から開く）: 「QR を見せる」で大きな QR が出て、お客さんのスマホで読める。「SMS で送る」が iPhone と Android の両方で、宛先と本文が入った SMS の作成画面を開く（電話番号が無い予約には出ない）。「LINE で送る」が LINE の共有先の選択画面を開く。送るのはスタッフが押す
 - お店の一覧（D1 の shops）が空・表が無いとき、Worker は 503（shops-empty・shops-no-table をログに出す）。今の 1 店の動き（名簿の行 = default）で動かすには、wrangler.jsonc の vars に `SINGLE_SHOP: "default"` を入れる（入れてある。お店の一覧を引くのはお店の Worker だけなので、wrangler.ask.jsonc には要らない）。shops に行を足したら行が先になる（足す前に default の行も入れる: tools/shop.mjs keep-sample）。置く順は migration（0008 まで）を流す → お店の Worker → redux-ask
-- Cron（`*/15 * * * *`）は 2026-10-28 に入れた（Workers Paid。9 節）。予定を動かして連絡を送るのは Cron だけ。**Cron が止まると、連絡も毎日の控えも何も動かない**（お店の画面は予定を動かさない）。止まったときは、Cloudflare の画面でお店の Worker に Cron が付いているかを見る
+- Cron は 2026-10-28 に入れた（`*/15 * * * *`、2026-10-29 から `* * * * *`）（Workers Paid。9 節）。予定を動かして連絡を送るのは Cron だけ。**Cron が止まると、連絡も毎日の控えも何も動かない**（お店の画面は予定を動かさない）。止まったときは、Cloudflare の画面でお店の Worker に Cron が付いているかを見る
 - 2026-10-27 に置いた: お店の Worker と redux-ask（今の住所は https://ask.reduxdive.com。workers.dev の住所は 2026-10-29 に閉じた）。D1 は画面で作り、表はコンソールで 0001・0002 と同じ文を流した（wrangler の login に D1 の権限が付かなかったため）
 - サイトの予約フォーム（/api/bookings）は、Access の無い redux-ask が受ける（2026-10-27）。secret は、お店の Worker に SITE_ORIGINS（https://reduxdive.com。お店の一覧を引く側。移行が済むまでは古い workers.dev の住所も「,」で並べておく）、redux-ask に TURNSTILE_SECRET（Turnstile の widget。サイトキーはサイト側に。許す hostname に reduxdive.com が要る）。お店の Worker の /api/bookings は Access の中なので使わない
 - メールの送り受けは 2026-10-28 に入れた（9 節）。設定が欠けると止まる作り（送らず unsent、受けずに断る）。入れる物の一覧は plan/auto.md の「置くときの設定」
@@ -128,7 +128,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 
 - 控えの置き場所: Workers KV の `redux-roster-backup`（binding は BACKUP。wrangler.jsonc に入れてある）。Cron が 1 日 1 回、お店ごとに名簿の本体を `day:<お店>:<日付>` に置く（1 年）。済んだ便の行は `past:<お店>:<part>`、警報は `alert:<お店>:<日付>`
 - 警報の宛先（運営）: `npx wrangler@4.151.0 secret put ALERT_TO`（メールの設定 MAIL_FROM・APP_URL と Email Service がそろうまでは、KV とログだけに残る）
-- Cron（`"triggers": { "crons": ["*/15 * * * *"] }`）は wrangler.jsonc に入れてある。Workers Paid が要る（9 節）
+- Cron（`"triggers": { "crons": ["* * * * *"] }`）は wrangler.jsonc に入れてある。Workers Paid が要る（9 節）
 
 控えから戻す（名簿が消えた・壊れたとき。約 15 分）:
 1. どの日の控えに戻すかを決める（`alert:<お店>:<日付>` があれば、その中の数を見て、減る前の日）
@@ -172,7 +172,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 | お客さんのリンク | `ask.reduxdive.com`（redux-ask の custom domain）。お店の Worker の secret `ASK_ORIGIN` もこの住所 | wrangler.ask.jsonc |
 | 警報の宛先 | secret `ALERT_TO` | `wrangler secret put ALERT_TO` |
 | お客さんの返信の行き先（Reply-To） | secret `REPLY_TO` | `wrangler secret put REPLY_TO`（無ければ Reply-To を付けない。返信は受け口の無い yoyaku@ に行く） |
-| Cron | `*/15 * * * *`（書類の自動化と毎日の控え） | wrangler.jsonc |
+| Cron | `* * * * *`（1 分ごと。書類の自動化と毎日の控え。2026-10-29 に 15 分から変えた） | wrangler.jsonc |
 | DMARC の報告 | Cloudflare の DMARC Management を有効（2026-10-28。`_dmarc` の TXT に Cloudflare の rua が足された。p=reject はそのまま） | Email → DMARC Management |
 | 外の死活監視 | UptimeRobot（Yosuke のアカウント、無料）が `https://ask.reduxdive.com/api/health` を 5 分ごとに見る。Cron が 45 分動かないと 503 になり、Yosuke の Gmail に知らせが来る（Cloudflare と別の系統） | uptimerobot.com |
 

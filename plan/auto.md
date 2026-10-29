@@ -11,7 +11,7 @@
 - **予約に連絡先を持つ。** booking.leadEmail（お願いを送る先）と booking.lang（送る言葉 ja/en/ko/zh）。無い予約もある
 - **自動の予定（state.jobs）と送る連絡（state.outbox）を名簿に持つ。** 予約を入れたら予定を作る: お願い（すぐ）・2 日前の 9:00 にもう一度・前日の 20:00 にお店へ知らせる・当日の 6:00 に名簿を作って体調の質問を送る
 - **時刻が来た予定を動かす（runDue）。** 足りない項目がもう無ければ飛ばす。送り先が無ければ「送れなかった」と残し、お店に見せる。本文に健康の答えは入れない
-- **送るのは Worker だけ。** 画面は送る連絡を「送る準備ができた」まで作る。Worker は時刻で動く仕組み（Cron Triggers、15 分ごと）で runDue をかけ、メールの送信の設定（Cloudflare Email Service の binding）があれば送る。無ければ「メールの設定が無いので送っていない」と残す（済み: 2026-10-28 に reduxdive.com と Workers Paid を置き、yoyaku@reduxdive.com から送っている）
+- **送るのは Worker だけ。** 画面は送る連絡を「送る準備ができた」まで作る。Worker は時刻で動く仕組み（Cron Triggers、15 分ごと → 2026-10-29 から 1 分ごと）で runDue をかけ、メールの送信の設定（Cloudflare Email Service の binding）があれば送る。無ければ「メールの設定が無いので送っていない」と残す（済み: 2026-10-28 に reduxdive.com と Workers Paid を置き、yoyaku@reduxdive.com から送っている）
 - **届いた予約メールは、Worker の email の入口で受ける。** 読んで、便に入れ、予定を作る。済み: inbox@reduxdive.com に届いたメールを Email Routing がお店の Worker の email() へ渡して動いている（2026-10-28）。画面のデモでは「見本のメールが届いた」で同じ流れを通す
 - **デモ（試作の画面）では時刻を進められる。** 「時刻を進める」で、次の予定の時刻まで進めて runDue をかける
 
@@ -65,7 +65,7 @@ REDUX のサイト（https://reduxdive.com。仲村さんのデザイン）の�
 | 名前 | 種類 | 中身 | 無いとき |
 |---|---|---|---|
 | `DB` | D1 binding | 名簿の正本（plan/server.md）。表は `worker/migrations/0001_rosters.sql` と `0002_ask_links.sql`（お客さんのリンクの鍵の SHA-256） | Cron・メール・予約の口・お客さんのリンクは何もしない |
-| `triggers.crons` | wrangler.jsonc | `"*/15 * * * *"`（15 分ごと。予定は 9:00・20:00・6:00 なので、遅れても 15 分） | 予定が動かない（動かすのは Cron だけ） |
+| `triggers.crons` | wrangler.jsonc | `"* * * * *"`（1 分ごと。2026-10-29 に 15 分から変えた。決定ログ cron-1） | 予定が動かない（動かすのは Cron だけ） |
 | `EMAIL` | send_email binding | Email Service。お店のドメインを `wrangler email sending enable` で載せる（有料・ドメインが要る） | 送らず unsent（no-mail-config） |
 | `MAIL_FROM` | var | 送り元（お店のドメインのアドレス） | 同上 |
 | `APP_URL` | var | お店の画面の住所（https://app.reduxdive.com）。お客さんのリンクの頭は secret の `ASK_ORIGIN`（https://ask.reduxdive.com。Access の無い別の Worker redux-ask） | 同上 |

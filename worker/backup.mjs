@@ -1,6 +1,6 @@
 /* 名簿の毎日の控えと警報をつなぐ（entry。Cron から呼ぶ。決まりは backup-core.mjs、計画は plan/server.md の「毎日の控えと警報」）。
    控えの置き場所は Workers KV の BACKUP（D1 とは別の保存場所。D1 の 30 日の巻き戻しより長く、1 年残す）。BACKUP が無ければ何もしない。
-   1 日 1 回だけ取る（Cron は 15 分ごとに来るので、今日の控えがあれば何もしない）。途中で止まっても、今日の控えを書く前なら次の回にやり直す。
+   1 日 1 回だけ取る（Cron は 1 分ごとに来るので、今日の控えがあれば何もしない）。途中で止まっても、今日の控えを書く前なら次の回にやり直す。
    済んだ便の行は、最後に写した行の時刻（pastcursor）の続きから全部写す（Cron が止まっていた間や、初めて動いた日より前の行も抜けない）。
    警報は運営（ALERT_TO）にメールで送り、KV にも残す（メールの設定がそろうまでは、KV とログだけ） */
 import { getRoster, getMovedSince } from './roster-db.mjs';
@@ -48,7 +48,7 @@ export async function dailyBackup(env, io, shop, note) {
   note.pastCopied = await copyPast(env, shop, now);
 }
 
-/* 今日の控えを取り、直近の控えと比べて警報を出す（名簿が無くて控えを取れなかった日は、警報を残したら終わり。15 分ごとに鳴らさない） */
+/* 今日の控えを取り、直近の控えと比べて警報を出す（名簿が無くて控えを取れなかった日は、警報を残したら終わり。Cron のたびに鳴らさない） */
 async function snapshotAndAlert(env, shop, now, today, note) {
   const at = new Date(now).toISOString();
   /* 直近の控え（昨日から LOOKBACK_DAYS 日前まで）。Cron が止まっていた日があっても、残っている控えと比べる */

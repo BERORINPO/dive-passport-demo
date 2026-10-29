@@ -694,6 +694,39 @@ test('試し直し: online と、画面に戻ったとき（refresh）でも、�
   assert.equal(JSON.parse(srv2.db.rows.get('default').state).trips.length, 1);
 });
 
+test('開いたままの画面: 見えている間は 30 秒ごとに別の端末の直しを取り込む。隠れている間は読まない。サーバーを使わない版では何もしない', async () => {
+  const srv = server();
+  const a = device(srv);
+  const b = device(srv);
+  await a.rosterStore.startSync();
+  await b.rosterStore.startSync();
+  let visible = true;
+  b.rosterStore.keepFresh(() => visible);
+  b.rosterStore.keepFresh(() => visible);   // 2 回呼んでも 1 本だけ
+  const fresh = () => b.timers.filter(t => t.ms === 30000);
+  assert.equal(fresh().length, 1);
+  mkTrip(a);
+  await a.rosterStore.whenSynced();
+  assert.equal(b.rosterStore.get().trips.length, 0, 'まだ取り込んでいない');
+  /* 隠れている間: サーバーに聞かず、次の予約だけ入る */
+  visible = false;
+  const calls = srv.calls;
+  let t = fresh().pop(); b.timers.splice(b.timers.indexOf(t), 1); t.fn();
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(srv.calls, calls, '隠れている間は読まない');
+  assert.equal(fresh().length, 1, '次の予約がある');
+  /* 見えている間: 取り込む */
+  visible = true;
+  t = fresh().pop(); b.timers.splice(b.timers.indexOf(t), 1); t.fn();
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(b.rosterStore.get().trips.length, 1, '開いたままでも、別の端末で足した便が出る');
+  assert.equal(fresh().length, 1);
+  /* サーバーを使わない版 */
+  const c = device({ fetch: async () => new Response('{}', { status: 404 }) });
+  c.rosterStore.keepFresh(() => true);
+  assert.equal(c.timers.length, 0, 'サーバーを使わない版では何もしない');
+});
+
 test('試し直し: /api/roster が無い場所（404）や、サーバーの名簿が新しい版のときは、試し直さない', async () => {
   const gone = device({ fetch: async () => new Response('{}', { status: 404 }) });
   assert.equal(await gone.rosterStore.startSync(), false);
