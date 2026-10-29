@@ -17,8 +17,10 @@
   "assets": {
     // node tools/build-site.mjs が作る。repo の中身を丸ごとは置かない
     "directory": "./dist",
-    // Worker を通すのは /api だけ。画面のファイルは Static Assets が _headers の CSP を付けて配る
-    "run_worker_first": ["/api/*"],
+    // Worker を通すのは /api と、計測を国で出し分けるお客さまの画面のページ（/ と /index.html。worker/page-serve.mjs）だけ。
+    // ほかの画面のファイルは Static Assets が _headers の CSP を付けて配る
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/", "/index.html"],
     "not_found_handling": "none"
   },
   "d1_databases": [

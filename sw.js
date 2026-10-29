@@ -23,10 +23,19 @@ function decide(url, method, origin) {
 /* 写しにしてよい返事: 同じ場所の 200 で、転送されていない物だけ */
 const keepable = (res) => !!res && res.ok && res.status === 200 && res.type === 'basic' && !res.redirected;
 
+/* 写しには、見られ方の計測のスクリプトのタグを残さない（Worker が国で出し分けたタグで、写しは国を知らない。決定ログ 2026-10-29 analytics-country） */
+const BEACON_TAG = /<script[^>]*static[.]cloudflareinsights[.]com[^>]*><[/]script>\n?/g;
+async function forCache(res) {
+  const type = res.headers && typeof res.headers.get === 'function' ? res.headers.get('content-type') || '' : '';
+  if (!type.includes('text/html')) return res;
+  const html = (await res.text()).replace(BEACON_TAG, '');
+  return new Response(html, { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
 async function shell(request) {
   const cache = await caches.open(CACHE);
   const net = fetch(request).then(async (res) => {
-    if (keepable(res)) await cache.put(request, res.clone());
+    if (keepable(res)) await cache.put(request, await forCache(res.clone()));
     return res;
   });
   const first = await Promise.race([net.catch(() => null), new Promise(r => setTimeout(r, WAIT_MS, null))]);
@@ -41,7 +50,7 @@ async function install() {
   await Promise.all(SHELL.map(async (path) => {
     try {
       const res = await fetch(path, { cache: 'no-cache' });
-      if (keepable(res)) await cache.put(path, res);
+      if (keepable(res)) await cache.put(path, await forCache(res));
     } catch (e) { /* 次に開いたときの shell() で写す */ }
   }));
 }
@@ -59,4 +68,4 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
 }
 
 /* 試し（test/sw.test.mjs）が読む */
-if (typeof globalThis !== 'undefined') globalThis.REDUX_SW = { decide, keepable, shell, install, VERSION, SHELL, CACHE };
+if (typeof globalThis !== 'undefined') globalThis.REDUX_SW = { decide, keepable, forCache, shell, install, VERSION, SHELL, CACHE };

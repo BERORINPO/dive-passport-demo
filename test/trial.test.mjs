@@ -123,9 +123,9 @@ test('置く物: trial.html は redux-ask だけに置き、noindex・公式で�
   assert.ok(h.includes('X-Robots-Tag: noindex, nofollow'));
   const html = readFileSync(new URL('../trial.html', import.meta.url), 'utf8');
   assert.ok(html.includes('<meta name="robots" content="noindex, nofollow">') && html.includes('お店の公式ページではありません'));
-  assert.deepEqual([...html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/https?:\/\/[^\s"';]+/g)].map(m => m[0].replace(/\/v[0-9a-f]+$/, '/v…')),
-    ['https://static.cloudflareinsights.com/beacon.min.js/', 'https://cloudflareinsights.com/cdn-cgi/', 'https://static.cloudflareinsights.com/beacon.min.js/v…'],
-    '外から読むのは計測のスクリプトだけ');
+  assert.deepEqual([...html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/https?:\/\/[^\s"';]+/g)].map(m => m[0]),
+    ['https://static.cloudflareinsights.com/beacon.min.js/', 'https://cloudflareinsights.com/cdn-cgi/'],
+    '外の先は CSP の計測の 2 つだけ（スクリプトのタグは Worker が国で出し分けて足す。決定ログ 2026-10-29 analytics-country）');
   const page = readFileSync(new URL('../js/trial-page.js', import.meta.url), 'utf8');
   assert.ok(!/rosterStore|store\.update|askLink|\/api\/(roster|ask|bookings)/.test(page), '名簿・予約に触れない');
 });

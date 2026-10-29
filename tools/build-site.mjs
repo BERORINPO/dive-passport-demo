@@ -2,6 +2,7 @@
 // Static Assets が読む _headers（CSP・キャッシュ・noindex）を書く。test/・tools/・plan/・spec/・worker/ などは置かない。
 // 実行: node tools/build-site.mjs   （wrangler deploy の前に毎回。dist/ は .gitignore）
 import { execFileSync } from 'node:child_process';
+import { COMMON, PAGE } from '../worker/page-headers.mjs';
 import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -21,42 +22,17 @@ export function siteFiles() {
     .filter(f => KEEP.some(r => r.test(f)) && !/\.local\./.test(f));
 }
 
-/* CDN を残す間は、サイト名だけで許さずパスまで書く（中身は integrity で確かめる）。自前で配ったら 'self' だけにする */
-const CDN = ['https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/'];
-
-/* 見られ方と速さの計測（Cloudflare Web Analytics。決定ログ 2026-10-29 web-analytics）。読むのは計測のスクリプトだけ、送るのは計測の受け口だけ。
-   app.reduxdive.com はダッシュボードの自動の差し込み（版の付いた /beacon.min.js/v…）、試し版は版を決めて自分で置く（trial.html。integrity 付き） */
-export const ANALYTICS_SCRIPT = 'https://static.cloudflareinsights.com/beacon.min.js/';
-export const ANALYTICS_SEND = 'https://cloudflareinsights.com/cdn-cgi/rum';
-
-/* HTML の中に直に書くスクリプトは無いので、script-src に hash は要らない（importmap をやめた 2026-10-28） */
+/* ページの見出し（CSP など）は worker/page-headers.mjs に 1 か所で置く（Worker が出し分けて返すページも同じ物を付けるため。決定ログ 2026-10-29 analytics-country） */
 export function headers() {
-  const index = [`default-src 'none'`, `script-src 'self' ${CDN.join(' ')} ${ANALYTICS_SCRIPT}`, `style-src 'self'`, `font-src 'self'`,
-    `img-src 'self' blob: data:`, `connect-src 'self' blob: ${ANALYTICS_SEND}`, `worker-src 'self'`, `manifest-src 'none'`,
-    `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
-  /* pass.html（他のお店のスマホで開くパスポート）は字体も画像も読まず、どこにもつながない */
-  const pass = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`,
-    `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
-  /* ask.html（お店が送ったリンクから開くお客さんの画面）と walkin.html（店頭の QR から開く画面）は同じ場所の /api/ask・/api/walkin だけにつなぎ、字体は読まない。
-     Access の外に出す道（plan/meibo.md） */
-  const ask = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'self'`,
-    `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
-  /* trial.html（実在のお店の試し版。決定ログ 2026-10-29 trial-shops）は ask と同じで、案内役の絵とロゴだけ同じ場所から読む。
-     計測（web-analytics）のスクリプトと受け口だけを足す。ask.html・walkin.html（名前などが出る）には足さない */
-  const trial = ask.replace(`img-src 'none'`, `img-src 'self'`).replace(`script-src 'self'`, `script-src 'self' ${ANALYTICS_SCRIPT}`)
-    .replace(`connect-src 'self'`, `connect-src 'self' ${ANALYTICS_SEND}`);
-  /* data.html（データの扱いと外部送信についての公表ページ）は CSS だけを読む */
-  const data = [`default-src 'none'`, `script-src 'none'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`,
-    `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
   const block = (paths, lines) => paths.map(p => [p, ...lines.map(l => `  ${l}`)].join('\n')).join('\n');
+  const page = (name) => PAGE[name].map(([k, v]) => `${k}: ${v}`);
   return [
-    block(['/*'], ['X-Content-Type-Options: nosniff', 'Referrer-Policy: no-referrer', 'X-Robots-Tag: noindex, nofollow',
-      'Cross-Origin-Opener-Policy: same-origin', 'Permissions-Policy: geolocation=(), microphone=(), payment=(), usb=()']),
-    block(['/', '/index.html', '/index'], [`Content-Security-Policy: ${index}`, 'Cache-Control: no-cache']),
-    block(['/pass.html', '/pass'], [`Content-Security-Policy: ${pass}`, 'Cache-Control: no-cache']),
-    block(['/ask.html', '/ask', '/walkin.html', '/walkin'], [`Content-Security-Policy: ${ask}`, 'Cache-Control: no-store']),
-    block(['/trial.html', '/trial'], [`Content-Security-Policy: ${trial}`, 'Cache-Control: no-store']),
-    block(['/data.html', '/data'], [`Content-Security-Policy: ${data}`, 'Cache-Control: no-cache']),
+    block(['/*'], COMMON.map(([k, v]) => `${k}: ${v}`)),
+    block(['/', '/index.html', '/index'], page('index')),
+    block(['/pass.html', '/pass'], page('pass')),
+    block(['/ask.html', '/ask', '/walkin.html', '/walkin'], page('ask')),
+    block(['/trial.html', '/trial'], page('trial')),
+    block(['/data.html', '/data'], page('data')),
     /* どの束を取ったかで画面の字が分かるので、長くためて取りに来る回数を減らす（Worker を通らないので path はログに出ない） */
     block(['/fonts/*'], ['Cache-Control: public, max-age=31536000, immutable']),
     block(['/js/*', '/css/*'], ['Cache-Control: no-cache']),

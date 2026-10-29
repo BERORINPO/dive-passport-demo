@@ -13,6 +13,7 @@
    public-handler.mjs にあり、この Worker の束にも入るのは手元の確かめ（tools/serve-dist.mjs）で同じ場所から呼べるように残しているだけ
    （ここでは SHOP を同じ Worker の ShopService にする。置いた形では Access の中なので外からは届かない）。redux-ask の束にはこのファイルは入らない */
 import { checkRequest, periods, limitsFrom, MAX_BODY, MODEL } from './read-core.mjs';
+import { SHOP_PAGES, servePage } from './page-serve.mjs';
 import { checkGuestRequest, guestAnswerFrom, guestLimits, MAX_GUEST_BODY } from './guest-ai-core.mjs';
 import { checkPut, readStored, shrinkProblem, serverOwned, MAX_PUT_BODY } from './sync-core.mjs';
 import { liveOf, checkPastRange, readPast, MAX_PAST_ROWS } from './past-core.mjs';
@@ -334,6 +335,8 @@ async function route(request, env, io, url, note) {
 export async function handle(request, env, io) {
   const started = io.now();
   const url = new URL(request.url);
+  /* お客さまの画面のページ（/）は、計測のスクリプトを国で出し分けて返す（決定ログ 2026-10-29 analytics-country） */
+  if (SHOP_PAGES[url.pathname]) return servePage(request, env, SHOP_PAGES[url.pathname]);
   /* 道は知っている名前だけを残す（知らない道の文字に、何が入っているか分からないため） */
   const note = { route: ROUTES[url.pathname] ? url.pathname : url.pathname.startsWith('/api/') ? '/api/other' : 'other' };
   let res;
