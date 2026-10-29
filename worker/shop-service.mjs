@@ -7,6 +7,7 @@
    - walkinView(hash)                    店頭の QR を開く。鍵の SHA-256 から、お店の名前と今日・明日の便の日付・時刻・ツアーの名前だけを返す
    - walkinSubmit(hash, req)             店頭で入れた項目を、名簿と同じ検査にかけて「店頭で入れた人」に置く（名簿の本体には入れない）
    - intakeBooking(hash, given, idem)    予約の受け口 API（POST /api/v1/bookings）。API キーの SHA-256 から、そのお店の名簿に予約を入れる（決定ログ 2026-10-28 intake-api）
+   - trialView(t) / trialAsk(t, req)     実在のお店の試し版（trial.html）。鍵から公開の事実だけを返す・AI で答える（名簿・D1 には触れない。決定ログ 2026-10-29 trial-shops）
    どの口も { status, body, note } を返す（siteHosts は { ok, hosts, note } か { ok: false, status, body, note }）。note はログに足す短い理由で、
    中身・名前・メールアドレスは入れない。呼び手が送ってくる値も信じない: 形を確かめ直し（ask-input.mjs）、お店は origin と鍵の行から自分で決める。
    Cloudflare の口は shop-rpc.mjs（WorkerEntrypoint）。ここは素のクラスで、テストは直に呼ぶ（外との境目の見本は fakes.mjs の fakeShopBinding） */
@@ -17,6 +18,11 @@ import { walkinView, walkinSubmit } from './walkin-route.mjs';
 import { intakeBooking } from './intake-route.mjs';
 import { listShops, shopsWhy } from './shop-db.mjs';
 import { shopForOrigin, sitesOf, nameOf } from './shop-core.mjs';
+import { TRIAL_SHOPS } from './trial-shops.mjs';
+import { checkTrial, trialFor, trialView, trialFaqs, trialLimits } from './trial-core.mjs';
+import { checkGuestRequest, guestAnswerFrom } from './guest-ai-core.mjs';
+import { periods } from './read-core.mjs';
+import { askModel } from './ask.mjs';
 
 const ORIGIN_RE = /^https?:\/\/[A-Za-z0-9.-]{1,120}(?::\d{1,5})?$/;
 
@@ -83,6 +89,36 @@ export class ShopService {
     const note = {};
     return { ...(await intakeBooking(this.env, this.io, note, hash, given, idem)), note };
   }
+
+  /* 試し版を開く。公開の事実だけ（ツアー・料金・集合・持ち物・質問の見出し） */
+  trialView(t) {
+    const p = trialFor(this.trialShops(), t);
+    return p ? { status: 200, body: trialView(p), note: { shop: `trial~${p.id}` } } : refuse(404, 'trial', 'trial-key');
+  }
+
+  /* 試し版の AI。req は { kind: 'faq', question } か { kind: 'fill', text }。お店の答えの一覧は鍵から自分で引く（呼び手が送った一覧は使わない）。
+     体のことに触れた質問は AI を呼ばずに返す。上限は試し版ごと（`trial~<id>`）に、予約メールの読み取りと別に数える */
+  async trialAsk(t, req) {
+    const p = trialFor(this.trialShops(), t);
+    if (!p) return refuse(404, 'trial', 'trial-key');
+    const checked = checkTrial({ ...req, t });
+    if (!checked.ok || checked.req.kind === 'view') return refuse(400, 'input', `input-${checked.error || 'kind'}`);
+    if (!this.env.BUDGET || typeof this.env.ANTHROPIC_API_KEY !== 'string' || !this.env.ANTHROPIC_API_KEY) return refuse(503, 'config', 'config:ai');
+    const given = checked.req.kind === 'faq'
+      ? { kind: 'faq', question: checked.req.question, faqs: trialFaqs(p) }
+      : { kind: 'fill', text: checked.req.text };
+    const guest = checkGuestRequest(given, periods(this.io.now()).day);
+    if (!guest.ok) return refuse(400, 'input', `input-${guest.error}`.slice(0, 40));
+    const note = { shop: `trial~${p.id}` };
+    if (guest.stop) return { status: 200, body: { lang: 'ja', faq: null, answer: '', health: true }, note: { ...note, why: 'health-stop' } };
+    const ask = guest.ask;
+    const got = await askModel(ask, this.env, this.io, note, note.shop, { limits: trialLimits(this.env), parse: (text) => guestAnswerFrom(text, ask) });
+    if (got.ok) return { status: 200, body: got.reading, note };
+    return { status: got.status, body: { error: got.error }, note };
+  }
+
+  /* 試し版の一覧（テストは env.TRIAL_SHOPS で差し替える） */
+  trialShops() { return this.env.TRIAL_SHOPS || TRIAL_SHOPS; }
 
   async siteHosts(origin) {
     if (!dbReady(this.env)) return { ok: false, ...refuse(503, 'config', 'config:DB') };

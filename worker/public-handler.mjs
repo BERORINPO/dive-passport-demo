@@ -1,10 +1,11 @@
-/* Access を付けない Worker（redux-ask。入口は worker/ask-index.mjs）の道（entry）。受けるのは 5 つだけで、ほかの /api は 404:
+/* Access を付けない Worker（redux-ask。入口は worker/ask-index.mjs）の道（entry）。受けるのは 6 つだけで、ほかの /api は 404:
    - /api/ask（お客さんのリンク。ask.html から同じ場所で呼ぶ）
    - /api/walkin（店頭の QR。walkin.html から同じ場所で呼ぶ。鍵は店頭に貼った QR の # の後ろ）
    - /api/bookings（お店のサイトの予約フォーム。別の origin から CORS で）
    - /api/v1/bookings（予約の受け口 API。お店のサイト・WordPress・Zapier など別のシステムのサーバーから。Authorization: Bearer の API キー。
      CORS は付けず、ブラウザの Origin 付きの要求は 403 で断る。決定ログ 2026-10-28 intake-api）
    - /api/health（外の死活監視。Cron が最後に動いた時刻を KV の BUDGET から読む）
+   - /api/trial（実在のお店の試し版 trial.html。鍵は本文で送る。AI はお店の Worker の ShopRpc.trialAsk）
    この Worker は D1 を持たない（SEC-13）。名簿・鍵の行・お店の一覧は、Service Binding の SHOP（お店の Worker の ShopRpc。shop-client.mjs）の
    7 つの口の向こうにあり、ここに残すのは道・Sec-Fetch-Site・許した origin（CORS）・Turnstile・1 つの IP の回数・本文の種類と大きさと形・鍵の SHA-256 だけ。
    お店の画面・名簿の道（/api/roster）・リンクを作る道（/api/ask-link）・AI の読み取りは、この束に入れない（test/ask-link.test.mjs が import をたどって確かめる）。
@@ -20,8 +21,10 @@ import { keyHash } from './ask-key.mjs';
 import { checkAsk, MAX_ASK_BODY, checkWalkin, MAX_WALKIN_BODY, MAX_INTAKE_BODY, bearerOf, idemKeyOf } from './ask-input.mjs';
 import { verifyTurnstile, underLimit } from './site-guard.mjs';
 import { MAX_BOOKING_BODY, cronFresh, CRON_STALE_MS } from './auto-core.mjs';
+import { checkTrial, MAX_TRIAL_BODY } from './trial-core.mjs';
 
-const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/walkin': ['POST'], '/api/bookings': ['POST', 'OPTIONS'], '/api/v1/bookings': ['POST'], '/api/health': ['GET'] };
+const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/walkin': ['POST'], '/api/bookings': ['POST', 'OPTIONS'], '/api/v1/bookings': ['POST'], '/api/health': ['GET'],
+  '/api/trial': ['POST'] };
 const BOOKING_NEEDS = ['TURNSTILE_SECRET'];
 
 const hasLimiter = (l) => Boolean(l && typeof l.limit === 'function');
@@ -131,6 +134,26 @@ export async function walkin(request, env, io, note) {
   return json(got.status, got.body);
 }
 
+/* 実在のお店の試し版（trial.html。Access の外。決定ログ 2026-10-29 trial-shops）。同じ場所からの呼び出しだけ。
+   守りの順番は ask と同じ（道と method → Sec-Fetch-Site → 設定 → 種類 → 1 つの IP の回数 → 大きさ → 形 → お店の Worker で鍵・AI の上限）。
+   鍵はログに出さない */
+export async function trial(request, env, io, note) {
+  const shop = shopClient(env.SHOP);
+  if (!shop || !hasLimiter(env.ASK_LIMIT)) { note.why = 'config:trial'; return json(503, { error: 'config' }); }
+  if (!isJson(request)) return json(415, { error: 'type' });
+  if (!(await underLimit(env.ASK_LIMIT, request.headers.get('cf-connecting-ip') || ''))) { note.why = 'rate'; return json(429, { error: 'limit' }); }
+  const raw = await readCapped(request, MAX_TRIAL_BODY);
+  if (raw === null) { note.why = 'size'; return json(413, { error: 'size' }); }
+  let given;
+  try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
+  const checked = checkTrial(given);
+  if (!checked.ok) { note.why = `input-${checked.error}`; return json(400, { error: 'input' }); }
+  note.action = checked.req.kind;
+  const got = checked.req.kind === 'view' ? await shop.trialView(checked.t) : await shop.trialAsk(checked.t, checked.req);
+  Object.assign(note, got.note);
+  return json(got.status, got.body);
+}
+
 export async function handlePublic(request, env, io) {
   const started = io.now();
   const url = new URL(request.url);
@@ -145,6 +168,7 @@ export async function handlePublic(request, env, io) {
     else if (url.pathname === '/api/health') res = await cronHealth(env, io, note);
     else if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; res = json(403, { error: 'site' }); }
     else if (url.pathname === '/api/walkin') res = await walkin(request, env, io, note);
+    else if (url.pathname === '/api/trial') res = await trial(request, env, io, note);
     else res = await ask(request, env, io, url, note);
   } catch (e) {
     note.why = 'crash';

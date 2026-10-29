@@ -3,7 +3,7 @@
    - fakeAccess: Access のチームの鍵を作り、JWT を署名し、/cdn-cgi/access/certs を返す
    - fakeAnthropic: Claude API の答え（answer に返したい文、status で失敗）
    - fakeD1: Cloudflare D1 の prepare / bind / first / run / all / batch。roster-db.mjs などが使う文だけを読む（failing で壊せる）
-   - fakeShopBinding: redux-ask から見たお店の Worker（Service Binding の SHOP。口は 7 つ。引数と答えは structuredClone を通る） */
+   - fakeShopBinding: redux-ask から見たお店の Worker（Service Binding の SHOP。口は 9 つ。引数と答えは structuredClone を通る） */
 
 /* Cloudflare の fetch と同じく、redirect は follow か manual だけを受け付ける（'error' は Workers で例外になる。ザクのレビュー） */
 export function checkRedirect(init) {
@@ -352,7 +352,7 @@ export function fakeRateLimit(max = 5) {
 export function fakeShopBinding(service) {
   const call = (name) => async (...args) => structuredClone(await service[name](...structuredClone(args)));
   const binding = { calls: [] };
-  for (const name of ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit', 'intakeBooking']) {
+  for (const name of ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit', 'intakeBooking', 'trialView', 'trialAsk']) {
     const run = call(name);
     binding[name] = async (...args) => { binding.calls.push(name); return run(...args); };
   }

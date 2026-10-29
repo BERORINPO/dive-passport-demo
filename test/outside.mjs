@@ -217,8 +217,9 @@ export function fontFaceProblems(html, readLocal, opts = {}) {
 
 /* 字体を読まないページの守りの本体は meta の CSP。消したり緩めたりしたら落とす。
    charset の次（どの読み込みよりも前）に置き、default-src・connect-src・img-src は 'none'、font-src と 'unsafe- は書かない。
-   connectSelf のページ（同じ場所の Worker だけに送る ask.html）は、connect-src を 'self' だけにする */
-export function cspProblems(html, { connectSelf = false } = {}) {
+   connectSelf のページ（同じ場所の Worker だけに送る ask.html）は、connect-src を 'self' だけにする。
+   imgSelf のページ（案内役の絵を同じ場所から読む trial.html）は、img-src を 'self' だけにする */
+export function cspProblems(html, { connectSelf = false, imgSelf = false } = {}) {
   const all = tags(html);
   const i = all.findIndex(t => t.tag === 'meta' && (t.attrs.get('http-equiv') || '').trim().toLowerCase() === 'content-security-policy');
   if (i < 0) return ['字体を読まないページに CSP の meta が無い'];
@@ -227,8 +228,9 @@ export function cspProblems(html, { connectSelf = false } = {}) {
   if (firstLoad >= 0 && firstLoad < i) out.push('CSP の meta が、読み込みより後ろにある');
   const csp = (all[i].attrs.get('content') || '').toLowerCase();
   const dir = (name) => (csp.split(';').map(s => s.trim()).find(s => s.split(/\s+/)[0] === name) || '').split(/\s+/).slice(1).join(' ');
-  ['default-src', 'img-src', ...(connectSelf ? [] : ['connect-src'])].filter(d => dir(d) !== "'none'").forEach(d => out.push(`CSP の ${d} が 'none' でない`));
+  ['default-src', ...(imgSelf ? [] : ['img-src']), ...(connectSelf ? [] : ['connect-src'])].filter(d => dir(d) !== "'none'").forEach(d => out.push(`CSP の ${d} が 'none' でない`));
   if (connectSelf && dir('connect-src') !== "'self'") out.push("CSP の connect-src が 'self' だけでない");
+  if (imgSelf && dir('img-src') !== "'self'") out.push("CSP の img-src が 'self' だけでない");
   if (/(^|;)\s*font-src\b/.test(csp)) out.push('CSP に font-src がある（字体は読まない）');
   if (/'unsafe-/.test(csp)) out.push("CSP に 'unsafe-…' がある");
   return out;
