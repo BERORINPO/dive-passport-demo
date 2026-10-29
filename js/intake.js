@@ -30,6 +30,7 @@
   let bulkBusy = false;
   let aiFields = new Set();    // AI が入れた下書きの名前（tour・date・people・name・swim・exp・worries・flightMode・flightDate・flightTime）
   let ownFields = new Set();   // お客さんが自分で入れた・選んだ下書きの名前。AI はここを上書きしない（Shape of AI の Auto-fill。決定ログ 2026-10-29 bulk-keep-own）
+  let aiValues = {};           // AI が入れた値（下書きの名前 → 値）。お客さんが直したあと「AI の値に戻す」で戻す（Carbon for AI の revert。決定ログ 2026-10-29 bulk-revert）
   const AI_SPOT = {            // 下書きの名前 → 印を付ける所の入力
     tour: 'input[name="tour"]', date: '#f-date', people: '#f-people', name: '#f-name', swim: 'input[name="swim"]', exp: 'input[name="exp"]',
     worries: 'input[name="worries"]', flightMode: 'input[name="flightMode"]', flightDate: '#f-fdate', flightTime: '#f-ftime'
@@ -38,11 +39,22 @@
     const box = node && node.closest('.field, fieldset, .guest-sec');
     return box ? box.querySelector('.label, legend, .h2') : null;
   };
+  const labelFor = (key) => labelOf(root.querySelector(AI_SPOT[key]) || tourRoot.querySelector(AI_SPOT[key]));
+  /* AI が入れて、お客さんが直した欄の見出しに「AI の値に戻す」を出す（1 つの見出しに 1 つ） */
+  const revertButton = (key) => el('button', { class: 'linkbtn ai-revert', type: 'button', 'data-ai': key, text: L(T().aiRevert),
+    onclick: () => {
+      set({ [key]: aiValues[key] });
+      aiFields = new Set([...aiFields, key]);
+      ownFields = new Set([...ownFields].filter(k => k !== key));
+      renderForm();
+    } });
   function markAiFields() {
-    [root, tourRoot].forEach(r => r.querySelectorAll('.ai-mark').forEach(m => m.remove()));
-    aiFields.forEach(key => {
-      const label = labelOf(root.querySelector(AI_SPOT[key]) || tourRoot.querySelector(AI_SPOT[key]));
-      if (label && !label.querySelector('.ai-mark')) label.append(el('span', { class: 'ai-mark', 'data-ai': key, text: L(T().aiMark) }));
+    [root, tourRoot].forEach(r => r.querySelectorAll('.ai-mark, .ai-revert').forEach(m => m.remove()));
+    Object.keys(aiValues).forEach(key => {
+      const label = labelFor(key);
+      if (!label || label.querySelector('.ai-mark, .ai-revert')) return;
+      if (aiFields.has(key)) label.append(el('span', { class: 'ai-mark', 'data-ai': key, text: L(T().aiMark) }));
+      else if (ownFields.has(key)) label.append(revertButton(key));
     });
   }
   /* お客さんが触った欄は、確かめたものとして印を外し、自分で入れた欄として覚える */
@@ -53,7 +65,8 @@
     const mark = labelOf(e.target)?.querySelector('.ai-mark');
     if (!mark) return;
     aiFields.delete(mark.dataset.ai);
-    mark.remove();
+    if (Object.prototype.hasOwnProperty.call(aiValues, mark.dataset.ai)) mark.replaceWith(revertButton(mark.dataset.ai));
+    else mark.remove();
   };
   [root, tourRoot].forEach(r => { r.addEventListener('change', touched); r.addEventListener('input', touched); });
 
@@ -126,6 +139,7 @@
     for (const key of keys) {
       finishStep();
       set({ [key]: got.fill[key] });
+      aiValues = { ...aiValues, [key]: got.fill[key] };
       aiFields = new Set([...aiFields, key]);
       bulkSteps = [...bulkSteps, { kind: 'doing', field: true, text: `${L(t[FILL_LABEL[key]])}: ${shown(key, got.fill[key])}` }];
       renderForm();
@@ -376,7 +390,10 @@
         el('div', { class: 'actions' },
           el('button', { class: 'btn', type: 'button', text: L(t.seeShop), onclick: () => R.showTab('shop') }),
           el('button', { class: 'btn btn--ghost', type: 'button', text: L(t.again),
-            onclick: () => { doneId = null; savedNote = ''; draft = blank(); bulkText = ''; bulkSteps = []; aiFields = new Set(); ownFields = new Set(); render(); } }))));
+            onclick: () => {
+              doneId = null; savedNote = ''; draft = blank(); bulkText = ''; bulkSteps = [];
+              aiFields = new Set(); ownFields = new Set(); aiValues = {}; render();
+            } }))));
   }
 
   function render() {

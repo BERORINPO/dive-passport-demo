@@ -187,6 +187,7 @@
     bulkHealth: { ja: '体のことは読み取りません。下の「健康の質問」でご自分で答えてください。', en: 'Health details are not read. Please answer the health questions below yourself.' },
     bulkNote: { ja: 'メールやメモをそのまま貼っても読めます。健康の質問は読み取らず、ご自分で答えます。', en: 'You can paste an email or a note. Health questions are not read; you answer them yourself.' },
     aiMark: { ja: 'AI が入れた・確かめてください', en: 'Filled by AI — please check' },
+    aiRevert: { ja: 'AI の値に戻す', en: 'Use the AI value again' },
     factTime: { ja: '時間', en: 'Time' },
     factPrice: { ja: '料金', en: 'Price' },
     intakeLead: { ja: '答えてもらうと、お店が当日の準備をしやすくなります。これだけでは予約は決まりません。', en: 'Your answers help the shop prepare. This does not confirm a booking yet.' },
