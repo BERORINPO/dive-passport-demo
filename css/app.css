@@ -75,7 +75,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; min-width: 0; }
 /* 案内役の絵は全身のまま小さく（丸く切らない）。店員の画面には出さない（REDUX の文字だけ） */
-.brand__logo { display: block; width: 36px; height: auto; flex: none; }
+/* REDUX のロゴ（favicon.svg と同じ）。お客さんの画面も店員の画面も同じ物を出す。案内役の絵はここに出さない（決定ログ 2026-10-29 header-logo） */
+.brand__logo { display: block; width: 32px; height: 32px; flex: none; }
 .brand__name { letter-spacing: 0.04em; white-space: nowrap; }
 .brand__name small { font-weight: 400; color: var(--muted); margin-left: 6px; letter-spacing: 0; font-size: 14px; }
 .bar__end { grid-row: 1; grid-column: 2; justify-self: end; display: flex; align-items: center; gap: 12px; }
@@ -85,7 +86,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .demo-switch[aria-expanded="true"] { color: var(--ink); border-color: var(--ink); }
 html[data-layer="guest"] .bar:not(.is-open) .tabs { display: none; }
 html[data-layer="guest"] .bar:not(.is-open) { padding-bottom: 8px; }
-html[data-layer="staff"] .brand__logo { display: none; }
 html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"] .bar:not(.is-open) #tab-pass { display: none; }
 .tabs { grid-column: 1 / -1; display: flex; gap: 22px; overflow-x: auto; scrollbar-width: none; margin-top: 4px; }
 .tabs::-webkit-scrollbar { display: none; }
