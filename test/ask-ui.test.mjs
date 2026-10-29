@@ -202,6 +202,22 @@ test('入力欄: 緊急時の連絡先は section-emergency で区切り（続�
   assert.ok(inputs.every(i => i.getAttribute('enterkeyhint') === 'next'));
 });
 
+test('言葉: お客さんのページで選んだ言葉を端末に覚え、次に開いたときに使う。覚えていなければ端末の言葉。保存できない端末でも切り替えはできる', () => {
+  const { R, ctx } = boot('ja');
+  assert.equal(R.guestLang.get(), 'ja', '覚えていなければ端末の言葉');
+  R.guestLang.set('en');
+  assert.equal(R.lang, 'en');
+  assert.equal(ctx.localStorage.getItem('redux-guest-lang'), 'en');
+  assert.equal(R.guestLang.get(), 'en', '端末が日本語でも、選んだ英語');
+  ctx.localStorage.setItem('redux-guest-lang', 'xx');
+  assert.equal(R.guestLang.get(), 'ja', '形の違う値は使わない');
+  ctx.localStorage.getItem = () => { throw new Error('blocked'); };
+  ctx.localStorage.setItem = () => { throw new Error('blocked'); };
+  assert.equal(R.guestLang.get(), 'ja');
+  R.guestLang.set('en');
+  assert.equal(R.lang, 'en', '覚えられなくても切り替わる');
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

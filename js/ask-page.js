@@ -74,9 +74,9 @@
     R.guestAsk.remote(source);
   }
 
-  document.getElementById('lang').addEventListener('click', () => R.setLang(R.lang === 'ja' ? 'en' : 'ja'));
+  document.getElementById('lang').addEventListener('click', () => R.guestLang.set(R.lang === 'ja' ? 'en' : 'ja'));
   R.onLang(frame);
-  R.lang = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+  R.lang = R.guestLang.get();
   frame();
   /* 開いたまま別のリンクを開いたとき（# だけが変わってページは読み直されない） */
   window.addEventListener('hashchange', () => location.reload());
