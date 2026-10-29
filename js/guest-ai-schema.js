@@ -66,6 +66,18 @@
     return { kind: 'fill', text: given.text.trim() };
   }
 
+  /* 画面の lang の印（中国語は字で分ける。lang="zh" だけだと、どちらの字形で描くかが端末まかせになる）。
+     繁体字にだけある字と簡体字にだけある字を数え、多い方。どちらも無ければ zh のまま。ほかの言葉はそのまま */
+  const HANT = '這個們會時說來為對嗎請參與後習潛費錢點開關車門問現體兒難場臺灣';
+  const HANS = '这个们会时说来为对吗请参与后习潜费钱点开关车门问现体儿难场台湾';
+  function langTag(lang, text) {
+    if (lang !== 'zh') return lang;
+    const count = (set) => [...String(text || '')].filter(c => set.includes(c)).length;
+    const t = count(HANT);
+    const s = count(HANS);
+    return t > s ? 'zh-Hant' : s > t ? 'zh-Hans' : 'zh';
+  }
+
   /* 聞けば答えるの答え。{ lang, faq, answer, health }。faq は送った一覧の id か null。体のことなら faq は null にし、訳も捨てる。
      日本語の質問には訳を使わない（画面はお店の文をそのまま出す） */
   function faqAnswer(x, ids) {
@@ -105,5 +117,5 @@
     return { ok: true, fill: out, fields: Object.keys(out), healthSeen: x.health_info_visible === true };
   }
 
-  R.guestAi = { KINDS, LANGS, MAX_QUESTION, MAX_FILL, TOURS, SWIM, EXP, WORRIES, FLIGHT, checkAsk, askBody, faqAnswer, fillAnswer };
+  R.guestAi = { KINDS, LANGS, MAX_QUESTION, MAX_FILL, TOURS, SWIM, EXP, WORRIES, FLIGHT, checkAsk, askBody, faqAnswer, fillAnswer, langTag };
 })();

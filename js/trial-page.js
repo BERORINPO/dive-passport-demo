@@ -16,12 +16,12 @@
   /* 聞いた言葉で返す決まった文（AI は作らない） */
   const SAY = {
     none: { ja: 'このページの情報には、その答えがありません。お店に確認してください。', en: "This page doesn't have the answer. Please check with the shop.",
-      zh: '本页面的信息中没有这个答案。请向店家确认。', ko: '이 페이지 정보에는 답이 없습니다. 가게에 확인해 주세요.' },
+      zh: '本页面的信息中没有这个答案。请向店家确认。', 'zh-Hant': '本頁面的資訊中沒有這個答案。請向店家確認。', ko: '이 페이지 정보에는 답이 없습니다. 가게에 확인해 주세요.' },
     health: { ja: '体のことは、ここでは答えません。参加できるかはお店が確かめます。お店に直接聞いてください。',
       en: 'Health questions are not answered here. The shop checks whether you can join. Please ask the shop directly.',
-      zh: '这里不回答身体健康方面的问题。能否参加由店家确认，请直接询问店家。', ko: '건강에 관한 질문은 여기서 답하지 않습니다. 참가 가능 여부는 가게가 확인합니다. 가게에 직접 문의해 주세요.' },
+      zh: '这里不回答身体健康方面的问题。能否参加由店家确认，请直接询问店家。', 'zh-Hant': '這裡不回答身體健康方面的問題。能否參加由店家確認，請直接詢問店家。', ko: '건강에 관한 질문은 여기서 답하지 않습니다. 참가 가능 여부는 가게가 확인합니다. 가게에 직접 문의해 주세요.' },
     busy: { ja: 'いまは答えられません。少し待ってから、もう一度聞いてください。', en: 'Cannot answer right now. Please try again in a moment.',
-      zh: '现在无法回答，请稍后再试。', ko: '지금은 답할 수 없습니다. 잠시 후 다시 물어봐 주세요.' }
+      zh: '现在无法回答，请稍后再试。', 'zh-Hant': '現在無法回答，請稍後再試。', ko: '지금은 답할 수 없습니다. 잠시 후 다시 물어봐 주세요.' }
   };
   const LANG_NAME = { ja: '日本語', en: '英語', zh: '中国語', ko: '韓国語' };
   const langOf = (t) => (/[가-힯]/.test(t) ? 'ko' : /[぀-ヿ]/.test(t) ? 'ja' : /[一-鿿]/.test(t) ? 'zh' : /[a-z]/i.test(t) ? 'en' : 'ja');
@@ -49,7 +49,16 @@
   }
 
   /* 決まった文（SAY）を、AI が見た質問の言葉で。その言葉の文が無ければ画面で見た言葉で */
-  const sayRow = (key, aiLang, pageLang) => (SAY[key][aiLang] ? answerRow(SAY[key][aiLang], '', '', aiLang) : answerRow(SAY[key][pageLang], '', '', pageLang));
+  /* 中国語は質問の字（繁体字・簡体字）の文を選ぶ。SAY の zh は簡体字。質問の字が分からなければ簡体字 */
+  const sayRow = (key, aiLang, pageLang, text) => {
+    const pick = (l) => {
+      const tag = G.langTag(l, text);
+      if (SAY[key][tag]) return [SAY[key][tag], tag];
+      return SAY[key][l] ? [SAY[key][l], l === 'zh' ? 'zh-Hans' : l] : null;
+    };
+    const [say, lang] = pick(aiLang) || pick(pageLang);
+    return answerRow(say, '', '', lang);
+  };
 
   let asking = 0;
   async function ask(log, question) {
@@ -63,15 +72,15 @@
     if (touchesHealth(text)) {
       steps.done('質問を読みました');
       steps.note('体のことなので、ここでは答えません');
-      log.append(answerRow(SAY.health[lang], '', '', lang));
+      log.append(sayRow('health', lang, lang, text));
       return;
     }
     const res = await R.askApi.trial({ t: token, kind: 'faq', question: text });
     if (turn !== asking) return;
     const got = res.status === 200 ? G.faqAnswer(res.data, shop.faq.map(f => f.id)) : { ok: false };
-    if (!got.ok) { steps.done('質問を読みました'); log.append(answerRow(SAY.busy[lang], '', '', lang)); return; }
+    if (!got.ok) { steps.done('質問を読みました'); log.append(sayRow('busy', lang, lang, text)); return; }
     const a = got.answer;
-    if (a.health) { steps.done('質問を読みました'); steps.note('体のことなので、ここでは答えません'); log.append(sayRow('health', a.lang, lang)); return; }
+    if (a.health) { steps.done('質問を読みました'); steps.note('体のことなので、ここでは答えません'); log.append(sayRow('health', a.lang, lang, text)); return; }
     steps.done(`質問を読みました（${LANG_NAME[a.lang]}）`);
     steps.doing(`お店の答え ${shop.faq.length} 件から探しています…`);
     await S.pause(500);
@@ -79,7 +88,7 @@
     const item = a.faq ? shop.faq.find(f => f.id === a.faq) : null;
     if (!item) {
       steps.done(`お店の答え ${shop.faq.length} 件に、合う物はありませんでした`);
-      log.append(sayRow('none', a.lang, lang));
+      log.append(sayRow('none', a.lang, lang, text));
       return;
     }
     steps.done(`「${item.q}」の答えを選びました`);
@@ -88,7 +97,7 @@
       await S.pause(600);
       if (turn !== asking) return;
       steps.done(`${LANG_NAME[a.lang]}に訳しました（元の文は下）`);
-      log.append(answerRow(a.answer, `「${item.q}」へのお店の答えを、AI が訳しました`, item.a, a.lang));
+      log.append(answerRow(a.answer, `「${item.q}」へのお店の答えを、AI が訳しました`, item.a, G.langTag(a.lang, `${text} ${a.answer}`)));
       return;
     }
     log.append(answerRow(item.a, `「${item.q}」へのお店の答え`));

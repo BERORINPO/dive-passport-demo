@@ -117,7 +117,7 @@
         if (turn !== asking) return;
         steps.done(L(T.stepTranslated).replace('{lang}', langName));
       }
-      log.append(translate ? translatedCard(item, got.answer, text, got.lang) : answerCard(item, text));
+      log.append(translate ? translatedCard(item, got.answer, text, R.guestAi.langTag(got.lang, `${text} ${got.answer}`)) : answerCard(item, text));
       return;
     }
     steps.done(L(T.stepNone).replace('{n}', R.FAQ.length));
