@@ -26,7 +26,8 @@
   /* まとめて書けば入る（AI。契約は guest-ai-schema.js、窓口は ai-reader.js の guestFill）。
      AI が入れた欄には印を付け、お客さんが触ったら外す。健康の欄は入れない（送る前に外し、答えにも健康の欄は無い） */
   let bulkText = '';
-  let bulkMsg = null;          // { key, n, health }。key は data.js の T の名前
+  let bulkSteps = [];          // いま何をしているかの行（js/guest-steps.js の view に渡す）
+  let bulkBusy = false;
   let aiFields = new Set();    // AI が入れた下書きの名前（tour・date・people・name・swim・exp・worries・flightMode・flightDate・flightTime）
   const AI_SPOT = {            // 下書きの名前 → 印を付ける所の入力
     tour: 'input[name="tour"]', date: '#f-date', people: '#f-people', name: '#f-name', swim: 'input[name="swim"]', exp: 'input[name="exp"]',
@@ -57,13 +58,8 @@
     const area = el('textarea', { class: 'input bulk__text', id: 'f-bulk', rows: 4, maxlength: R.guestAi.MAX_FILL, placeholder: L(t.bulkPlaceholder),
       'aria-label': L(t.bulkTitle), oninput: (e) => { bulkText = e.target.value; } });
     area.value = bulkText;
-    const msg = el('p', { class: 'bulk__msg', role: 'status' });
-    if (bulkMsg) {
-      msg.append(L(t[bulkMsg.key]).replace('{n}', bulkMsg.n));
-      if (bulkMsg.health) msg.append(' ', el('b', { text: L(t.bulkHealth) }));
-    }
-    const go = el('button', { class: 'btn bulk__go', type: 'button', text: L(t.bulkGo) });
-    go.addEventListener('click', () => readBulk(go, msg));
+    const go = el('button', { class: 'btn bulk__go', type: 'button', text: L(t.bulkGo), disabled: bulkBusy });
+    go.addEventListener('click', readBulk);
     return el('section', { class: 'bulk', 'aria-labelledby': 'bulk-h' },
       el('div', { class: 'faq__head' },
         el('img', { class: 'faq__chara', src: 'assets/chara.png', alt: '', width: 56, height: 58 }),
@@ -71,23 +67,68 @@
       area,
       el('div', { class: 'bulk__row' }, go,
         el('button', { class: 'linkbtn', type: 'button', text: L(t.bulkSelf), onclick: () => { root.querySelector('#f-date')?.focus(); } })),
-      msg,
+      stepsNode(),
       el('p', { class: 'faq__note', text: L(t.bulkNote) }));
   }
 
-  async function readBulk(go, msg) {
+  const stepsNode = () => el('div', { id: 'bulk-steps' }, bulkSteps.length ? R.guestSteps.view(bulkSteps) : null);
+  const FILL_ORDER = ['tour', 'date', 'people', 'name', 'swim', 'exp', 'worries', 'flightMode', 'flightDate', 'flightTime'];
+  const FILL_LABEL = { tour: 'fTour', date: 'fDate', people: 'fPeople', name: 'fName', swim: 'fSwim', exp: 'fExp', worries: 'fWorries',
+    flightMode: 'fFlight', flightDate: 'fFlightDate', flightTime: 'fFlightTime' };
+  /* 手順の行に出す、入れた値 */
+  function shown(key, v) {
+    const t = T();
+    const name = (list, id) => { const o = list.find(x => x.id === id); return o ? L(o.name || o) : id; };
+    if (key === 'tour') return name(R.TOURS, v);
+    if (key === 'swim') return name(R.SWIM, v);
+    if (key === 'exp') return name(R.EXP, v);
+    if (key === 'worries') return v.map(w => name(R.WORRIES, w)).join('・');
+    if (key === 'flightMode') return L({ set: t.flightSet, unknown: t.flightUnknown, none: t.flightNone }[v]);
+    if (key === 'date' || key === 'flightDate') return v.slice(5).replace('-', '/');
+    return String(v);
+  }
+  /* 入れた欄を一瞬光らせる（「動きを減らす」では光らない。css の .is-glow） */
+  function glow(key) {
+    const node = root.querySelector(AI_SPOT[key]) || tourRoot.querySelector(AI_SPOT[key]);
+    const area = node && node.closest('.field, fieldset, .guest-sec');
+    if (area) area.classList.add('is-glow');
+  }
+  const finishStep = () => { bulkSteps = bulkSteps.map(s => (s.kind === 'doing' ? { ...s, kind: 'done' } : s)); };
+
+  /* 読み取ったら、欄を 1 つずつ入れていく。入れるたびに手順の行を足し、その欄を光らせる */
+  async function readBulk() {
+    if (bulkBusy) return;
     if (!bulkText.trim()) { root.querySelector('#f-bulk')?.focus(); return; }
-    go.disabled = true;
-    msg.textContent = L(T().bulkReading);
-    try {
-      const got = await R.aiReader.guestFill(bulkText);
-      set(got.fill);
-      aiFields = new Set([...aiFields, ...got.fields]);
-      bulkMsg = { key: got.fields.length ? 'bulkDone' : 'bulkNone', n: got.fields.length, health: got.healthSeen };
-    } catch (e) {
-      bulkMsg = { key: 'bulkFail', n: 0, health: false };
+    const t = T();
+    bulkBusy = true;
+    bulkSteps = [{ kind: 'doing', text: L(t.bulkReading) }];
+    renderForm();
+    let got = null;
+    try { got = await R.aiReader.guestFill(bulkText); } catch (e) { got = null; }
+    if (doneId) { bulkBusy = false; return; }   // 読んでいる間に送られた
+    if (!got) {
+      bulkSteps = [{ kind: 'note', text: L(t.bulkFail) }];
+      bulkBusy = false;
+      renderForm();
+      return;
     }
-    if (doneId) return;   // 読んでいる間に送られた
+    const keys = FILL_ORDER.filter(k => got.fields.includes(k));
+    bulkSteps = [{ kind: 'done', text: L(t.bulkStepRead).replace('{n}', keys.length) }];
+    if (got.healthSeen) bulkSteps.push({ kind: 'note', text: L(t.bulkHealth) });
+    if (!keys.length) bulkSteps.push({ kind: 'note', text: L(t.bulkNone) });
+    for (const key of keys) {
+      finishStep();
+      set({ [key]: got.fill[key] });
+      aiFields = new Set([...aiFields, key]);
+      bulkSteps = [...bulkSteps, { kind: 'doing', field: true, text: `${L(t[FILL_LABEL[key]])}: ${shown(key, got.fill[key])}` }];
+      renderForm();
+      glow(key);
+      await R.guestSteps.pause(380);
+      if (doneId) { bulkBusy = false; return; }
+    }
+    finishStep();
+    if (keys.length) bulkSteps.push({ kind: 'note', text: L(t.bulkStepCheck) });
+    bulkBusy = false;
     renderForm();
   }
 
@@ -328,7 +369,7 @@
         el('div', { class: 'actions' },
           el('button', { class: 'btn', type: 'button', text: L(t.seeShop), onclick: () => R.showTab('shop') }),
           el('button', { class: 'btn btn--ghost', type: 'button', text: L(t.again),
-            onclick: () => { doneId = null; savedNote = ''; draft = blank(); bulkText = ''; bulkMsg = null; aiFields = new Set(); render(); } }))));
+            onclick: () => { doneId = null; savedNote = ''; draft = blank(); bulkText = ''; bulkSteps = []; aiFields = new Set(); render(); } }))));
   }
 
   function render() {

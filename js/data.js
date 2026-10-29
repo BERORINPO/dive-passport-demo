@@ -139,7 +139,22 @@
     faqMore: { ja: '質問の一覧から探す', en: 'Browse all questions' },
     faqNote: { ja: '日本語・English・中文・한국어で聞けます。答えはお店が書いた文から選びます。体のことには答えません。',
                en: 'Ask in Japanese, English, Chinese or Korean. Answers are chosen from what the shop wrote. Health questions are not answered here.' },
-    looking: { ja: 'お店の答えを探しています…', en: "Looking for the shop's answer…" },
+    /* 聞けば答えるの手順の行（js/guest-steps.js） */
+    stepReading: { ja: '質問を読んでいます…', en: 'Reading your question…' },
+    stepRead: { ja: '質問を読みました（{lang}）', en: 'Read your question ({lang})' },
+    stepReadPlain: { ja: '質問を読みました', en: 'Read your question' },
+    stepHealth: { ja: '体のことなので、ここでは答えません', en: 'This is about health, so it is not answered here' },
+    stepSearch: { ja: 'お店の答え {n} 件から探しています…', en: "Searching the shop's {n} answers…" },
+    stepChose: { ja: '「{q}」の答えを選びました', en: 'Picked the answer to "{q}"' },
+    stepNone: { ja: 'お店の答え {n} 件に、そのまま合う物はありませんでした', en: "None of the shop's {n} answers fits exactly" },
+    stepTranslating: { ja: '日本語から{lang}に訳しています…', en: 'Translating from Japanese into {lang}…' },
+    stepTranslated: { ja: '{lang}に訳しました（元の文は下）', en: 'Translated into {lang} (original below)' },
+    langNames: {
+      ja: { ja: '日本語', en: 'Japanese' }, en: { ja: '英語', en: 'English' }, zh: { ja: '中国語', en: 'Chinese' }, ko: { ja: '韓国語', en: 'Korean' }
+    },
+    /* まとめて書けば入るの手順の行 */
+    bulkStepRead: { ja: '{n} か所を読み取りました。入れていきます', en: 'Read {n} fields. Filling them in' },
+    bulkStepCheck: { ja: '印の所を確かめて、足りない所を入れてください', en: 'Please check the marked fields and add anything missing' },
     translated: { ja: '「{q}」へのお店の答えを、AI が訳しました', en: "The shop's answer to \"{q}\", translated by AI" },
     original: { ja: '元の文（日本語）', en: 'Original (Japanese)' },
     healthStop: { ja: '体のことは、ここでは答えません。参加できるかはお店が確かめます。お店に直接聞いてください。',
@@ -163,7 +178,6 @@
     bulkGo: { ja: '読み取って入れる', en: 'Fill in for me' },
     bulkSelf: { ja: '自分で 1 つずつ入れる', en: 'Fill in myself' },
     bulkReading: { ja: '読み取っています…', en: 'Reading…' },
-    bulkDone: { ja: '{n} か所に入れました。印の所を確かめて、足りない所を入れてください。', en: 'Filled {n} fields. Please check the marked ones and add anything missing.' },
     bulkNone: { ja: '読み取れる所がありませんでした。下で 1 つずつ入れてください。', en: 'Nothing could be read. Please fill in the form below.' },
     bulkFail: { ja: 'いまは読み取れません。下で 1 つずつ入れてください。', en: 'Cannot read it right now. Please fill in the form below.' },
     bulkHealth: { ja: '体のことは読み取りません。下の「健康の質問」でご自分で答えてください。', en: 'Health details are not read. Please answer the health questions below yourself.' },

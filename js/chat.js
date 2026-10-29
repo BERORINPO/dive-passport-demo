@@ -91,19 +91,35 @@
     const turn = ++asking;
     log.replaceChildren();
     you(text);
-    const wait = el('p', { class: 'faq__wait', text: L(R.T.looking) });
-    log.append(wait);
+    /* いま何をしているかを 1 行ずつ出す（js/guest-steps.js）。行の中身は返った答えから作る */
+    const steps = R.guestSteps.into(log);
+    const { pause } = R.guestSteps;
+    const T = R.T;
+    steps.doing(L(T.stepReading));
     const faqs = R.FAQ.map(f => ({ id: f.id, q: f.q.ja, a: f.a.ja }));
     let got = null;
     try { got = await R.aiReader.guestFaq(text, faqs); } catch (e) { got = null; }   // 届かない・上限・形が違う → 決まった計算で選ぶ
     if (turn !== asking) return;
-    wait.remove();
-    if (got && got.health) { say(L(R.T.healthStop)); return; }
+    const langName = got ? L(T.langNames[got.lang] || T.langNames.en) : '';
+    steps.done(got && !got.health ? L(T.stepRead).replace('{lang}', langName) : L(T.stepReadPlain));
+    if (got && got.health) { steps.note(L(T.stepHealth)); say(L(T.healthStop)); return; }
+    steps.doing(L(T.stepSearch).replace('{n}', R.FAQ.length));
+    await pause(500);
+    if (turn !== asking) return;
     const item = got && got.faq ? R.FAQ.find(f => f.id === got.faq) : null;
     if (item) {
-      log.append(got.lang !== 'ja' && got.answer ? translatedCard(item, got.answer, text) : answerCard(item, text));
+      steps.done(L(T.stepChose).replace('{q}', L(item.q)));
+      const translate = got.lang !== 'ja' && got.answer;
+      if (translate) {
+        steps.doing(L(T.stepTranslating).replace('{lang}', langName));
+        await pause(600);
+        if (turn !== asking) return;
+        steps.done(L(T.stepTranslated).replace('{lang}', langName));
+      }
+      log.append(translate ? translatedCard(item, got.answer, text) : answerCard(item, text));
       return;
     }
+    steps.done(L(T.stepNone).replace('{n}', R.FAQ.length));
     const r = R.matchFaq(text);
     if (r.status === 'hit') {
       log.append(answerCard(r.item, text));
