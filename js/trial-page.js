@@ -10,7 +10,6 @@
   const G = R.guestAi;
   const S = R.guestSteps;
   const root = document.getElementById('trial');
-  const CHARA = 'assets/chara.png';
   const token = (/^#t=([A-Za-z0-9_-]{22})$/.exec(location.hash) || [])[1] || '';
 
   /* 聞いた言葉で返す決まった文（AI は作らない） */
@@ -42,8 +41,9 @@
 
   /* ---------- 聞けば答える ---------- */
   /* lang: 答えの言葉。読み上げと字形（中国語を日本語の字で描かない）のため */
-  function answerRow(text, sub, orig, lang = 'ja') {
-    return el('div', { class: 'faq__a' }, el('img', { class: 'faq__mark', src: CHARA, alt: '', width: 30, height: 30 }),
+  /* face: 案内役の表情（答えた = answer、答えが無い・体のこと・混んでいる = sorry。決定ログ 2026-10-29 chara-faces） */
+  function answerRow(text, sub, orig, lang = 'ja', face = 'answer') {
+    return el('div', { class: 'faq__a' }, el('img', { class: 'faq__mark', src: R.CHARA[face], alt: '', width: 30, height: 30 }),
       el('div', {}, el('p', { lang, text }), sub ? el('small', { text: sub }) : null,
         orig ? el('details', { class: 'faq__orig' }, el('summary', { text: '元の文（日本語）' }), el('p', { lang: 'ja', text: orig })) : null));
   }
@@ -57,7 +57,7 @@
       return SAY[key][l] ? [SAY[key][l], l === 'zh' ? 'zh-Hans' : l] : null;
     };
     const [say, lang] = pick(aiLang) || pick(pageLang);
-    return answerRow(say, '', '', lang);
+    return answerRow(say, '', '', lang, 'sorry');
   };
 
   let asking = 0;
@@ -72,15 +72,15 @@
     if (touchesHealth(text)) {
       steps.done('質問を読みました');
       steps.note('体のことなので、ここでは答えません');
-      log.append(sayRow('health', lang, lang, text));
+      steps.face('sorry'); log.append(sayRow('health', lang, lang, text));
       return;
     }
     const res = await R.askApi.trial({ t: token, kind: 'faq', question: text });
     if (turn !== asking) return;
     const got = res.status === 200 ? G.faqAnswer(res.data, shop.faq.map(f => f.id)) : { ok: false };
-    if (!got.ok) { steps.done('質問を読みました'); log.append(sayRow('busy', lang, lang, text)); return; }
+    if (!got.ok) { steps.done('質問を読みました'); steps.face('sorry'); log.append(sayRow('busy', lang, lang, text)); return; }
     const a = got.answer;
-    if (a.health) { steps.done('質問を読みました'); steps.note('体のことなので、ここでは答えません'); log.append(sayRow('health', a.lang, lang, text)); return; }
+    if (a.health) { steps.done('質問を読みました'); steps.note('体のことなので、ここでは答えません'); steps.face('sorry'); log.append(sayRow('health', a.lang, lang, text)); return; }
     steps.done(`質問を読みました（${LANG_NAME[a.lang]}）`);
     steps.doing(`お店の答え ${shop.faq.length} 件から探しています…`);
     await S.pause(500);
@@ -88,7 +88,7 @@
     const item = a.faq ? shop.faq.find(f => f.id === a.faq) : null;
     if (!item) {
       steps.done(`お店の答え ${shop.faq.length} 件に、合う物はありませんでした`);
-      log.append(sayRow('none', a.lang, lang, text));
+      steps.face('sorry'); log.append(sayRow('none', a.lang, lang, text));
       return;
     }
     steps.done(`「${item.q}」の答えを選びました`);
@@ -97,10 +97,10 @@
       await S.pause(600);
       if (turn !== asking) return;
       steps.done(`${LANG_NAME[a.lang]}に訳しました（元の文は下）`);
-      log.append(answerRow(a.answer, `「${item.q}」へのお店の答えを、AI が訳しました`, item.a, G.langTag(a.lang, `${text} ${a.answer}`)));
+      steps.face('answer'); log.append(answerRow(a.answer, `「${item.q}」へのお店の答えを、AI が訳しました`, item.a, G.langTag(a.lang, `${text} ${a.answer}`)));
       return;
     }
-    log.append(answerRow(item.a, `「${item.q}」へのお店の答え`));
+    steps.face('answer'); log.append(answerRow(item.a, `「${item.q}」へのお店の答え`));
   }
 
   function askSection() {
@@ -116,7 +116,7 @@
       return el('li', { class: 'faq__item' }, q, body);
     };
     return el('section', { class: 'guest-sec', id: 'chat' },
-      el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: CHARA, alt: '', width: 56, height: 58 }),
+      el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 56, height: 56 }),
         el('h2', { class: 'h2', text: '聞きたいことを、そのまま' })),
       form,
       el('p', { class: 'faq__note', text: '日本語・English・中文・한국어で聞けます。AI がこのページのお店の情報から答えを選び、日本語以外は訳して返します。'
@@ -130,6 +130,7 @@
   let draft = null;
   let bulkText = '';
   let bulkSteps = [];
+  let bulkEnd = 'done';   // 終わったときの案内役の表情（入れ終えた = done、読めない = sorry）
   let busy = false;
   let aiFields = new Set();
   const formRoot = el('div', {});
@@ -162,9 +163,10 @@
     const go = el('button', { class: 'btn bulk__go', type: 'button', text: '読み取って入れる', disabled: busy, onclick: readBulk });
     formRoot.replaceChildren(
       el('section', { class: 'bulk' },
-        el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: CHARA, alt: '', width: 56, height: 58 }), el('h2', { class: 'h2', text: 'まとめて書いて、入れてもらう' })),
+        el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 56, height: 56 }),
+          el('h2', { class: 'h2', text: 'まとめて書いて、入れてもらう' })),
         area, el('div', { class: 'bulk__row' }, go),
-        el('div', {}, bulkSteps.length ? S.view(bulkSteps) : null),
+        el('div', {}, bulkSteps.length ? S.view(bulkSteps, bulkEnd) : null),
         el('p', { class: 'faq__note', text: 'メールやメモをそのまま貼っても読めます。体のことは読み取りません。' })),
       el('form', { class: 'form', novalidate: true, onsubmit: (e) => e.preventDefault() },
         el('div', { class: 'field', 'data-key': 'tour' }, label('tour', 'tr-tour'),
@@ -199,12 +201,13 @@
     const f = res.status === 200 && res.data && res.data.fill ? res.data.fill : null;
     const got = f ? G.fillAnswer({ tour: f.tour, date: f.date, people: f.people, name: f.name, swim: f.swim, exp: f.exp, worries: f.worries,
       flight_mode: f.flightMode, flight_date: f.flightDate, flight_time: f.flightTime, health_info_visible: res.data.healthSeen === true }, R.today()) : null;
-    if (!got || !got.ok) { bulkSteps = [{ kind: 'note', text: 'いまは読み取れません。下で 1 つずつ入れてください' }]; busy = false; renderForm(); return; }
+    if (!got || !got.ok) { bulkSteps = [{ kind: 'note', text: 'いまは読み取れません。下で 1 つずつ入れてください' }]; bulkEnd = 'sorry'; busy = false; renderForm(); return; }
     const fill = { ...got.fill };
     /* ツアーは種類（dive・snorkel）で返るので、このお店のその種類の最初のツアーにする */
     if (fill.tour) { const t = shop.tours.find(x => x.kind === fill.tour); if (t) fill.tour = t.id; else delete fill.tour; }
     const keys = Object.keys(LABEL).filter(k => k in fill);
     bulkSteps = [{ kind: 'done', text: `${keys.length} か所を読み取りました。入れていきます` }];
+    bulkEnd = keys.length ? 'done' : 'sorry';
     if (got.healthSeen || red.redacted > 0) bulkSteps.push({ kind: 'note', text: '体のことは読み取りません。お店に直接伝えてください' });
     for (const key of keys) {
       finish();

@@ -692,6 +692,19 @@
       }
     },
     el,
+    /* 案内役の表情（場面ごと。決定ログ 2026-10-29 chara-faces）。全身のまま使い、丸く切らない・名前は出さない。新しい 5 枚は文字の方（右）を向いている */
+    CHARA: { hello: 'assets/chara-hello.png', thinking: 'assets/chara-thinking.png', answer: 'assets/chara-answer.png',
+      sorry: 'assets/chara-sorry.png', done: 'assets/chara-done.png' },
+    /* 表情を替える。替わるときだけ軽いフェード（css の .face-in。「動きを減らす」設定では切り替えだけ） */
+    setFace: (img, face) => {
+      const src = R.CHARA[face];
+      if (!img || !src || img.getAttribute('src') === src) return;
+      img.setAttribute('src', src);
+      if (!img.classList) return;
+      img.classList.remove('face-in');
+      void img.offsetWidth;   // フェードをもう一度始めるため
+      img.classList.add('face-in');
+    },
     /* 1 つ選ぶ選択肢の形（design.md の部品）。横につなげるのは、320 幅でも 1 行に収まる短い名前のときだけ。
        2 つなら 8 字まで、3 つなら 5 字まで。長い物（ツアー名・英語）は、2 行に折れないよう罫線の行にする */
     choiceClass: (labels) => (labels.length <= 3 && labels.every(t => String(t).length <= (labels.length <= 2 ? 8 : 5)) ? 'choices' : 'choices choices--rows'),

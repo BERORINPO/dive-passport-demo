@@ -27,6 +27,7 @@
      AI が入れた欄には印を付け、お客さんが触ったら外す。健康の欄は入れない（送る前に外し、答えにも健康の欄は無い） */
   let bulkText = '';
   let bulkSteps = [];          // いま何をしているかの行（js/guest-steps.js の view に渡す）
+  let bulkEnd = 'done';        // 終わったときの案内役の表情（入れ終えた = done、読めない・入れる物が無い = sorry。決定ログ 2026-10-29 chara-faces）
   let bulkBusy = false;
   let aiFields = new Set();    // AI が入れた下書きの名前（tour・date・people・name・swim・exp・worries・flightMode・flightDate・flightTime）
   let ownFields = new Set();   // お客さんが自分で入れた・選んだ下書きの名前。AI はここを上書きしない（Shape of AI の Auto-fill。決定ログ 2026-10-29 bulk-keep-own）
@@ -79,7 +80,7 @@
     go.addEventListener('click', readBulk);
     return el('section', { class: 'bulk', 'aria-labelledby': 'bulk-h' },
       el('div', { class: 'faq__head' },
-        el('img', { class: 'faq__chara', src: 'assets/chara.png', alt: '', width: 56, height: 58 }),
+        el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 56, height: 56 }),
         el('h2', { class: 'h2', id: 'bulk-h', text: L(t.bulkTitle) })),
       area,
       el('div', { class: 'bulk__row' }, go,
@@ -88,7 +89,7 @@
       el('p', { class: 'faq__note', text: L(t.bulkNote) }));
   }
 
-  const stepsNode = () => el('div', { id: 'bulk-steps' }, bulkSteps.length ? R.guestSteps.view(bulkSteps) : null);
+  const stepsNode = () => el('div', { id: 'bulk-steps' }, bulkSteps.length ? R.guestSteps.view(bulkSteps, bulkEnd) : null);
   const FILL_ORDER = ['tour', 'date', 'people', 'name', 'swim', 'exp', 'worries', 'flightMode', 'flightDate', 'flightTime'];
   const FILL_LABEL = { tour: 'fTour', date: 'fDate', people: 'fPeople', name: 'fName', swim: 'fSwim', exp: 'fExp', worries: 'fWorries',
     flightMode: 'fFlight', flightDate: 'fFlightDate', flightTime: 'fFlightTime' };
@@ -125,6 +126,7 @@
     if (doneId) { bulkBusy = false; return; }   // 読んでいる間に送られた
     if (!got) {
       bulkSteps = [{ kind: 'note', text: L(t.bulkFail) }];
+      bulkEnd = 'sorry';
       bulkBusy = false;
       renderForm();
       return;
@@ -133,6 +135,7 @@
     const kept = read.filter(k => ownFields.has(k));
     const keys = read.filter(k => !ownFields.has(k));
     bulkSteps = [{ kind: 'done', text: L(t.bulkStepRead).replace('{n}', read.length) }];
+    bulkEnd = keys.length ? 'done' : 'sorry';
     if (kept.length) bulkSteps.push({ kind: 'note', text: L(t.bulkKept).replace('{fields}', kept.map(k => L(t[FILL_LABEL[k]])).join(R.lang === 'en' ? ', ' : '・')) });
     if (got.healthSeen) bulkSteps.push({ kind: 'note', text: L(t.bulkHealth) });
     if (!keys.length) bulkSteps.push({ kind: 'note', text: L(t.bulkNone) });
