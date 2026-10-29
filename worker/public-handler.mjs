@@ -16,6 +16,7 @@
    お店の Worker の handler.mjs も、手元の確かめ（tools/serve-dist.mjs）のために ask と bookings をここから使う（SHOP は同じ Worker の ShopService）。
    ログは 1 要求 1 行（道の名前・状態・短い理由・量・時間だけ。鍵・名前・メールアドレスは出さない） */
 import { json, isJson, readCapped } from './api-http.mjs';
+import { ASK_PAGES, servePage } from './page-serve.mjs';
 import { shopClient } from './shop-client.mjs';
 import { keyHash } from './ask-key.mjs';
 import { checkAsk, MAX_ASK_BODY, checkWalkin, MAX_WALKIN_BODY, MAX_INTAKE_BODY, bearerOf, idemKeyOf } from './ask-input.mjs';
@@ -157,6 +158,8 @@ export async function trial(request, env, io, note) {
 export async function handlePublic(request, env, io) {
   const started = io.now();
   const url = new URL(request.url);
+  /* 試し版のページ（/trial）は、計測のスクリプトを国で出し分けて返す（決定ログ 2026-10-29 analytics-country） */
+  if (ASK_PAGES[url.pathname]) return servePage(request, env, ASK_PAGES[url.pathname]);
   const methods = PUBLIC_ROUTES[url.pathname];
   const note = { worker: 'public', route: methods ? url.pathname : url.pathname.startsWith('/api/') ? '/api/other' : 'other' };
   let res;

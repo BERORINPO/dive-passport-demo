@@ -186,7 +186,10 @@ workerFiles.filter(f => !listed.has(f)).forEach(f => fail(`表 1 に無い Worke
 const ACCESS_URLS = ['https://${team}/cdn-cgi/access/certs', 'https://${team}'];
 const WORKER_NET = { 'worker/index.mjs': { kind: 'live', urls: [] }, 'worker/ask-index.mjs': { kind: 'live', urls: [] }, 'worker/shop-rpc.mjs': { kind: 'live', urls: [] }, 'worker/access.mjs': { kind: 'io', urls: ACCESS_URLS },
   'worker/anthropic.mjs': { kind: 'io', urls: ['https://api.anthropic.com/v1/messages'] },
-  'worker/site-guard.mjs': { kind: 'io', urls: ['https://challenges.cloudflare.com/turnstile/v0/siteverify'] }, 'worker/fakes.mjs': { kind: 'fake', urls: ACCESS_URLS } };
+  'worker/site-guard.mjs': { kind: 'io', urls: ['https://challenges.cloudflare.com/turnstile/v0/siteverify'] }, 'worker/fakes.mjs': { kind: 'fake', urls: ACCESS_URLS },
+  /* ページの見出しの CSP に書く先と、計測のスクリプトの URL（通信はしない。決定ログ 2026-10-29 analytics-country） */
+  'worker/page-headers.mjs': { kind: 'none', urls: ['https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/', 'https://static.cloudflareinsights.com/beacon.min.js/',
+    'https://cloudflareinsights.com/cdn-cgi/rum', 'https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092'] } };
 const WORKER_TOOLS = NET_TOOLS.filter(([re]) => !/\(\?:https\?\|wss\?\|ftp\)/.test(re.source) && !/\(\?:\\\/\\\/\|/.test(re.source));
 function workerRules(p) {
   const net = WORKER_NET[p] || { kind: 'none', urls: [] };

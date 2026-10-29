@@ -23,11 +23,7 @@ test('計測（Cloudflare Web Analytics）: 送り先は受け口 1 つだけ。
   assert.ok(csp('/trial').includes("script-src 'self' https://static.cloudflareinsights.com/beacon.min.js/;"));
   assert.ok(csp('/trial').includes("connect-src 'self' https://cloudflareinsights.com/cdn-cgi/rum;"));
   for (const p of ['/ask', '/walkin', '/pass', '/data']) assert.ok(!/cloudflareinsights/.test(csp(p)), `${p} には計測を足さない`);
-  const trial = readFileSync(new URL('../trial.html', import.meta.url), 'utf8');
-  const tag = trial.match(/<script[^>]+cloudflareinsights[^>]*>/)[0];
-  assert.match(tag, /integrity="sha512-[^"]+"/);
-  assert.match(tag, /crossorigin="anonymous"/);
-  assert.match(tag, /src="https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js\/v[0-9a-f]+"/, '版を決めた URL（integrity で確かめられる）');
+  /* 計測のスクリプトのタグは HTML に書かず、Worker が国で出し分けて足す（test/analytics.test.mjs。決定ログ 2026-10-29 analytics-country） */
   for (const f of ['ask.html', 'walkin.html', 'pass.html', 'data.html', 'index.html']) {
     assert.ok(!readFileSync(new URL(`../${f}`, import.meta.url), 'utf8').includes('cloudflareinsights'), `${f} に計測のスクリプトを書かない`);
   }

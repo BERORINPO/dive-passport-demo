@@ -509,8 +509,9 @@ test('向こうの答えは信用しない: 形が合わない答えは 500（cr
 
 test('redux-ask の束: D1 の binding も、名簿・お店の一覧・鍵の行・お店の道を読むファイルも入らない。口は 9 つの RPC だけ', () => {
   const files = reachable('worker/ask-index.mjs').filter(f => f.startsWith('worker/')).sort();
-  assert.deepEqual(files, ['worker/api-http.mjs', 'worker/ask-index.mjs', 'worker/ask-input.mjs', 'worker/ask-key.mjs', 'worker/auto-core.mjs', 'worker/past-core.mjs',
-    'worker/public-handler.mjs', 'worker/shop-client.mjs', 'worker/site-guard.mjs', 'worker/sync-core.mjs', 'worker/trial-core.mjs'], '足すときは、ここに増えるファイルが D1・名簿・お店の道に触れないことを確かめてから');
+  assert.deepEqual(files, ['worker/analytics-core.mjs', 'worker/api-http.mjs', 'worker/ask-index.mjs', 'worker/ask-input.mjs', 'worker/ask-key.mjs', 'worker/auto-core.mjs',
+    'worker/page-headers.mjs', 'worker/page-serve.mjs', 'worker/past-core.mjs', 'worker/public-handler.mjs', 'worker/shop-client.mjs', 'worker/site-guard.mjs', 'worker/sync-core.mjs',
+    'worker/trial-core.mjs'], '足すときは、ここに増えるファイルが D1・名簿・お店の道に触れないことを確かめてから');
   for (const f of files) {
     const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     assert.ok(!/\bDB\b|\bprepare\s*\(|roster-db|shop-db|ask-db|limit-db|unread-db/.test(src), `${f} が D1 に触れている`);
