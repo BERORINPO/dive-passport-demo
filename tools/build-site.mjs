@@ -102,7 +102,7 @@ export function askFiles(htmls = ASK_PAGES.map(p => [p, readFileSync(join(root, 
 export function askHeaders() {
   const all = headers().split('\n');
   /* 共通（/*）と、ask.html・/ask の CSP、js と css のキャッシュだけを、同じ書き方で写す */
-  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/trial.html', '/trial', '/js/*', '/css/*']);
+  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/trial.html', '/trial', '/data.html', '/data', '/js/*', '/css/*']);
   const out = [];
   let on = false;
   for (const line of all) {

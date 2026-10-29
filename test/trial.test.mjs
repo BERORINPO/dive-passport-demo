@@ -119,12 +119,12 @@ test('置く物: trial.html は redux-ask だけに置き、noindex・公式で�
   assert.deepEqual(ASK_ASSETS, ['assets/chara.png', 'assets/logo-mark.png', 'assets/logo-mark-light.png']);
   const h = askHeaders();
   assert.ok(h.includes("/trial\n  Content-Security-Policy: default-src 'none'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js/; style-src 'self'; " +
-    "img-src 'self'; connect-src 'self' https://cloudflareinsights.com/cdn-cgi/rum;"), '計測のスクリプトと受け口だけを足す（決定ログ 2026-10-29 web-analytics）');
+    "img-src 'self'; connect-src 'self';"), '計測のスクリプトだけを足す（送る先は同じホストの /cdn-cgi/rum。決定ログ 2026-10-29 analytics-same-origin）');
   assert.ok(h.includes('X-Robots-Tag: noindex, nofollow'));
   const html = readFileSync(new URL('../trial.html', import.meta.url), 'utf8');
   assert.ok(html.includes('<meta name="robots" content="noindex, nofollow">') && html.includes('お店の公式ページではありません'));
   assert.deepEqual([...html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/https?:\/\/[^\s"';]+/g)].map(m => m[0]),
-    ['https://static.cloudflareinsights.com/beacon.min.js/', 'https://cloudflareinsights.com/cdn-cgi/'],
+    ['https://static.cloudflareinsights.com/beacon.min.js/'],
     '外の先は CSP の計測の 2 つだけ（スクリプトのタグは Worker が国で出し分けて足す。決定ログ 2026-10-29 analytics-country）');
   const page = readFileSync(new URL('../js/trial-page.js', import.meta.url), 'utf8');
   assert.ok(!/rosterStore|store\.update|askLink|\/api\/(roster|ask|bookings)/.test(page), '名簿・予約に触れない');

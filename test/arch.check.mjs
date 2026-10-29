@@ -189,7 +189,7 @@ const WORKER_NET = { 'worker/index.mjs': { kind: 'live', urls: [] }, 'worker/ask
   'worker/site-guard.mjs': { kind: 'io', urls: ['https://challenges.cloudflare.com/turnstile/v0/siteverify'] }, 'worker/fakes.mjs': { kind: 'fake', urls: ACCESS_URLS },
   /* ページの見出しの CSP に書く先と、計測のスクリプトの URL（通信はしない。決定ログ 2026-10-29 analytics-country） */
   'worker/page-headers.mjs': { kind: 'none', urls: ['https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/', 'https://static.cloudflareinsights.com/beacon.min.js/',
-    'https://cloudflareinsights.com/cdn-cgi/rum', 'https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092'] } };
+    'https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092'] } };
 const WORKER_TOOLS = NET_TOOLS.filter(([re]) => !/\(\?:https\?\|wss\?\|ftp\)/.test(re.source) && !/\(\?:\\\/\\\/\|/.test(re.source));
 function workerRules(p) {
   const net = WORKER_NET[p] || { kind: 'none', urls: [] };
@@ -242,8 +242,7 @@ tableProblems(ALLOW).forEach(fail);
 const htmlFiles = readdirSync(new URL('./', root)).filter(f => f.endsWith('.html') && !f.endsWith('.local.html'));
 /* 字体を読まないページのうち、同じ場所の Worker にだけ送ってよいページ（お客さんのリンク。/api/ask） */
 const CONNECT_SELF = ['ask.html', 'walkin.html', 'trial.html'];
-const IMG_SELF = ['trial.html'];
-const ANALYTICS = { 'trial.html': 'https://cloudflareinsights.com/cdn-cgi/' };   // 計測の受け口を足してよいページ（決定ログ 2026-10-29 web-analytics）   // 案内役の絵とロゴだけ同じ場所から読む（決定ログ 2026-10-29 trial-shops）
+const IMG_SELF = ['trial.html'];   // 案内役の絵とロゴだけ同じ場所から読む（決定ログ 2026-10-29 trial-shops）
 const cssFiles = readdirSync(new URL('css/', root)).filter(f => f.endsWith('.css')).map(f => `css/${f}`);
 if (!htmlFiles.length) fail('検査する HTML が無い');
 [...htmlFiles, ...cssFiles].forEach(f => {
@@ -251,7 +250,7 @@ if (!htmlFiles.length) fail('検査する HTML が無い');
   if (!rule) { fail(`表「外から読む先」に ${f} の行が無い`); return; }
   const text = read(f);
   fileProblems(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: ${v}`));
-  if (f.endsWith('.html') && !rule.fonts) fontFaceProblems(text, read, { connectSelf: CONNECT_SELF.includes(f), imgSelf: IMG_SELF.includes(f), analytics: ANALYTICS[f] || '' }).forEach(v => fail(`${f}: ${v}`));
+  if (f.endsWith('.html') && !rule.fonts) fontFaceProblems(text, read, { connectSelf: CONNECT_SELF.includes(f), imgSelf: IMG_SELF.includes(f) }).forEach(v => fail(`${f}: ${v}`));
   unusedAllows(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: 表で許しているのに使っていない: ${v}`));
 });
 Object.keys(ALLOW || {}).filter(f => !existsSync(new URL(f, root))).forEach(f => fail(`表「外から読む先」のファイルが無い: ${f}`));
