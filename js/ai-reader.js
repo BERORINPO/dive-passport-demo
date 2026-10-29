@@ -135,8 +135,122 @@
     return { text: body.doc === 'mail' ? body.text : '', redacted };
   }
 
+  /* ---------- お客さま画面の AI（聞けば答える・まとめて書けば入る）。契約は guest-ai-schema.js ----------
+     本物は同じ場所の /api/guest-ai（Access の内。上限は予約メールの読み取りと別）、見本は決まった計算で返す。
+     体のことに触れた質問は送らない（答えは { health: true }）。まとめて書いた文は、健康に触れていそうな所を外してから送る */
+  const G = () => R.guestAi;
+  /* お客さま画面は、お店が選ぶ読み方（見本 / 本物）に合わせず、Worker 版で /api/healthz が通っていれば本物にする
+     （送るのはお客さんの質問か、健康の所を外した文だけ。お店の名簿や写真は送らない） */
+  const guestMode = () => (server ? 'real' : 'sample');
+  /* 体のことに触れているか（health-redact.js の言葉で見る。外しすぎは構わない） */
+  const touchesHealth = (text) => R.healthRedact.redact(String(text)).redacted > 0;
+
+  async function postGuest(body) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+    try {
+      let res;
+      try {
+        res = await fetch('/api/guest-ai', {
+          method: 'POST', credentials: 'same-origin', redirect: 'manual', signal: ctl.signal,
+          headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+        });
+      } catch (e) {
+        throw new ReadError('offline', e.name);
+      }
+      if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) throw new ReadError('auth', String(res.status));
+      if (res.status === 429) throw new ReadError('limit');
+      if (res.status === 400 || res.status === 413) throw new ReadError('input', String(res.status));
+      if (!res.ok) throw new ReadError(res.status === 502 ? 'bad' : 'offline', String(res.status));
+      try { return await res.json(); } catch (e) { throw new ReadError('bad', 'json'); }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /* 見本の言葉の見分け（本物は AI が見分ける） */
+  const langOf = (t) => (/[가-힯]/.test(t) ? 'ko' : /[぀-ヿ]/.test(t) ? 'ja' : /[一-鿿]/.test(t) ? 'zh' : /[a-z]/i.test(t) ? 'en' : 'ja');
+
+  /* 見本の「聞けば答える」: 決まった計算（match.js）で 1 つ選べたときだけ答える。訳は data.js の英語の答え（見本は日本語と英語だけ） */
+  function faqSample(question) {
+    const lang = langOf(question);
+    const r = R.matchFaq ? R.matchFaq(question) : { status: 'none' };
+    if (r.status !== 'hit' || (lang !== 'ja' && lang !== 'en')) return { lang, faq: null, answer: '', health: false };
+    return { lang, faq: r.item.id, answer: lang === 'en' ? (r.item.a.en || '') : '', health: false };
+  }
+
+  /* 見本の「まとめて書けば入る」: 決まった形の言い方だけ拾う（本物は AI が読む） */
+  function fillSample(text, today) {
+    const year = today.slice(0, 4);
+    const ymd = (m, d) => {
+      const s = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      return s >= today ? s : `${Number(year) + 1}${s.slice(4)}`;
+    };
+    const out = { worries: [] };
+    const flight = text.match(/(?:帰り|飛行機)[^。\n]*?(\d{1,2})\s*[月/]\s*(\d{1,2})\s*日?[^\d。\n]*(\d{1,2})\s*(?:時|:(\d{2}))/);
+    const rest = flight ? text.replace(flight[0], '') : text;
+    const md = rest.match(/(\d{1,2})\s*[月/]\s*(\d{1,2})/);
+    if (md) out.date = ymd(md[1], md[2]);
+    const ppl = rest.match(/(\d{1,2})\s*(?:人|名)/);
+    if (ppl) out.people = Number(ppl[1]);
+    const nm = rest.match(/(?:^|[。、\s])([^\s、。\d]{1,12}?)(?:です|と申します)/);
+    if (nm && !/泳|初め|酔|ダイビ|スノ|怖|苦手/.test(nm[1])) out.name = nm[1];
+    if (/スノーケル|シュノーケル/.test(text)) out.tour = 'snorkel'; else if (/ダイビング/.test(text)) out.tour = 'dive';
+    const swim = [['none', /泳げな/], ['shallow', /足のつく/], ['25m', /25\s*m/i], ['good', /泳ぎ[はが]得意/]].find(([, re]) => re.test(text));
+    if (swim) out.swim = swim[0];
+    if (/初めて|はじめて/.test(text)) out.exp = 'first'; else if (/数回/.test(text)) out.exp = 'few'; else if (/C\s*カード|ライセンス/i.test(text)) out.exp = 'card';
+    if (/船酔い/.test(text)) out.worries.push('seasick');
+    if (/深い/.test(text)) out.worries.push('deep');
+    if (/顔をつけ/.test(text)) out.worries.push('face');
+    if (flight) Object.assign(out, { flight_mode: 'set', flight_date: ymd(flight[1], flight[2]), flight_time: `${flight[3].padStart(2, '0')}:${flight[4] || '00'}` });
+    else if (/飛行機(?:に|は)乗らない/.test(text)) out.flight_mode = 'none';
+    return out;
+  }
+
+  /* 聞けば答える。faqs は [{ id, q, a }]（お店の日本語の文）。{ lang, faq, answer, health, mode } を返す */
+  async function guestFaq(question, faqs) {
+    const body = { kind: 'faq', question, faqs };
+    const v = G().checkAsk(body);
+    if (!v.ok) throw new ReadError('input', v.errors.join(','));
+    const sent = G().askBody(body);
+    if (touchesHealth(sent.question)) return { lang: langOf(sent.question), faq: null, answer: '', health: true, mode: 'none' };
+    const used = guestMode();
+    let got;
+    if (used === 'real') got = await postGuest(sent);
+    else { await new Promise(resolve => setTimeout(resolve, SAMPLE_MS)); got = faqSample(sent.question); }
+    const a = G().faqAnswer(got, sent.faqs.map(f => f.id));
+    if (!a.ok) throw new ReadError('bad', a.errors.join(','));
+    return { ...a.answer, mode: used };
+  }
+
+  /* まとめて書けば入る。{ fill, fields, healthSeen, mode } を返す。fill の欄は intake.js の下書きの名前 */
+  async function guestFill(text) {
+    const body = { kind: 'fill', text };
+    const v = G().checkAsk(body);
+    if (!v.ok) throw new ReadError('input', v.errors.join(','));
+    const red = R.healthRedact.redact(G().askBody(body).text);
+    const today = R.today();
+    const used = guestMode();
+    let raw;
+    if (used === 'real') {
+      const got = await postGuest({ kind: 'fill', text: red.text });
+      const f = got && got.fill && typeof got.fill === 'object' ? got.fill : null;
+      if (!f) throw new ReadError('bad', 'shape');
+      raw = { tour: f.tour, date: f.date, people: f.people, name: f.name, swim: f.swim, exp: f.exp, worries: f.worries,
+        flight_mode: f.flightMode, flight_date: f.flightDate, flight_time: f.flightTime, health_info_visible: got.healthSeen === true };
+    } else {
+      await new Promise(resolve => setTimeout(resolve, SAMPLE_MS));
+      raw = fillSample(red.text, today);
+    }
+    const f = G().fillAnswer(raw, today);
+    if (!f.ok) throw new ReadError('bad', f.errors.join(','));
+    return { fill: f.fill, fields: f.fields, healthSeen: f.healthSeen || red.redacted > 0, mode: used };
+  }
+
   R.aiReader = {
     ReadError,
+    guestFaq,
+    guestFill,
     read,
     preview,
     mode,

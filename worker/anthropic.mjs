@@ -15,10 +15,11 @@ export class UpstreamError extends Error {
   }
 }
 
-/* ask は read-core.mjs の checkRequest が組み直した物。{ text, usage, stopReason } を返す */
+/* ask は read-core.mjs の checkRequest か guest-ai-core.mjs の checkGuestRequest が組み直した物。{ text, usage, stopReason } を返す */
 export async function callModel(ask, env, io) {
-  const content = ask.doc === 'mail'
-    ? [{ type: 'text', text: `${ask.prompt}\n\n--- 書類 ---\n${ask.text}` }]
+  /* 写真は画像と文。ほか（予約メール・お客さま画面の質問と文）は文だけで、見出し（label）の下に本文 */
+  const content = !ask.image
+    ? [{ type: 'text', text: `${ask.prompt}\n\n${ask.label || '--- 書類 ---'}\n${ask.text}` }]
     : [{ type: 'image', source: { type: 'base64', media_type: ask.mediaType, data: ask.image } }, { type: 'text', text: ask.prompt }];
   let res;
   try {

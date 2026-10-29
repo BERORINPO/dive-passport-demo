@@ -14,7 +14,7 @@
 <!-- 見本の帯。消せない。Worker 版を作るとき tools/build-site.mjs がこの 1 行を外す（js/demo-band.js も、Worker 版なら外す） -->
 <p class="demo-band" id="demoBand" role="note">見本の画面です。入れた内容はこの端末の中だけに残り、お店には届きません。</p>
 <!-- REDUX M1-lite（予約前の受付）の試作。客の画面と店の画面を 1 ページで切り替える。
-     入力はこのブラウザの中だけに残り、どこにも送らない。答えは店が書いた文だけで、AI は文章を作らない -->
+     見本の入力はこのブラウザの中だけに残る（Worker 版は、お客さまの質問と健康の所を外したまとめ書きを AI に送る）。答えは店が書いた文から選び、AI は選ぶのと訳すのと申し込みの欄を読むだけで、文章を作らない -->
 <header class="bar">
   <div class="brand">
     <img class="brand__logo" id="logo" src="assets/chara.png" alt="" width="36" height="36">
@@ -72,6 +72,7 @@
 <script src="js/data-big-sample.js"></script>
 <script src="js/photo-mask.js"></script>
 <script src="js/photo-prep.js"></script>
+<script src="js/guest-ai-schema.js"></script>
 <script src="js/ai-reader.js"></script>
 <script src="js/roster-sync.js"></script>
 <script src="js/rules.js"></script>

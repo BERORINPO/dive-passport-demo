@@ -6,10 +6,11 @@ import { callModel } from './anthropic.mjs';
 
 /* 返すのは { ok: true, reading } か { ok: false, status, error, healthSeen }。note にはログに出す短い名前だけを足す。
    上限はお店ごとに数える（shop は必須。無いと budget.mjs が断る） */
-export async function askModel(ask, env, io, note, shop) {
-  const keys = { ...periods(io.now()), shop };
+export async function askModel(ask, env, io, note, shop, opts = {}) {
+  /* opts: お客さま画面の AI は、答えの読み方（parse）と上限（budgetShop・limits。予約メールの読み取りと別に数える）を替える */
+  const keys = { ...periods(io.now()), shop: opts.budgetShop || shop };
   try {
-    const got = await reserve(env.BUDGET, keys, limitsFrom(env));
+    const got = await reserve(env.BUDGET, keys, opts.limits || limitsFrom(env));
     if (!got.ok) { note.why = got.why; return { ok: false, status: 429, error: 'limit', which: got.why }; }
   } catch (e) {
     note.why = 'kv';
@@ -29,7 +30,7 @@ export async function askModel(ask, env, io, note, shop) {
   note.stop = answer.stopReason;
   await spend(env.BUDGET, keys, costMicro(answer.usage)).catch(() => { note.why = 'spend-kv'; });
 
-  const reading = readingFrom(answer.text, ask.doc);
+  const reading = opts.parse ? opts.parse(answer.text) : readingFrom(answer.text, ask.doc);
   if (!reading.ok) {
     /* 読み取りは使えないが、健康の情報が見えたと答えていたら画面に知らせる（送った記録に印を残し、同じ写真を送り直させない） */
     Object.assign(note, { why: `answer-${reading.error}`.slice(0, 40), seen: reading.healthSeen });

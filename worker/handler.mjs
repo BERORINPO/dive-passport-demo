@@ -13,6 +13,7 @@
    public-handler.mjs にあり、この Worker の束にも入るのは手元の確かめ（tools/serve-dist.mjs）で同じ場所から呼べるように残しているだけ
    （ここでは SHOP を同じ Worker の ShopService にする。置いた形では Access の中なので外からは届かない）。redux-ask の束にはこのファイルは入らない */
 import { checkRequest, periods, limitsFrom, MAX_BODY, MODEL } from './read-core.mjs';
+import { checkGuestRequest, guestAnswerFrom, guestLimits, MAX_GUEST_BODY } from './guest-ai-core.mjs';
 import { checkPut, readStored, shrinkProblem, serverOwned, MAX_PUT_BODY } from './sync-core.mjs';
 import { liveOf, checkPastRange, readPast, MAX_PAST_ROWS } from './past-core.mjs';
 import { verifyAccess } from './access.mjs';
@@ -34,10 +35,11 @@ import { shopForEmail, nameOf, withShopName } from './shop-core.mjs';
 const REQUIRED_SECRETS = ['ANTHROPIC_API_KEY', 'ACCESS_TEAM_DOMAIN', 'ACCESS_AUD', 'ALLOWED_EMAILS'];
 const REQUIRED_VARS = ['DAILY_LIMIT', 'MONTHLY_USD'];
 const ROUTES = { '/api/healthz': ['GET'], '/api/read': ['POST'], '/api/roster': ['GET', 'PUT'], '/api/roster/past': ['GET'], '/api/mail-unread': ['GET', 'POST'], '/api/bookings': ['POST', 'OPTIONS'],
-  '/api/ask': ['POST'], '/api/ask-link': ['POST'], '/api/walkin-key': ['POST'], '/api/walkins': ['GET'], '/api/walkin-drop': ['POST'], '/api/api-keys': ['GET', 'POST'] };
+  '/api/ask': ['POST'], '/api/ask-link': ['POST'], '/api/walkin-key': ['POST'], '/api/walkins': ['GET'], '/api/walkin-drop': ['POST'], '/api/api-keys': ['GET', 'POST'],
+  '/api/guest-ai': ['POST'] };
 
 const WALKIN_ROUTES = ['/api/walkin-key', '/api/walkins', '/api/walkin-drop'];
-const NEEDS_DB = ['/api/roster', '/api/roster/past', '/api/mail-unread', '/api/ask-link', '/api/read', '/api/healthz', '/api/api-keys', ...WALKIN_ROUTES];
+const NEEDS_DB = ['/api/roster', '/api/roster/past', '/api/mail-unread', '/api/ask-link', '/api/read', '/api/guest-ai', '/api/healthz', '/api/api-keys', ...WALKIN_ROUTES];
 
 function missingConfig(env) {
   const miss = [...REQUIRED_SECRETS, ...REQUIRED_VARS].filter(k => typeof env[k] !== 'string' || env[k].trim() === '');
@@ -87,6 +89,25 @@ async function read(request, env, io, note, shop) {
   if (got.ok) return json(200, got.reading);
   if (got.error === 'limit') return json(429, { error: 'limit', which: got.which });
   return json(got.status, got.error === 'answer' ? { error: 'answer', healthSeen: got.healthSeen } : { error: got.error });
+}
+
+/* お客さま画面の AI（聞けば答える・まとめて書けば入る）。決まりは guest-ai-core.mjs。上限は予約メールの読み取りと別に、お店ごとに数える
+   （キーのお店は「<お店>~guest」。お客さんの質問で、メールの読み取りの上限を使い切らない）。体のことに触れた質問は AI を呼ばずに返す */
+async function guestAi(request, env, io, note, shop) {
+  if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
+  const raw = await readCapped(request, MAX_GUEST_BODY);
+  if (raw === null) return json(413, { error: 'size' });
+  let given;
+  try { given = JSON.parse(raw); } catch (e) { return json(400, { error: 'json' }); }
+  const checked = checkGuestRequest(given, periods(io.now()).day);
+  if (!checked.ok) { note.why = checked.error.slice(0, 40); return json(400, { error: 'input' }); }
+  if (checked.stop) { note.why = 'health-stop'; return json(200, { lang: 'ja', faq: null, answer: '', health: true }); }
+  const ask = checked.ask;
+  Object.assign(note, { doc: ask.doc, size: ask.size, redacted: ask.redacted });
+  const got = await askModel(ask, env, io, note, shop, { budgetShop: `${shop}~guest`, limits: guestLimits(env), parse: (text) => guestAnswerFrom(text, ask) });
+  if (got.ok) return json(200, got.reading);
+  if (got.error === 'limit') return json(429, { error: 'limit', which: got.which });
+  return json(got.status, { error: got.error });
 }
 
 /* お店の名簿（plan/server.md）。GET は今の名簿、PUT は版を確かめて書く。版が違えば最新を返す（画面が当て直して送り直す）。
@@ -306,6 +327,7 @@ async function route(request, env, io, url, note) {
   if (url.pathname === '/api/api-keys') return apiKeysStaff(request, env, io, url, note, who);
   const mine = await staffShop(env, note, who);
   if (mine.res) return mine.res;
+  if (url.pathname === '/api/guest-ai') return guestAi(request, env, io, note, mine.shop);
   return url.pathname === '/api/healthz' ? healthz(env, io, mine.shop) : read(request, env, io, note, mine.shop);
 }
 

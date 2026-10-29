@@ -126,7 +126,7 @@ function closingBrace(text, start) {
   }
   return -1;
 }
-function jsonObjects(text) {
+export function jsonObjects(text) {
   const found = [];
   let i = text.indexOf('{');
   for (let tries = 0; i !== -1 && tries < MAX_STARTS; tries += 1) {
