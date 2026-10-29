@@ -472,7 +472,7 @@ test('お店の Worker の口 intakeBooking: 呼び手の値を信じない（�
 
 test('Service Binding の口: 6 つは今まで通りで、足したのは intakeBooking だけ。fakeShopBinding・ShopRpc も同じ。redux-ask に D1 の binding は無く、INTAKE_LIMIT が増える', async () => {
   assert.deepEqual(SHOP_METHODS.slice(0, 6), ['askView', 'askApply', 'siteHosts', 'siteBooking', 'walkinView', 'walkinSubmit']);
-  assert.deepEqual(SHOP_METHODS.slice(6), ['intakeBooking']);
+  assert.deepEqual(SHOP_METHODS.slice(6, 7), ['intakeBooking']);   // 後ろの trialView・trialAsk は 2026-10-29 trial-shops（test/trial.test.mjs）
   const s = setup();
   const binding = fakeShopBinding(new ShopService(s.env, s.io));
   assert.deepEqual(Object.keys(binding).filter(k => typeof binding[k] === 'function').sort(), [...SHOP_METHODS].sort());

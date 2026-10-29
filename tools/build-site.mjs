@@ -36,6 +36,8 @@ export function headers() {
      Access の外に出す道（plan/meibo.md） */
   const ask = [`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'self'`,
     `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'`, `object-src 'none'`].join('; ');
+  /* trial.html（実在のお店の試し版。決定ログ 2026-10-29 trial-shops）は ask と同じで、案内役の絵とロゴだけ同じ場所から読む */
+  const trial = ask.replace(`img-src 'none'`, `img-src 'self'`);
   const block = (paths, lines) => paths.map(p => [p, ...lines.map(l => `  ${l}`)].join('\n')).join('\n');
   return [
     block(['/*'], ['X-Content-Type-Options: nosniff', 'Referrer-Policy: no-referrer', 'X-Robots-Tag: noindex, nofollow',
@@ -43,6 +45,7 @@ export function headers() {
     block(['/', '/index.html', '/index'], [`Content-Security-Policy: ${index}`, 'Cache-Control: no-cache']),
     block(['/pass.html', '/pass'], [`Content-Security-Policy: ${pass}`, 'Cache-Control: no-cache']),
     block(['/ask.html', '/ask', '/walkin.html', '/walkin'], [`Content-Security-Policy: ${ask}`, 'Cache-Control: no-store']),
+    block(['/trial.html', '/trial'], [`Content-Security-Policy: ${trial}`, 'Cache-Control: no-store']),
     /* どの束を取ったかで画面の字が分かるので、長くためて取りに来る回数を減らす（Worker を通らないので path はログに出ない） */
     block(['/fonts/*'], ['Cache-Control: public, max-age=31536000, immutable']),
     block(['/js/*', '/css/*'], ['Cache-Control: no-cache']),
@@ -93,8 +96,10 @@ export function swFor(entries, template = readFileSync(join(root, 'sw.js'), 'utf
   return template.replace("'__REDUX_SW_SHELL__'", shell.map(p => `'${p}'`).join(', ')).replace('__REDUX_SW_VERSION__', version);
 }
 
-/* お客さん用の Worker に置くページ: お店が送ったリンクの ask.html と、店頭の QR の walkin.html */
-export const ASK_PAGES = ['ask.html', 'walkin.html'];
+/* お客さん用の Worker に置くページ: お店が送ったリンクの ask.html と、店頭の QR の walkin.html と、実在のお店の試し版の trial.html */
+export const ASK_PAGES = ['ask.html', 'walkin.html', 'trial.html'];
+/* trial.html が読む絵（案内役と、css/app.css の --logo-mark のロゴ） */
+export const ASK_ASSETS = ['assets/chara.png', 'assets/logo-mark.png', 'assets/logo-mark-light.png'];
 
 /* ASK_PAGES が読む js と css（script の src と stylesheet の href）。これ以外はお客さん用の Worker に置かない */
 export function askFiles(htmls = ASK_PAGES.map(p => [p, readFileSync(join(root, p), 'utf8')])) {
@@ -110,7 +115,7 @@ export function askFiles(htmls = ASK_PAGES.map(p => [p, readFileSync(join(root, 
 export function askHeaders() {
   const all = headers().split('\n');
   /* 共通（/*）と、ask.html・/ask の CSP、js と css のキャッシュだけを、同じ書き方で写す */
-  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/js/*', '/css/*']);
+  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/trial.html', '/trial', '/js/*', '/css/*']);
   const out = [];
   let on = false;
   for (const line of all) {
@@ -122,7 +127,7 @@ export function askHeaders() {
 
 function buildAsk() {
   rmSync(outAsk, { recursive: true, force: true });
-  const files = askFiles();
+  const files = [...askFiles(), ...ASK_ASSETS];
   for (const f of files) {
     mkdirSync(dirname(join(outAsk, f)), { recursive: true });
     cpSync(join(root, f), join(outAsk, f));

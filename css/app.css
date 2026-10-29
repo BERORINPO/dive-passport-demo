@@ -285,6 +285,11 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .view--pass { max-width: 720px; margin: 0 auto; }
 .view--desk { max-width: 760px; margin: 0 auto; }
 .wrap--narrow { max-width: 640px; }
+/* 実在のお店の試し版（trial.html。決定ログ 2026-10-29 trial-shops）。上の帯は消せず、お店の公式ページではないと言う（見本の帯と同じ色） */
+.trial-band { margin: 0; padding: 10px 16px 8px; background: var(--demo-bg); color: var(--demo-ink); font-weight: 700; font-size: 14px; line-height: 1.5; text-align: center; }
+.trial-asof { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
+.trial-tour { margin-top: 18px; }
+.trial-tour__name { margin: 0; font-size: 16px; font-weight: 700; }
 .plist { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 8px 0 12px; }
 .plist dt { color: var(--muted); font-size: 14px; }
 .plist dd { margin: 0; word-break: break-word; }

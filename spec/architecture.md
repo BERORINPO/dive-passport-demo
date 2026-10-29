@@ -5,10 +5,10 @@
 ## 1. 役割対応表
 | 役割 | パス |
 |---|---|
-| shared | js/pass-schema.js js/roster-schema.js js/guest-ai-schema.js js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
-| core | js/roster-core.js js/roster-guest.js js/contact-link.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/past-core.mjs worker/backup-core.mjs worker/auto-core.mjs worker/ask-core.mjs worker/ask-input.mjs worker/shop-core.mjs worker/walkin-core.mjs worker/intake-core.mjs worker/guest-ai-core.mjs |
+| shared | js/pass-schema.js js/roster-schema.js js/guest-ai-schema.js worker/trial-shops.mjs js/data-match.js js/data-samples.js js/data-sipe.js js/data-big-sample.js |
+| core | js/roster-core.js js/roster-guest.js js/contact-link.js js/roster-day.js js/roster-share.js js/match.js js/health-redact.js js/photo-mask.js js/roster-auto.js worker/read-core.mjs worker/sync-core.mjs worker/past-core.mjs worker/backup-core.mjs worker/auto-core.mjs worker/ask-core.mjs worker/ask-input.mjs worker/shop-core.mjs worker/walkin-core.mjs worker/intake-core.mjs worker/guest-ai-core.mjs worker/trial-core.mjs |
 | adapter | js/ai-reader.js js/roster-sync.js js/ask-api.js js/core.js js/pass-codec.js js/qr.js js/photo-prep.js worker/access.mjs worker/budget.mjs worker/anthropic.mjs worker/roster-db.mjs worker/unread-db.mjs worker/mail.mjs worker/site-guard.mjs worker/ask-db.mjs worker/ask-key.mjs worker/shop-client.mjs worker/shop-db.mjs worker/limit-db.mjs worker/walkin-db.mjs worker/fakes.mjs worker/intake-db.mjs |
-| entry | index.html sw.js pass.html ask.html walkin.html js/ask-page.js js/walkin-page.js js/walkin-staff.js js/person-links.js js/app.js js/demo-band.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/auto-flow.js js/booking.js js/booking-add.js js/booking-edit.js js/intake-photo.js js/guest-ask.js js/guest-steps.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs worker/public-handler.mjs worker/api-http.mjs worker/shop-service.mjs worker/shop-rpc.mjs worker/walkin-route.mjs worker/backup.mjs js/api-keys-staff.js worker/intake-route.mjs |
+| entry | index.html sw.js pass.html ask.html walkin.html trial.html js/trial-page.js js/ask-page.js js/walkin-page.js js/walkin-staff.js js/person-links.js js/app.js js/demo-band.js js/data.js js/data-pass.js js/intake.js js/passport.js js/shop.js js/chat.js js/pass-view.js js/viewer.js js/rules.js js/auto-flow.js js/booking.js js/booking-add.js js/booking-edit.js js/intake-photo.js js/guest-ask.js js/guest-steps.js js/day-roster.js js/past-trips.js js/share-roster.js js/partner-photo.js worker/index.mjs worker/handler.mjs worker/ask.mjs worker/auto.mjs worker/ask-route.mjs worker/ask-index.mjs worker/public-handler.mjs worker/api-http.mjs worker/shop-service.mjs worker/shop-rpc.mjs worker/walkin-route.mjs worker/backup.mjs js/api-keys-staff.js worker/intake-route.mjs |
 
 - entry の画面の部品は、今は js/ の直下に並ぶ（rename しない）。data.js と data-pass.js は時計を使う見本データなので entry
 - Worker（worker/）は画面と同じ 4 役割で分ける。core の worker/read-core.mjs は js/roster-schema.js と js/health-redact.js を読んで、画面と同じ検査をもう一度かける。worker/fakes.mjs は Worker の adapter の見本（テストだけが読み、置く物には入らない）
@@ -25,7 +25,7 @@
 | js/core.js | localStorage | 無し（ブラウザの中だけ） | — | なし | このブラウザだけ |
 | sw.js | ブラウザの Cache Storage（画面の部品の写し） | 無し（test/sw.test.mjs の caches と fetch の見本） | — | なし | このブラウザだけ（/api は写さない） |
 | js/roster-sync.js | 同じ場所の Worker `/api/roster`（お店の名簿の正本、D1）と `/api/roster/past`（済んだ便、読むだけ） | 無し（test/sync-client.test.mjs は本物の worker/handler.mjs と fakeD1 につなぐ） | — | Access のログイン（Cookie） | お店の名簿。版の番号つきで、ぶつかったら最新を返す |
-| js/ask-api.js | redux-ask の `/api/ask` と `/api/walkin`（ask.reduxdive.com の同じ場所。お客さんのリンクの鍵・店頭の QR の鍵は本文で送る） | 無し（test/ask-link.test.mjs・test/walkin.test.mjs は本物の handlePublic と、fakeShopBinding でつないだ ShopService・fakeD1 につなぐ） | — | お客さんのリンクの鍵・店頭の QR の鍵（Access なし） | お客さんが答えた項目だけ（名簿は読まない）。店頭の QR は「店頭で入れた人」に置くだけで、名簿の本体には入れない |
+| js/ask-api.js | redux-ask の `/api/ask` と `/api/walkin` と `/api/trial`（実在のお店の試し版）（ask.reduxdive.com の同じ場所。お客さんのリンクの鍵・店頭の QR の鍵は本文で送る） | 無し（test/ask-link.test.mjs・test/walkin.test.mjs は本物の handlePublic と、fakeShopBinding でつないだ ShopService・fakeD1 につなぐ） | — | お客さんのリンクの鍵・店頭の QR の鍵（Access なし） | お客さんが答えた項目だけ（名簿は読まない）。店頭の QR は「店頭で入れた人」に置くだけで、名簿の本体には入れない |
 | worker/anthropic.mjs | Claude API（claude-haiku-5-5、/v1/messages） | `fakeAnthropic`（worker/fakes.mjs） | AI の読み取り試験 2026-10-21 の答え（予約の項目は試験していない。置いたあとに確かめる） | `ANTHROPIC_API_KEY`（この Worker 専用の 1 本、並行 1 本。Anthropic のこの Worker 専用ワークスペースで発行し、そこで月の上限） | なし |
 | worker/access.mjs | Cloudflare Access の公開鍵（`https://<team>/cdn-cgi/access/certs`） | `fakeAccess`（鍵を作って JWT を署名する） | — | なし（`ACCESS_TEAM_DOMAIN`・`ACCESS_AUD`・`ALLOWED_EMAILS` は secret） | なし |
 | worker/budget.mjs | Workers KV（`BUDGET`） | `fakeKv` | — | Worker の binding | AI を呼ぶ 1 日の回数と今月の費用（目安）だけ。キーはお店ごと（`day:<お店>:<日>`） |
@@ -63,6 +63,7 @@
 | pass.html | なし | なし | 読まない |
 | ask.html | なし | なし | 読まない |
 | walkin.html | なし | なし | 読まない |
+| trial.html | なし | なし | 読まない |
 | css/app.css | なし | なし | — |
 | css/fonts.css | なし | なし | — |
 
@@ -78,6 +79,7 @@
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
 |---|---|---|---|
+| 2026-10-29 trial-shops | 実在のお店 2 店（マリンハウスシーサー那覇店・Pro Scuba Team SEALs）の試し版のお客さまの画面を、お店の手を使わずに作る。ask.reduxdive.com/trial#t=<22 字の鍵>（鍵は # の後ろだけで、本文で /api/trial に送る）。中身はお店の公開ホームページの事実（料金・ツアー・集合・持ち物・よくある質問）を自分の言葉で書き直した物で、出どころの URL は worker/trial-shops.mjs に残す（画面には出さない）。AI はお店の Worker の ShopRpc.trialAsk（guest-ai-core と同じ: 選ぶ・訳すだけ・体のことは答えない）で、お店の答えの一覧は鍵から Worker が引く。答えが無いことは「お店に確認してください」。上限は試し版ごと（`trial~<id>`、既定 1 日 150 回・月 $2）。申し込みは送れない見本で、名簿・予約・D1 には触れない。消せない帯「REDUX の試し版です（お店の公式ページではありません）」、お店のロゴ・写真は使わない、noindex・nofollow、どこからもリンクしない | 「今は要らない」と答えた店に、先に作って楽さを試してもらう（11 月上旬の結果の要約メールにリンクを付ける予定）。Yosuke「作ってみるしかないか」（2026-10-29）。却下: お店のサイトの文や写真をそのまま使う（丸写し・公式に見える）、index.html の画面をそのまま Access の外に出す（名簿の JS と道が外に出る）、redux-ask に AI の鍵を持たせる（2026-10-28 ask-service-binding の分け方を崩す） | 有（test/trial.test.mjs: 鍵・送られた一覧を使わない・体のことは AI を呼ばない・上限が別・画面に URL や連絡先が無い・noindex） |
 | 2026-10-29 chara-facing | 案内役の絵は、見出しの横・答えの左の印・手順の行の横のどこでも左右を返し（CSS の transform: scaleX(-1)）、右の文字の方を向かせる。原画（assets/chara.png）は書き換えない。全身のまま・丸く切らない決めは変えない | Yosuke「マスコットの向きも変じゃね」（2026-10-29）。原画は顔が左向きで、文字の左に置くと文字に背を向けて見えた。却下: 原画を左右反転して保存し直す（デザイナーの原画を変える）、絵を文字の右に移す（答えの左の印という形が崩れる） | 無（形は目で見る） |
 | 2026-10-29 header-logo | 上の帯の左のアイコンを、案内役の絵から REDUX のロゴの印（reduxdive.com のロゴ logo-redux.png のコンパスと波を切り出した assets/logo-mark.png。暗い画面設定のお客さんの画面は線の白い logo-mark-light.png。favicon.svg も同じ印に替えた。緑の六角形は旧 AquaGate の印）に替え、お客さんの画面と店員の画面の両方に同じロゴを出す。案内役は「聞きたいことを、そのまま」「まとめて書いて、入れてもらう」の見出しの横・答えの左の印・手順の行の横だけ（2026-10-28 shell-character の「帯」を外す） | Yosuke「REDUX のロゴと違う」→「それで進めて」、六角形は「旧 aquagate で利用していたような」（2026-10-29）。店員の画面にも出すのは、画面を切り替えても同じ道具だと分かるように（前は店員の画面で隠していた）。却下: 案内役を帯に残す（ロゴと取り違える） | 無（形は目で見る） |
 | 2026-10-29 guest-ai-steps | お客さまの画面の AI（聞けば答える・まとめて書けば入る）は、案内役の横に「いま何をしているか」を 1 行ずつ出す（聞く: 質問を読んだ（言葉）→ お店の答え N 件から探す → 選んだ → 訳した。まとめ書き: N か所を読み取った → 欄を 1 つずつ入れ、入れた欄を一瞬光らせる）。行の中身は AI が返した物から作り、飾りの手順は出さない。design.md の「動き」の例外は、この行の出方・● の点滅・欄の光りだけ。「動きを減らす」設定では待たず、動かさない | Yosuke「muse のように実際に何かしているみたいにわかりやすく」→ モックを見て「これで入れて」（2026-10-29）。却下: 待つ間の「…」1 行だけ（何をしたか見えない）、作った手順を時間で流す（AI がしていないことを見せる） | 無（形は目で見る。手順の文は data.js） |

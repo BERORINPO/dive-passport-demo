@@ -184,7 +184,7 @@ workerFiles.filter(f => !listed.has(f)).forEach(f => fail(`表 1 に無い Worke
 /* 外の URL は、ファイルごとに決めた先（完全一致）だけ。fakes.mjs は Access の見本の先だけ。
    検査で追えない形（io.fetch(env.X)、文字を足して作った URL）は、テストの io.fetch が知らない先で例外を出すことで止める */
 const ACCESS_URLS = ['https://${team}/cdn-cgi/access/certs', 'https://${team}'];
-const WORKER_NET = { 'worker/index.mjs': { kind: 'live', urls: [] }, 'worker/ask-index.mjs': { kind: 'live', urls: [] }, 'worker/access.mjs': { kind: 'io', urls: ACCESS_URLS },
+const WORKER_NET = { 'worker/index.mjs': { kind: 'live', urls: [] }, 'worker/ask-index.mjs': { kind: 'live', urls: [] }, 'worker/shop-rpc.mjs': { kind: 'live', urls: [] }, 'worker/access.mjs': { kind: 'io', urls: ACCESS_URLS },
   'worker/anthropic.mjs': { kind: 'io', urls: ['https://api.anthropic.com/v1/messages'] },
   'worker/site-guard.mjs': { kind: 'io', urls: ['https://challenges.cloudflare.com/turnstile/v0/siteverify'] }, 'worker/fakes.mjs': { kind: 'fake', urls: ACCESS_URLS } };
 const WORKER_TOOLS = NET_TOOLS.filter(([re]) => !/\(\?:https\?\|wss\?\|ftp\)/.test(re.source) && !/\(\?:\\\/\\\/\|/.test(re.source));
@@ -238,7 +238,8 @@ if (!ALLOW || !Object.keys(ALLOW).length) fail('spec/architecture.md に表「�
 tableProblems(ALLOW).forEach(fail);
 const htmlFiles = readdirSync(new URL('./', root)).filter(f => f.endsWith('.html') && !f.endsWith('.local.html'));
 /* 字体を読まないページのうち、同じ場所の Worker にだけ送ってよいページ（お客さんのリンク。/api/ask） */
-const CONNECT_SELF = ['ask.html', 'walkin.html'];
+const CONNECT_SELF = ['ask.html', 'walkin.html', 'trial.html'];
+const IMG_SELF = ['trial.html'];   // 案内役の絵とロゴだけ同じ場所から読む（決定ログ 2026-10-29 trial-shops）
 const cssFiles = readdirSync(new URL('css/', root)).filter(f => f.endsWith('.css')).map(f => `css/${f}`);
 if (!htmlFiles.length) fail('検査する HTML が無い');
 [...htmlFiles, ...cssFiles].forEach(f => {
@@ -246,7 +247,7 @@ if (!htmlFiles.length) fail('検査する HTML が無い');
   if (!rule) { fail(`表「外から読む先」に ${f} の行が無い`); return; }
   const text = read(f);
   fileProblems(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: ${v}`));
-  if (f.endsWith('.html') && !rule.fonts) fontFaceProblems(text, read, { connectSelf: CONNECT_SELF.includes(f) }).forEach(v => fail(`${f}: ${v}`));
+  if (f.endsWith('.html') && !rule.fonts) fontFaceProblems(text, read, { connectSelf: CONNECT_SELF.includes(f), imgSelf: IMG_SELF.includes(f) }).forEach(v => fail(`${f}: ${v}`));
   unusedAllows(text, rule, f.endsWith('.html')).forEach(v => fail(`${f}: 表で許しているのに使っていない: ${v}`));
 });
 Object.keys(ALLOW || {}).filter(f => !existsSync(new URL(f, root))).forEach(f => fail(`表「外から読む先」のファイルが無い: ${f}`));
