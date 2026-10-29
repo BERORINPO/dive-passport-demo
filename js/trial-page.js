@@ -223,9 +223,10 @@
     root.replaceChildren(
       el('h1', { class: 'page__h1', text: shop.name }),
       el('p', { class: 'trial-asof', text: `${shop.area}・お店の公開ホームページの情報（${shop.asOf} 時点）から作りました。最新の料金や空きは、お店に確認してください。` }),
+      /* 聞く欄を一番上に（ツアーが 6 つあると、下に置いた聞く欄まで 4,000px ほど送らないと届かなかった）。ツアーとお店のことは、その下で読む */
+      askSection(),
       el('section', { class: 'guest-sec' }, el('h2', { class: 'h2', text: 'ツアー' }), shop.tours.map(tourBlock)),
       shop.info.length ? el('section', { class: 'guest-sec' }, el('h2', { class: 'h2', text: 'お店のこと' }), el('div', { class: 'facts' }, shop.info.map(i => row(i.k, i.v)))) : null,
-      askSection(),
       el('div', { class: 'guest-sec' }, formRoot));
   }
 
