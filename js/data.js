@@ -174,7 +174,7 @@
     noneOfThese: { ja: 'どれでもない（お店に聞く）', en: 'None of these (ask the shop)' },
     sent: { ja: 'お店に送ったよ。返事はお店の人から届くね。（デモなので「お店の画面」に入ります）', en: "Sent to the shop. A person will reply. (In this demo it shows up in the shop view.)" },
     /* 本物（Worker 版）では「デモなので」とは言わない。聞いたことは、受付の「お店への質問」に入る */
-    sentReal: { ja: '受付の「お店への質問」に入れたよ。', en: "Added to the shop's questions." },
+    sentReal: { ja: 'お店の人に送ったよ。答えは、お店から聞いてね。', en: 'Sent to the shop staff. Please get the answer from the shop.' },
     intakeTitle: { ja: '予約の前に', en: 'Before you book' },
     bulkTitle: { ja: 'まとめて書いて、入れてもらう', en: 'Write it all at once' },
     bulkPlaceholder: { ja: '例: 11月3日に大人2人。山田です。2人とも泳げなくて、ダイビングは初めて。船酔いしやすいです。帰りは11月4日14時の飛行機。',
