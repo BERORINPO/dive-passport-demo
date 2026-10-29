@@ -122,11 +122,13 @@
     }
     steps.done(L(T.stepNone).replace('{n}', R.FAQ.length));
     const r = R.matchFaq(text);
-    if (r.status === 'hit') {
+    /* AI が「合う答えは無い」と言ったときは、決まった計算の当たりを答えとして出さない（言葉が似ているだけの別の答えになる。
+       例: 「駐車場に充電器は？」に駐車場の料金）。候補として「もしかして」に出すだけ。AI に届かなかったときは今までどおり */
+    if (r.status === 'hit' && !got) {
       log.append(answerCard(r.item, text));
-    } else if (r.status === 'maybe') {
+    } else if (r.status === 'hit' || r.status === 'maybe') {
       say(L(R.T.didYouMean));
-      log.append(candidates(r.candidates, text));
+      log.append(candidates(r.status === 'hit' ? [r.item] : r.candidates, text));
     } else {
       say(L(R.T.notFound));
       log.append(handOff(text));
