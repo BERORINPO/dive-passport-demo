@@ -38,7 +38,7 @@ Then open http://127.0.0.1:8106. This serves `dist/` with the same headers (CSP)
 
 ## Guide character
 
-- `assets/chara.png` is the shop's guide character, drawn by the team's designer (shell creature, transparent background, 256 px wide). It has no name yet, so the screens show none. It is shown whole (never cropped to a circle) on guest screens only: beside the FAQ heading (「聞きたいことを、そのまま」 and 「まとめて書いて、入れてもらう」), as the small mark left of each answer, and next to the AI's step lines. The header shows the REDUX logo (`favicon.svg`), not the character. Staff screens (front desk, bookings and roster, `pass.html`) do not show it.
+- `assets/chara.png` is the shop's guide character, drawn by the team's designer (shell creature, transparent background, 256 px wide). It has no name yet, so the screens show none. It is shown whole (never cropped to a circle) on guest screens only: beside the FAQ heading (「聞きたいことを、そのまま」 and 「まとめて書いて、入れてもらう」), as the small mark left of each answer, and next to the AI's step lines. The header shows the REDUX logo mark (`assets/logo-mark.png`, cut from the reduxdive.com logo), not the character. Staff screens (front desk, bookings and roster, `pass.html`) do not show it.
 - Answers are text only. The earlier 3D turtle (three.js, `turtle.glb`) and its voice lines were removed on 2026-10-28; they are in the git history if the owner wants them back.
 
 ## Bookings and the dive roster
