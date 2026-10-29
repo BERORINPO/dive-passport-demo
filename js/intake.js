@@ -29,6 +29,7 @@
   let bulkSteps = [];          // いま何をしているかの行（js/guest-steps.js の view に渡す）
   let bulkBusy = false;
   let aiFields = new Set();    // AI が入れた下書きの名前（tour・date・people・name・swim・exp・worries・flightMode・flightDate・flightTime）
+  let ownFields = new Set();   // お客さんが自分で入れた・選んだ下書きの名前。AI はここを上書きしない（Shape of AI の Auto-fill。決定ログ 2026-10-29 bulk-keep-own）
   const AI_SPOT = {            // 下書きの名前 → 印を付ける所の入力
     tour: 'input[name="tour"]', date: '#f-date', people: '#f-people', name: '#f-name', swim: 'input[name="swim"]', exp: 'input[name="exp"]',
     worries: 'input[name="worries"]', flightMode: 'input[name="flightMode"]', flightDate: '#f-fdate', flightTime: '#f-ftime'
@@ -44,8 +45,11 @@
       if (label && !label.querySelector('.ai-mark')) label.append(el('span', { class: 'ai-mark', 'data-ai': key, text: L(T().aiMark) }));
     });
   }
-  /* お客さんが触った欄は、確かめたものとして印を外す */
+  /* お客さんが触った欄は、確かめたものとして印を外し、自分で入れた欄として覚える */
+  const keyOf = (node) => Object.keys(AI_SPOT).find(k => node && node.matches && node.matches(AI_SPOT[k])) || '';
   const touched = (e) => {
+    const key = keyOf(e.target);
+    if (key) ownFields = new Set([...ownFields, key]);
     const mark = labelOf(e.target)?.querySelector('.ai-mark');
     if (!mark) return;
     aiFields.delete(mark.dataset.ai);
@@ -112,8 +116,11 @@
       renderForm();
       return;
     }
-    const keys = FILL_ORDER.filter(k => got.fields.includes(k));
-    bulkSteps = [{ kind: 'done', text: L(t.bulkStepRead).replace('{n}', keys.length) }];
+    const read = FILL_ORDER.filter(k => got.fields.includes(k));
+    const kept = read.filter(k => ownFields.has(k));
+    const keys = read.filter(k => !ownFields.has(k));
+    bulkSteps = [{ kind: 'done', text: L(t.bulkStepRead).replace('{n}', read.length) }];
+    if (kept.length) bulkSteps.push({ kind: 'note', text: L(t.bulkKept).replace('{fields}', kept.map(k => L(t[FILL_LABEL[k]])).join(R.lang === 'en' ? ', ' : '・')) });
     if (got.healthSeen) bulkSteps.push({ kind: 'note', text: L(t.bulkHealth) });
     if (!keys.length) bulkSteps.push({ kind: 'note', text: L(t.bulkNone) });
     for (const key of keys) {
@@ -369,7 +376,7 @@
         el('div', { class: 'actions' },
           el('button', { class: 'btn', type: 'button', text: L(t.seeShop), onclick: () => R.showTab('shop') }),
           el('button', { class: 'btn btn--ghost', type: 'button', text: L(t.again),
-            onclick: () => { doneId = null; savedNote = ''; draft = blank(); bulkText = ''; bulkSteps = []; aiFields = new Set(); render(); } }))));
+            onclick: () => { doneId = null; savedNote = ''; draft = blank(); bulkText = ''; bulkSteps = []; aiFields = new Set(); ownFields = new Set(); render(); } }))));
   }
 
   function render() {
