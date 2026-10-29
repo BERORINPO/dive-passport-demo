@@ -109,6 +109,16 @@ test('Worker: 体のことに触れた質問は AI に渡さない（stop）', (
   assert.ok(ok.ask && ok.ask.prompt.includes('"swim"') && ok.ask.text === '写真はもらえますか');
 });
 
+test('中国語の字: AI には質問と同じ字で訳させる。画面の lang は繁体字なら zh-Hant、簡体字なら zh-Hans、分からなければ zh', () => {
+  const ok = checkGuestRequest({ kind: 'faq', question: '可以拍照嗎？', faqs: FAQS }, TODAY);
+  assert.match(ok.ask.prompt, /繁体字の質問なら繁体字/);
+  assert.equal(G.langTag('zh', '不會游泳也可以參加嗎？ 可以參加。'), 'zh-Hant');
+  assert.equal(G.langTag('zh', '不会游泳也可以参加吗？ 可以参加。'), 'zh-Hans');
+  assert.equal(G.langTag('zh', '可以'), 'zh', '見分けられる字が無ければ zh のまま');
+  assert.equal(G.langTag('en', 'Can I swim?'), 'en');
+  assert.equal(G.langTag('ko', '수영'), 'ko');
+});
+
 test('Worker: まとめ書きは健康の所を外してから渡す', () => {
   const r = checkGuestRequest({ kind: 'fill', text: '11月3日に2人。持病で薬を飲んでいます。泳げません。' }, TODAY);
   assert.ok(!r.ask.text.includes('持病') && !r.ask.text.includes('薬'));
