@@ -63,7 +63,7 @@
 | pass.html | なし | なし | 読まない |
 | ask.html | なし | なし | 読まない |
 | walkin.html | なし | なし | 読まない |
-| trial.html | `https://static.cloudflareinsights.com/beacon.min.js/` `https://cloudflareinsights.com/cdn-cgi/` | なし | 読まない |
+| trial.html | `https://static.cloudflareinsights.com/beacon.min.js/` | なし | 読まない |
 | data.html | なし | なし | 読まない |
 | css/app.css | なし | なし | — |
 | css/fonts.css | なし | なし | — |
@@ -80,6 +80,7 @@
 ## 4. 決定ログ
 | 日付+topic | 決定 | 理由と却下案 | lint 昇格 |
 |---|---|---|---|
+| 2026-10-29 analytics-same-origin | 計測のスクリプトの送る先を、同じホストの /cdn-cgi/rum（data-cf-beacon の send.to）にし、CSP の connect-src から外の受け口（cloudflareinsights.com）を外す。ask の _headers に公表ページ（/data・/data.html）を足す | zone の自動の差し込みが ON のあいだ、外の受け口はこの token の送信を CORS で断った（2026-10-29 に本番で確かめた。同じホストの受け口は 204）。外の先が 1 つ減る。ask の公表ページには _headers が付いておらず、自動の差し込みが入って CSP の誤りが出ていた（PR #88 の抜け） | test/analytics.test.mjs・test/build-site.test.mjs |
 | 2026-10-29 analytics-no-transform | app.reduxdive.com と ask.reduxdive.com のページ（index・pass・ask・walkin・trial・data）の Cache-Control に no-transform を付け、Cloudflare に HTML を書き換えさせない。ダッシュボードの Web Analytics（zone reduxdive.com・自動の差し込み・EU に差し込まない lite・規則は全ホスト）はそのまま残す | 自動の差し込みを止めると本体のサイト reduxdive.com の計測も止まる（2026-10-29 に止めて戻した）。規則を reduxdive.com だけにすると、受け口が app・ask からの送信を CORS で断る（同じ site の token のため。試して戻した）。無料の枠では規則は 1 つだけ。1 ページにスクリプトは 1 つまで（Cloudflare の FAQ）なので、二重にしない | test/analytics.test.mjs |
 | 2026-10-29 analytics-country | 計測のスクリプトは HTML に書かず、Worker が国で出し分けて足す（worker/page-serve.mjs。お店の Worker の / と /index.html、お客さんの Worker の /trial と /trial.html だけ run_worker_first）。EU 27・EEA 3・英国・スイス（worker/analytics-core.mjs の NO_ANALYTICS_COUNTRIES）と、国が分からない読み込み（cf.country が無い・XX・T1）には入れない。版と integrity を決めたタグ。ダッシュボードの自動の差し込みは、app と ask のページでは no-transform で止める（analytics-no-transform）。Worker が返す応答には _headers が付かないので、ページの見出しは worker/page-headers.mjs に 1 か所で置き、_headers と Worker の両方が使う。Service Worker の写しからはタグを外す（写しは国を知らない） | Yosuke「C」（2026-10-29）。EU・英国・スイスでは cookie を使わない計測でも同意が要るという見方があるため、最初から外す。自動の差し込みは Service Worker が返す画面に入らないことがあり、公表ページにも入って CSP の誤りが出た（web-analytics を置き換え） | test/analytics.test.mjs |
 | 2026-10-29 web-analytics | （2026-10-29 analytics-country で置き換え）見られ方と速さを Cloudflare Web Analytics で数える。app.reduxdive.com は、ダッシュボードの自動の差し込み（2026-10-28 から。zone reduxdive.com の site、全ホスト・全パスの規則）に任せ、CSP に計測のスクリプト（`https://static.cloudflareinsights.com/beacon.min.js/`）と受け口（`https://cloudflareinsights.com/cdn-cgi/rum`）だけを足す。ask.reduxdive.com には自動の差し込みが入らないので、試し版（trial.html）だけに版を決めたスクリプトを integrity 付きで自分で置く（同じ site の token）。お客さんのリンク（/ask）・店頭の受付（/walkin）・パスポートには置かず、CSP も緩めない。送るのは見たページ（スクリプトが ? と # の後ろを外す。お客さんのリンクと試し版の鍵は # の後ろ）・どこから来たか・国・端末・速さだけで、cookie と保存領域は使わない（スクリプトの中身で確かめた）。公表ページ data.html（日本語・英語）を、お客さまの画面と試し版の一番下からたどる | Yosuke「使おう」（2026-10-29）。調査報告（UI/UX）の 9 番、総務省の外部送信規律。自動の差し込みを止めて全部自分で置く案は、ダッシュボードの設定を変える必要があり、app の数え方が二重になる時間ができるので採らない。app はお店の画面（名簿）と同じページなので、ページを開いた数には店員の分も入る（名簿の画面だけを外すかは別に決める） | test/build-site.test.mjs・test/trial.test.mjs・test/arch.check.mjs |

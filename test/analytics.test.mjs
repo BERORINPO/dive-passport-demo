@@ -36,6 +36,7 @@ test('国: 日本・アメリカ・台湾・韓国などは入れる。EU 27・E
 test('タグ: 版を決めた URL・integrity・crossorigin。</body> の前に 1 つだけ。2 回入れても 1 つ', () => {
   assert.match(BEACON_TAG, /^<script defer src="https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js\/v[0-9a-f]+" integrity="sha512-[^"]+" crossorigin="anonymous" /);
   assert.ok(BEACON_TAG.includes(`"token": "${BEACON.token}"`) && BEACON_TAG.includes('"spa": false'));
+  assert.ok(BEACON_TAG.includes('"send": {"to": "/cdn-cgi/rum"}'), '送る先は同じホストの /cdn-cgi/rum（CSP の connect-src は self のまま）');
   const once = withBeacon(HTML);
   assert.equal(withBeacon(once), once);
   assert.equal(once.split(BEACON.src).length - 1, 1);

@@ -2,7 +2,7 @@
 // 実行: node test/build-site.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { headers, siteFiles } from '../tools/build-site.mjs';
+import { headers, siteFiles, askHeaders } from '../tools/build-site.mjs';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -19,9 +19,12 @@ test('計測（Cloudflare Web Analytics）: 送り先は受け口 1 つだけ。
   const h = headers();
   const lines = h.split(/\r?\n/);
   const csp = (path) => lines.slice(lines.indexOf(path) + 1).find(l => l.includes('Content-Security-Policy'));
-  assert.ok(indexCsp().includes("connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum;"));
+  assert.ok(indexCsp().includes("connect-src 'self' blob:;"), '計測は同じホストの /cdn-cgi/rum に送るので、外の送り先は足さない');
   assert.ok(csp('/trial').includes("script-src 'self' https://static.cloudflareinsights.com/beacon.min.js/;"));
-  assert.ok(csp('/trial').includes("connect-src 'self' https://cloudflareinsights.com/cdn-cgi/rum;"));
+  assert.ok(csp('/trial').includes("connect-src 'self';"));
+  const ask = askHeaders().split(/\r?\n/);
+  const dataAt = ask.indexOf('/data');
+  assert.ok(dataAt > 0 && ask[dataAt + 2] === '  Cache-Control: no-cache, no-transform', 'ask の公表ページにも見出し（CSP・no-transform）を付ける');
   for (const p of ['/ask', '/walkin', '/pass', '/data']) assert.ok(!/cloudflareinsights/.test(csp(p)), `${p} には計測を足さない`);
   /* 計測のスクリプトのタグは HTML に書かず、Worker が国で出し分けて足す（test/analytics.test.mjs。決定ログ 2026-10-29 analytics-country） */
   for (const f of ['ask.html', 'walkin.html', 'pass.html', 'data.html', 'index.html']) {
