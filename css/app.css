@@ -169,11 +169,18 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .faq__a { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: start; margin: 0 0 10px; }
 .faq__a p { margin: 0; }
 .faq__a small { display: block; margin-top: 4px; font-size: 14px; color: var(--muted); }
-/* 見出しの横の案内役は全身のまま、見出しの高さに合わせて小さく、下の線に立たせる */
+/* 案内役の大きさ（決定ログ 2026-10-29 chara-size）。表情が見分けられる大きさにし、幅 320px でも文字の列を細くしすぎないよう画面の幅で縮める。
+   絵は 256px なので、2 倍の画面でも 112px までは粗くならない */
+:root { --chara-hello: clamp(88px, 28vw, 112px); --chara-face: clamp(48px, 16vw, 60px); }
+/* 見出しの横の案内役（あいさつ）は全身のまま大きめに、下の線に立たせる */
 .faq__head { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
-.faq__head .h2 { margin: 0 0 6px; }
-.faq__chara { flex: none; width: 56px; height: auto; }
+/* 横が狭いので、見出しは語の途中で折らない（読点などで折り、行の長さをそろえる。auto-phrase が効かない所は keep-all） */
+.faq__head .h2 { margin: 0 0 6px; text-wrap: balance; word-break: keep-all; word-break: auto-phrase; overflow-wrap: anywhere; }
+.faq__chara { flex: none; width: var(--chara-hello); height: auto; }
 .faq__mark { width: 30px; height: auto; }
+/* やりとりの答えの横は表情が分かる大きさ。質問の一覧を開いた中の答えは小さいまま */
+.faq__log .faq__a { grid-template-columns: var(--chara-face) minmax(0, 1fr); gap: 10px; }
+.faq__log .faq__mark { width: var(--chara-face); }
 /* 元の絵（assets/chara.png）は左を向いているので、左右を返して文字の方を向かせる（決定ログ 2026-10-29 chara-facing）。
    場面ごとの表情の 5 枚（assets/chara-*.png）は、もとから右を向いているので返さない（決定ログ 2026-10-29 chara-faces） */
 .faq__chara[src$="/chara.png"], .faq__mark[src$="/chara.png"], .gsteps__chara[src$="/chara.png"] { transform: scaleX(-1); }
@@ -187,8 +194,8 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .faq__asked { margin: 6px 0 0; font-weight: 700; }
 .faq__note { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
 /* AI がいま何をしているかの行（js/guest-steps.js）。進み中は ● が点滅、終われば ✓。design.md の「動き」の例外 */
-.gsteps { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; align-items: start; margin: 10px 0 6px; }
-.gsteps__chara { width: 44px; height: auto; }
+.gsteps { display: grid; grid-template-columns: var(--chara-face) minmax(0, 1fr); gap: 10px; align-items: start; margin: 10px 0 6px; }
+.gsteps__chara { width: var(--chara-face); height: auto; }
 .gsteps__list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
 .gsteps__list li { position: relative; padding-left: 24px; line-height: 1.6; color: var(--muted); animation: step-in 0.25s ease-out; }
 .gsteps__list li::before { position: absolute; left: 0; top: 0; width: 18px; text-align: center; }

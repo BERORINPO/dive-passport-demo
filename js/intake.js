@@ -80,7 +80,7 @@
     go.addEventListener('click', readBulk);
     return el('section', { class: 'bulk', 'aria-labelledby': 'bulk-h' },
       el('div', { class: 'faq__head' },
-        el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 56, height: 56 }),
+        el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 112, height: 112 }),
         el('h2', { class: 'h2', id: 'bulk-h', text: L(t.bulkTitle) })),
       area,
       el('div', { class: 'bulk__row' }, go,

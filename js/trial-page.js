@@ -116,7 +116,7 @@
       return el('li', { class: 'faq__item' }, q, body);
     };
     return el('section', { class: 'guest-sec', id: 'chat' },
-      el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 56, height: 56 }),
+      el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 112, height: 112 }),
         el('h2', { class: 'h2', text: '聞きたいことを、そのまま' })),
       form,
       el('p', { class: 'faq__note', text: '日本語・English・中文・한국어で聞けます。AI がこのページのお店の情報から答えを選び、日本語以外は訳して返します。'
@@ -163,7 +163,7 @@
     const go = el('button', { class: 'btn bulk__go', type: 'button', text: '読み取って入れる', disabled: busy, onclick: readBulk });
     formRoot.replaceChildren(
       el('section', { class: 'bulk' },
-        el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 56, height: 56 }),
+        el('div', { class: 'faq__head' }, el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 112, height: 112 }),
           el('h2', { class: 'h2', text: 'まとめて書いて、入れてもらう' })),
         area, el('div', { class: 'bulk__row' }, go),
         el('div', {}, bulkSteps.length ? S.view(bulkSteps, bulkEnd) : null),
