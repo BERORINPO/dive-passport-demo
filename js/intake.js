@@ -23,6 +23,74 @@
   let savedNote = '';
   const set = (patch) => { draft = { ...draft, ...patch }; };
 
+  /* まとめて書けば入る（AI。契約は guest-ai-schema.js、窓口は ai-reader.js の guestFill）。
+     AI が入れた欄には印を付け、お客さんが触ったら外す。健康の欄は入れない（送る前に外し、答えにも健康の欄は無い） */
+  let bulkText = '';
+  let bulkMsg = null;          // { key, n, health }。key は data.js の T の名前
+  let aiFields = new Set();    // AI が入れた下書きの名前（tour・date・people・name・swim・exp・worries・flightMode・flightDate・flightTime）
+  const AI_SPOT = {            // 下書きの名前 → 印を付ける所の入力
+    tour: 'input[name="tour"]', date: '#f-date', people: '#f-people', name: '#f-name', swim: 'input[name="swim"]', exp: 'input[name="exp"]',
+    worries: 'input[name="worries"]', flightMode: 'input[name="flightMode"]', flightDate: '#f-fdate', flightTime: '#f-ftime'
+  };
+  const labelOf = (node) => {
+    const box = node && node.closest('.field, fieldset, .guest-sec');
+    return box ? box.querySelector('.label, legend, .h2') : null;
+  };
+  function markAiFields() {
+    [root, tourRoot].forEach(r => r.querySelectorAll('.ai-mark').forEach(m => m.remove()));
+    aiFields.forEach(key => {
+      const label = labelOf(root.querySelector(AI_SPOT[key]) || tourRoot.querySelector(AI_SPOT[key]));
+      if (label && !label.querySelector('.ai-mark')) label.append(el('span', { class: 'ai-mark', 'data-ai': key, text: L(T().aiMark) }));
+    });
+  }
+  /* お客さんが触った欄は、確かめたものとして印を外す */
+  const touched = (e) => {
+    const mark = labelOf(e.target)?.querySelector('.ai-mark');
+    if (!mark) return;
+    aiFields.delete(mark.dataset.ai);
+    mark.remove();
+  };
+  [root, tourRoot].forEach(r => { r.addEventListener('change', touched); r.addEventListener('input', touched); });
+
+  function bulkSection() {
+    const t = T();
+    const area = el('textarea', { class: 'input bulk__text', id: 'f-bulk', rows: 4, maxlength: R.guestAi.MAX_FILL, placeholder: L(t.bulkPlaceholder),
+      'aria-label': L(t.bulkTitle), oninput: (e) => { bulkText = e.target.value; } });
+    area.value = bulkText;
+    const msg = el('p', { class: 'bulk__msg', role: 'status' });
+    if (bulkMsg) {
+      msg.append(L(t[bulkMsg.key]).replace('{n}', bulkMsg.n));
+      if (bulkMsg.health) msg.append(' ', el('b', { text: L(t.bulkHealth) }));
+    }
+    const go = el('button', { class: 'btn bulk__go', type: 'button', text: L(t.bulkGo) });
+    go.addEventListener('click', () => readBulk(go, msg));
+    return el('section', { class: 'bulk', 'aria-labelledby': 'bulk-h' },
+      el('div', { class: 'faq__head' },
+        el('img', { class: 'faq__chara', src: 'assets/chara.png', alt: '', width: 56, height: 58 }),
+        el('h2', { class: 'h2', id: 'bulk-h', text: L(t.bulkTitle) })),
+      area,
+      el('div', { class: 'bulk__row' }, go,
+        el('button', { class: 'linkbtn', type: 'button', text: L(t.bulkSelf), onclick: () => { root.querySelector('#f-date')?.focus(); } })),
+      msg,
+      el('p', { class: 'faq__note', text: L(t.bulkNote) }));
+  }
+
+  async function readBulk(go, msg) {
+    if (!bulkText.trim()) { root.querySelector('#f-bulk')?.focus(); return; }
+    go.disabled = true;
+    msg.textContent = L(T().bulkReading);
+    try {
+      const got = await R.aiReader.guestFill(bulkText);
+      set(got.fill);
+      aiFields = new Set([...aiFields, ...got.fields]);
+      bulkMsg = { key: got.fields.length ? 'bulkDone' : 'bulkNone', n: got.fields.length, health: got.healthSeen };
+    } catch (e) {
+      bulkMsg = { key: 'bulkFail', n: 0, health: false };
+    }
+    if (doneId) return;   // 読んでいる間に送られた
+    renderForm();
+  }
+
   /* ---------- パスポートとの行き来（決まった対応表。AI は使わない） ---------- */
   function passToDraft(p) {
     const answered = Boolean(p.medical.answeredAt);
@@ -170,7 +238,8 @@
     form.addEventListener('submit', (e) => { e.preventDefault(); submit(errors); });
 
     renderTour();
-    R.fill(root, passBanner(), form);
+    R.fill(root, passBanner(), bulkSection(), form);
+    markAiFields();
   }
 
   function submit(errorsNode) {
@@ -258,7 +327,8 @@
           : null,
         el('div', { class: 'actions' },
           el('button', { class: 'btn', type: 'button', text: L(t.seeShop), onclick: () => R.showTab('shop') }),
-          el('button', { class: 'btn btn--ghost', type: 'button', text: L(t.again), onclick: () => { doneId = null; savedNote = ''; draft = blank(); render(); } }))));
+          el('button', { class: 'btn btn--ghost', type: 'button', text: L(t.again),
+            onclick: () => { doneId = null; savedNote = ''; draft = blank(); bulkText = ''; bulkMsg = null; aiFields = new Set(); render(); } }))));
   }
 
   function render() {

@@ -1,5 +1,5 @@
 /* お店が書く中身（すべてサンプル）。実際のお店では、ここをお店の文に置き換える。
-   AI はこの文を作らない。ここにある文をそのまま出すだけ */
+   AI はこの文を作らない。ここにある文から選び、日本語以外で聞かれたら訳すだけ（決定ログ 2026-10-29 guest-ai-ask） */
 (() => {
   'use strict';
 
@@ -130,14 +130,20 @@
     screenSwitch: { ja: '画面の切り替え', en: 'Switch screen' },
     aiLiveNote: { ja: '本物の AI にしています。予約メールの文面と写真（健康の所は外して・塗って）を AI に送ります。',
                   en: 'The real AI is on. Booking emails and photos (health parts removed or blacked out) are sent to the AI.' },
-    demoNote: { ja: 'デモです。入力した内容はこのブラウザの中だけに残り、どこにも送りません。答えはお店が書いた文だけで、AI は文章を作りません。',
-                en: 'Demo. What you enter stays in this browser and is not sent anywhere. Answers are written by the shop; no AI-written text.' },
+    demoNote: { ja: 'デモです。入力した内容はこのブラウザの中だけに残り、どこにも送りません。答えはお店が書いた文から選び、AI は訳すだけで文章を作りません。',
+                en: 'Demo. What you enter stays in this browser and is not sent anywhere. Answers are chosen from what the shop wrote; AI only translates them.' },
     demoNoteReal: { ja: 'デモです。中身はすべて架空の見本です。本物の AI にしているので、予約メールの文面と写真（健康の所は外して・塗って）を AI に送ります。',
                     en: 'Demo with made-up sample data only. The real AI is on, so booking emails and photos (health parts removed or blacked out) are sent to the AI.' },
-    placeholder: { ja: 'ほかに聞きたいこと', en: 'Anything else?' },
-    faqTitle: { ja: 'よく聞かれること', en: 'Common questions' },
-    faqMore: { ja: 'ほかの質問', en: 'More questions' },
-    faqNote: { ja: '答えはお店が書いた文だけです。合う答えが無いときは、お店に回します。', en: 'Answers are only what the shop wrote. If none fits, we pass your question to the shop.' },
+    placeholder: { ja: '例: 泳げなくても大丈夫？', en: "e.g. Can I join if I can't swim?" },
+    faqTitle: { ja: '聞きたいことを、そのまま', en: 'Ask in your own words' },
+    faqMore: { ja: '質問の一覧から探す', en: 'Browse all questions' },
+    faqNote: { ja: '日本語・English・中文・한국어で聞けます。答えはお店が書いた文から選びます。体のことには答えません。',
+               en: 'Ask in Japanese, English, Chinese or Korean. Answers are chosen from what the shop wrote. Health questions are not answered here.' },
+    looking: { ja: 'お店の答えを探しています…', en: "Looking for the shop's answer…" },
+    translated: { ja: '「{q}」へのお店の答えを、AI が訳しました', en: "The shop's answer to \"{q}\", translated by AI" },
+    original: { ja: '元の文（日本語）', en: 'Original (Japanese)' },
+    healthStop: { ja: '体のことは、ここでは答えません。参加できるかはお店が確かめます。お店に直接聞いてください。',
+                  en: 'Health questions are not answered here. The shop checks whether you can join. Please ask the shop directly.' },
     ask: { ja: '聞く', en: 'Ask' },
     shopAnswer: { ja: 'お店の答え', en: "Shop's answer" },
     updated: { ja: '更新', en: 'updated' },
@@ -151,6 +157,18 @@
     /* 本物（Worker 版）では「デモなので」とは言わない。聞いたことは、受付の「お店への質問」に入る */
     sentReal: { ja: '受付の「お店への質問」に入れたよ。', en: "Added to the shop's questions." },
     intakeTitle: { ja: '予約の前に', en: 'Before you book' },
+    bulkTitle: { ja: 'まとめて書いて、入れてもらう', en: 'Write it all at once' },
+    bulkPlaceholder: { ja: '例: 11月3日に大人2人。山田です。2人とも泳げなくて、ダイビングは初めて。船酔いしやすいです。帰りは11月4日14時の飛行機。',
+                       en: 'e.g. 2 adults on 3 Nov. Two of us cannot swim and it is our first dive. Our flight home is on 4 Nov at 14:00.' },
+    bulkGo: { ja: '読み取って入れる', en: 'Fill in for me' },
+    bulkSelf: { ja: '自分で 1 つずつ入れる', en: 'Fill in myself' },
+    bulkReading: { ja: '読み取っています…', en: 'Reading…' },
+    bulkDone: { ja: '{n} か所に入れました。印の所を確かめて、足りない所を入れてください。', en: 'Filled {n} fields. Please check the marked ones and add anything missing.' },
+    bulkNone: { ja: '読み取れる所がありませんでした。下で 1 つずつ入れてください。', en: 'Nothing could be read. Please fill in the form below.' },
+    bulkFail: { ja: 'いまは読み取れません。下で 1 つずつ入れてください。', en: 'Cannot read it right now. Please fill in the form below.' },
+    bulkHealth: { ja: '体のことは読み取りません。下の「健康の質問」でご自分で答えてください。', en: 'Health details are not read. Please answer the health questions below yourself.' },
+    bulkNote: { ja: 'メールやメモをそのまま貼っても読めます。健康の質問は読み取らず、ご自分で答えます。', en: 'You can paste an email or a note. Health questions are not read; you answer them yourself.' },
+    aiMark: { ja: 'AI が入れた・確かめてください', en: 'Filled by AI — please check' },
     factTime: { ja: '時間', en: 'Time' },
     factPrice: { ja: '料金', en: 'Price' },
     intakeLead: { ja: '答えてもらうと、お店が当日の準備をしやすくなります。これだけでは予約は決まりません。', en: 'Your answers help the shop prepare. This does not confirm a booking yet.' },

@@ -1,6 +1,8 @@
-/* よく聞かれること: 質問に、お店が書いた答えだけで返す。AI に文章を作らせない。
-   答えを選ぶのは match.js（決まった計算）。自信があれば答え、どの質問への答えかも見せる。
-   迷えば「もしかして」で候補を出し、合う答えが無ければ質問をお店に渡す（お店の画面の「お店への質問」に入る） */
+/* 聞けば答える（よく聞かれること）: 自分の言葉で聞くと、お店が書いた答えから 1 つ選んで返す。AI は選ぶのと、日本語以外の質問への訳だけ（文章を作らない）。
+   選ぶのは ai-reader.js の guestFaq（本物は Worker の AI、見本は match.js の決まった計算）。訳した答えには元の日本語の文を添える。
+   体のことに触れた質問には答えない（決まった文だけを出し、AI にもお店の答えにも回さない。参加できるかはお店が確かめる）。
+   AI が選べない・届かないときは match.js で選び、迷えば「もしかして」、合う答えが無ければ質問をお店に渡す（お店の画面の「お店への質問」に入る）。
+   一覧（よく聞かれること）は下に畳んで残す */
 (() => {
   'use strict';
 
@@ -73,11 +75,35 @@
     return btn;
   }
 
-  function ask(question) {
+  /* 日本語以外で聞かれ、AI が訳した答え。元の日本語の文を開いて見られる */
+  function translatedCard(item, text, question) {
+    const row = answerRow(text, `${L(R.T.translated).replace('{q}', item.q.ja)} ・ ${L(R.T.updated)} ${item.updated}`);
+    row.lastChild.append(el('details', { class: 'faq__orig' }, el('summary', { text: L(R.T.original) }), el('p', { text: item.a.ja })),
+      el('button', { class: 'linkbtn', type: 'button', text: L(R.T.wrongQuestion),
+        onclick: (e) => { e.target.disabled = true; say(L(R.T.notFound)); log.append(handOff(question)); } }));
+    return row;
+  }
+
+  let asking = 0;   // 前の質問の答えが後から届いても、新しい質問の答えを上書きしない
+  async function ask(question) {
     const text = question.trim();
     if (!text) return;
+    const turn = ++asking;
     log.replaceChildren();
     you(text);
+    const wait = el('p', { class: 'faq__wait', text: L(R.T.looking) });
+    log.append(wait);
+    const faqs = R.FAQ.map(f => ({ id: f.id, q: f.q.ja, a: f.a.ja }));
+    let got = null;
+    try { got = await R.aiReader.guestFaq(text, faqs); } catch (e) { got = null; }   // 届かない・上限・形が違う → 決まった計算で選ぶ
+    if (turn !== asking) return;
+    wait.remove();
+    if (got && got.health) { say(L(R.T.healthStop)); return; }
+    const item = got && got.faq ? R.FAQ.find(f => f.id === got.faq) : null;
+    if (item) {
+      log.append(got.lang !== 'ja' && got.answer ? translatedCard(item, got.answer, text) : answerCard(item, text));
+      return;
+    }
     const r = R.matchFaq(text);
     if (r.status === 'hit') {
       log.append(answerCard(r.item, text));
@@ -104,27 +130,23 @@
     return el('li', { class: 'faq__item' }, q, body);
   }
 
-  const FIRST = 5;   // 最初に見せる質問の数。ほかは「ほかの質問」を開いて見る
-
   function render() {
     log = el('div', { class: 'faq__log', 'aria-live': 'polite' });
     const input = el('input', { class: 'input', type: 'text', maxlength: 200, autocomplete: 'off',
       placeholder: L(R.T.placeholder), 'aria-label': L(R.T.placeholder) });
     const form = el('form', { class: 'faq__ask' }, input,
       el('button', { class: 'btn btn--ghost', type: 'submit', text: L(R.T.ask) }));
-    form.addEventListener('submit', (e) => { e.preventDefault(); ask(input.value); input.value = ''; input.focus(); });
-    const rest = R.FAQ.slice(FIRST);
+    form.addEventListener('submit', (e) => { e.preventDefault(); const q = input.value; input.value = ''; input.focus(); ask(q); });
     root.replaceChildren(
       el('div', { class: 'faq__head' },
-        el('img', { class: 'faq__chara', src: CHARA, alt: '', width: 88, height: 90 }),
+        el('img', { class: 'faq__chara', src: CHARA, alt: '', width: 56, height: 58 }),
         el('h2', { class: 'h2', text: L(R.T.faqTitle) })),
-      el('ul', { class: 'faq' }, R.FAQ.slice(0, FIRST).map(faqItem)),
-      rest.length ? el('details', { class: 'faq__more' },
-        el('summary', { text: `${L(R.T.faqMore)}（${rest.length}）` }),
-        el('ul', { class: 'faq' }, rest.map(faqItem))) : null,
       form,
       el('p', { class: 'faq__note', text: L(R.T.faqNote) }),
-      log);
+      log,
+      el('details', { class: 'faq__more' },
+        el('summary', { text: `${L(R.T.faqMore)}（${R.FAQ.length}）` }),
+        el('ul', { class: 'faq' }, R.FAQ.map(faqItem))));
   }
 
   R.renderChat = render;

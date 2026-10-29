@@ -157,6 +157,7 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .guest-sec > .h2 { margin-bottom: 8px; }
 .faq { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line-2); }
 .faq__item { border-bottom: 1px solid var(--line); }
+.faq__more { margin-top: 16px; }
 .faq__more summary { min-height: 48px; display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); color: var(--accent); font-weight: 700; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
 .faq__more .faq { border-top: 0; }
 .faq__q { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 8px 0; border: 0; background: none; color: var(--ink); font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
@@ -165,18 +166,30 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .faq__a { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: start; margin: 0 0 10px; }
 .faq__a p { margin: 0; }
 .faq__a small { display: block; margin-top: 4px; font-size: 14px; color: var(--muted); }
-.faq__head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-.faq__head .h2 { margin: 0; }
-.faq__chara { flex: none; width: 88px; height: auto; }
+/* 見出しの横の案内役は全身のまま、見出しの高さに合わせて小さく、下の線に立たせる */
+.faq__head { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
+.faq__head .h2 { margin: 0 0 6px; }
+.faq__chara { flex: none; width: 56px; height: auto; }
 .faq__mark { width: 30px; height: auto; }
 .faq__ask { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 12px; }
 .faq__ask .btn { min-width: 72px; }
 .faq__log { display: grid; gap: 4px; margin-top: 10px; }
 .faq__asked { margin: 6px 0 0; font-weight: 700; }
 .faq__note { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
+.faq__wait { margin: 0; color: var(--muted); }
+.faq__orig summary { margin-top: 4px; min-height: 44px; display: flex; align-items: center; color: var(--accent); font-size: 14px; cursor: pointer; }
+.faq__orig p { margin: 0 0 4px; font-size: 14px; color: var(--muted); }
 .faq__maybe { display: grid; justify-items: start; gap: 2px; margin: 0 0 6px 38px; }
 
 /* ---------- 予約前の確認（お客さま） ---------- */
+/* まとめて書けば入る（AI）。入れた欄の見出しの後ろに印（字の色の 1 行。箱にしない） */
+.bulk { margin: 4px 0 24px; }
+.bulk__text { width: 100%; min-height: 112px; padding: 10px 12px; line-height: 1.6; resize: vertical; }
+.bulk__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; }
+.bulk__go { border-radius: 999px; padding: 0 22px; }
+.bulk__msg { margin: 10px 0 0; }
+.bulk__msg:empty { display: none; }
+.ai-mark { margin-left: 8px; color: var(--accent); font-size: 14px; font-weight: 700; }
 .form { display: grid; gap: 14px; }
 .card.form { margin-top: 16px; }
 .group { border: 0; padding: 0; margin: 0; min-width: 0; }
