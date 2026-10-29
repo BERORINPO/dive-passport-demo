@@ -225,7 +225,7 @@
     document.title = `${shop.name}（REDUX の試し版）`;
     draft = blank();
     renderForm();
-    root.replaceChildren(
+    R.fill(root,   // お店のことが 0 件のときの null を除く
       el('h1', { class: 'page__h1', text: shop.name }),
       el('p', { class: 'trial-asof', text: `${shop.area}・お店の公開ホームページの情報（${shop.asOf} 時点）から作りました。最新の料金や空きは、お店に確認してください。` }),
       /* 聞く欄を一番上に（ツアーが 6 つあると、下に置いた聞く欄まで 4,000px ほど送らないと届かなかった）。ツアーとお店のことは、その下で読む */

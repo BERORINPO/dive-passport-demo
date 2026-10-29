@@ -127,7 +127,8 @@
     const all = [...new Set(s.intakes.filter(x => valid(x.date)).map(x => x.date))].sort();
     const blocks = [...all.filter(d => d >= today).map(d => [d, false]), ...all.filter(d => d < today).reverse().map(d => [d, true])];
     const undated = s.intakes.filter(x => !valid(x.date)).sort(order);
-    root.replaceChildren(
+    /* R.fill は空（null）を除いて入れる（replaceChildren は null を「null」という字にする。Worker 版では resetButton が null） */
+    R.fill(root,
       el('h2', { class: 'page__title', text: '受付' }),
       counters(s),
       blocks.length || undated.length
