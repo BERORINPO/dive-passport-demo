@@ -39,6 +39,7 @@
   --font-body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
   --font-figure: "BIZ UDGothic", "BIZ UDPGothic", ui-monospace, "Menlo", monospace;
   --radius: 6px;
+  --logo-mark: url("../assets/logo-mark.png");
   --inset: 0px;                        /* 面の内側の余白。面を積まない形なので 0（design.md の形） */
   --dur: 160ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -47,6 +48,7 @@
 /* 暗い画面設定に合わせるのはお客さん画面だけ。店員画面（お店・予約と名簿）は浜と船で使うので明るいまま（js/app.js が data-layer を付ける） */
 @media (prefers-color-scheme: dark) {
   :root:not([data-layer="staff"]) {
+    --logo-mark: url("../assets/logo-mark-light.png");
     --bg: oklch(21% 0.006 200); --surface: oklch(25% 0.008 200); --ink: oklch(93% 0.008 85); --muted: oklch(73% 0.010 150);
     --line: oklch(34% 0.010 200); --line-2: oklch(42% 0.010 200);
     --control: oklch(55% 0.012 200); --disabled-bg: oklch(32% 0.008 200); --disabled-ink: oklch(72% 0.010 150);
@@ -75,8 +77,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; min-width: 0; }
 /* 案内役の絵は全身のまま小さく（丸く切らない）。店員の画面には出さない（REDUX の文字だけ） */
-/* REDUX のロゴ（favicon.svg と同じ）。お客さんの画面も店員の画面も同じ物を出す。案内役の絵はここに出さない（決定ログ 2026-10-29 header-logo） */
-.brand__logo { display: block; width: 32px; height: 32px; flex: none; }
+/* REDUX のロゴの印（コンパスと波。reduxdive.com のロゴ logo-redux.png の左側を切り出した物）。お客さんの画面も店員の画面も同じ物を出す。
+   暗い画面設定のお客さんの画面だけ、コンパスの線が白い版に替える（変数 --logo-mark）。案内役の絵はここに出さない（決定ログ 2026-10-29 header-logo） */
+.brand__logo { display: block; width: 32px; height: 32px; flex: none; background: var(--logo-mark) center / contain no-repeat; }
 .brand__name { letter-spacing: 0.04em; white-space: nowrap; }
 .brand__name small { font-weight: 400; color: var(--muted); margin-left: 6px; letter-spacing: 0; font-size: 14px; }
 .bar__end { grid-row: 1; grid-column: 2; justify-self: end; display: flex; align-items: center; gap: 12px; }
