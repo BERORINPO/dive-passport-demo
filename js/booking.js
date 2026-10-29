@@ -462,10 +462,38 @@
                 : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui })
                   : mode === 'past' ? R.pastTrips.renderList({ ui })
                     : mode === 'pastprint' ? R.pastTrips.renderPrint({ tripId: dayTrip, ui }) : renderList();
+    const typing = typingIn();
     R.fill(root, body);
+    keepTyping(typing);
     /* 印刷では名簿の紙だけを出す（css/app.css）。紙が無い画面では白紙にしない */
     document.body.classList.toggle('print-roster', PRINT_MODES.includes(mode) && !!root.querySelector('.paper'));
     if (mode === 'list') showPickedDay();
+  }
+
+  /* 描き直し（隣の欄の保存・30 秒ごとの読み直し）で、打っている途中の欄を消さない。data-keep の印が付いた欄だけ:
+     - フォーカスがあれば、同じ印の新しい欄へ字・カーソル・フォーカスを移す
+     - 押した直後（フォーカスが移る前に、前の欄の保存で描き直した）なら、同じ印の新しい欄にフォーカスを移す
+       （潜水場所を入れてガイド欄を押すと、ガイド欄が作り直されてフォーカスが外れ、打った字が消えていた） */
+  let aimed = '';
+  root.addEventListener('pointerdown', (e) => {
+    const t = e.target && e.target.closest ? e.target.closest('[data-keep]') : null;
+    aimed = t ? t.dataset.keep : '';
+  }, true);
+  root.addEventListener('focusin', () => { aimed = ''; });
+  function typingIn() {
+    const a = document.activeElement;
+    if (a && root.contains(a) && a.dataset && a.dataset.keep) return { keep: a.dataset.keep, value: a.value, start: a.selectionStart, end: a.selectionEnd };
+    return aimed ? { keep: aimed, value: null } : null;
+  }
+  function keepTyping(t) {
+    if (!t) return;
+    aimed = '';
+    const n = [...root.querySelectorAll('[data-keep]')].find(x => x.dataset.keep === t.keep);
+    if (!n) return;
+    if (t.value !== null) n.value = t.value;
+    n.focus();
+    if (t.value === null) return;
+    try { n.setSelectionRange(t.start, t.end); } catch (e) { /* カーソルの位置を持たない欄 */ }
   }
 
   /* 日付の並びは横に送るので、選んだ日が見える所まで横だけ動かす（画面は上下に動かさない） */
