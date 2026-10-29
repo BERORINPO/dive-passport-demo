@@ -201,7 +201,7 @@
     const later = laterAll ? b.later : b.later.slice(0, LATER_SHOW);
     const today = nowJst.slice(0, 10);
     return [
-      ...ui.head('書類の自動化', `今 ${dueText(nowJst)}・${R.rosterStore.synced() ? 'メールは 15 分ごとに送る' : 'この端末の試作では送らない'}`),
+      ...ui.head('書類の自動化', `今 ${dueText(nowJst)}・${R.rosterStore.synced() ? 'メールは 1 分ごとに送る' : 'この端末の試作では送らない'}`),
       el('p', { class: 'sumline sumline--board' },
         el('b', { class: check ? 'st--check' : 'st--ok', text: check ? `! 確かめる ${check}` : '✓ 確かめる所なし' }),
         el('span', { class: 'st--wait', text: `・送る準備 ${b.ready.length}` }), el('span', { text: `今日 ${b.today.length}` }), el('span', { text: `これから ${b.later.length}` })),

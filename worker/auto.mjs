@@ -257,7 +257,7 @@ async function takeMail(message, env, io, note) {
 }
 
 /* サイトの予約フォームから届いた本文（守りは handler.mjs が先にかける）。返すのは { status, body }。
-   お願いの連絡は次の Cron（15 分ごと）で送る */
+   お願いの連絡は次の Cron（1 分ごと）で送る */
 export async function takeSiteBooking(given, env, io, note, shop = SHOP_DEFAULT, name = '') {
   const { at, nowJst, today } = clockOf(io);
   const checked = checkBooking(given, { today });

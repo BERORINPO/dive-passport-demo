@@ -100,6 +100,8 @@
        画面に戻ってきたら、つながっていなければつなぎ直し、つながっていれば別の端末の直しを取り込む（refresh） */
     R.rosterStore.startSync();
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') R.rosterStore.refresh(); });
+    /* 開いたままの画面にも、届いた予約メールとお客さんの答えを 30 秒ごとに取り込む（見えている間だけ） */
+    R.rosterStore.keepFresh(() => document.visibilityState === 'visible');
     /* 電波の無い所（船の上）でも、画面そのものを開けるようにする（sw.js。登録できなくても画面はそのまま動く） */
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
   }

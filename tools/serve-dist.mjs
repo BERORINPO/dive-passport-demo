@@ -106,5 +106,5 @@ createServer((req, res) => serve(req, res).catch(() => {
   if (!res.headersSent) res.writeHead(400);
   res.end('Bad request');
 })).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています`));
-/* Cron の代わり。1 分ごとに時刻が来た予定を動かす（置いた Worker は 15 分ごと） */
+/* Cron の代わり。1 分ごとに時刻が来た予定を動かす（置いた Worker も 1 分ごと） */
 setInterval(() => { scheduled(env, io).catch(() => {}); }, 60 * 1000);

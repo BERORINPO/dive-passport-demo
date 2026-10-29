@@ -31,8 +31,8 @@
     { "name": "BOOKING_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
     { "name": "ASK_LIMIT", "namespace_id": "1003", "simple": { "limit": 30, "period": 60 } }
   ],
-  // 書類の自動化: 時刻が来た予定を動かし、連絡を送る（9:00・20:00・6:00 の予定に、遅れても 15 分）。Workers Paid が要る（無料の枠 5 本は使い切り）
-  "triggers": { "crons": ["*/15 * * * *"] },
+  // 書類の自動化: 時刻が来た予定を動かし、連絡を送る（1 分ごと。届いた予約へのお願いは 1 分以内に出る。決定ログ cron-1）。Workers Paid が要る（無料の枠 5 本は使い切り）
+  "triggers": { "crons": ["* * * * *"] },
   // お客さんへの連絡を送る（Cloudflare Email Service。Workers Paid が要る）。送り元は決めた 1 つだけに絞る
   "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["yoyaku@reduxdive.com"] }],
   "kv_namespaces": [
