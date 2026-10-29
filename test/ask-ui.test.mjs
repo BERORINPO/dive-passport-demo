@@ -80,7 +80,7 @@ const TRIP = { date: '2026-11-03', start: '09:00', kind: 'dive', tour: '体験�
 
 /* 見本の source: 送った人の聞く項目を空にした view を返す。fail を入れた人は問題を返す */
 function source(people, { fail = '' } = {}) {
-  let view = { kind: 'booking', shop: 'B マリン（見本）', trip: TRIP, people };
+  let view = { kind: 'booking', shop: 'B マリン（見本）', trip: { ...TRIP }, people };
   const sent = [];
   return {
     sent,
@@ -171,6 +171,19 @@ test('人の札を押して別の人に替えると、知らせは消える（�
   assert.equal(flag(root), '');
   assert.equal(dockButton(root).textContent, '見本 次郎の分を送る');
   assert.ok(button(root, '見本 次郎の分を送る'));
+});
+
+test('ツアーの名前: お店のツアーの一覧にある名前は、英語の画面で英語の名前にする。一覧に無い名前は、入ったまま', () => {
+  const en = boot('en');
+  const src = source([person('p1', 'Emily Carter', ['birthDate'])]);
+  src.view().trip.tour = '体験ダイビング（ボート・2 本）';
+  en.R.guestAsk.remote(src);
+  assert.match(byClass(en.root, 'page__sub')[0].textContent, /^11\/3 09:00 Discover Scuba \(boat, 2 dives\)\. /);
+  en.R.setLang('ja');
+  assert.match(byClass(en.root, 'page__sub')[0].textContent, /^11\/3 09:00 体験ダイビング（ボート・2 本）。/);
+  const other = boot('en');
+  other.R.guestAsk.remote(source([person('p1', 'Emily Carter', ['birthDate'])]));
+  assert.match(byClass(other.root, 'page__sub')[0].textContent, /^11\/3 09:00 体験ダイビング\. /, '一覧に無い名前（お店が付けた名前）は、そのまま');
 });
 
 let failed = 0;

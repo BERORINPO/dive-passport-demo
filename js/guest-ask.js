@@ -140,6 +140,11 @@
   /* 本物のリンクでは、当日かどうかを Worker の日付で決める（entry.todayOpen） */
   const isTheDay = (trip, entry) => (remote ? !!(entry && entry.todayOpen) : R.today() === trip.date);
   const courseLabel = (c) => (R.lang === 'en' ? COURSE_EN[c] : C().COURSE_JA[c]);
+  /* ツアーの名前は予約に入った文字のまま。お店のツアーの一覧（data.js の TOURS）にある名前なら、画面の言葉の名前で出す */
+  const tourName = (name) => {
+    const t = (R.TOURS || []).find(x => x.name.ja === name);
+    return t ? L(t.name) : name;
+  };
   const md = (d) => { const [, m, dd] = d.split('-').map(Number); return `${m}/${dd}`; };
 
   function draftOf(p) {
@@ -447,7 +452,7 @@
     const why = trip.cancel.reason === 'other' ? '' : R.lang === 'en' ? t.en : t.why;   // 「その他」は理由を書かない
     return [
       el('p', { class: 'note', text: `${v.shop}${L(T.from)}` }),
-      el('h2', { class: 'page__title', text: [md(trip.date), trip.start, trip.tour].filter(Boolean).join(' ') }),
+      el('h2', { class: 'page__title', text: [md(trip.date), trip.start, tourName(trip.tour)].filter(Boolean).join(' ') }),
       el('div', { class: 'band band--warn', role: 'alert' }, el('p', { class: 'band__title', text: `! ${L(T.cancelTitle)}` }),
         el('p', { class: 'band__text', text: [why, L(T.cancelText)].filter(Boolean).join(R.lang === 'en' ? '. ' : '。') })),
       backLink()
@@ -497,7 +502,7 @@
     return [
       el('p', { class: 'note', text: `${v.shop}${L(T.from)}` }),
       el('h2', { class: 'page__title', text: L(trip.kind === 'snorkel' ? T.titleSnorkel : T.titleDive) }),
-      el('p', { class: 'page__sub', text: `${[md(trip.date), trip.start, trip.tour].filter(Boolean).join(' ')}${R.lang === 'en' ? '. ' : '。'}${L(T.law)}` }),
+      el('p', { class: 'page__sub', text: `${[md(trip.date), trip.start, tourName(trip.tour)].filter(Boolean).join(' ')}${R.lang === 'en' ? '. ' : '。'}${L(T.law)}` }),
       flash ? el('p', { class: 'flag flag--ok', role: 'status', text: flashText(v) }) : null,
       pass && entry.ask.some(k => ['certDate', 'courses', 'dives', 'lastDive', 'history'].includes(k))
         ? el('div', { class: 'passbar' }, el('span', { text: R.lang === 'en' ? `${L(T.passHere)} (${pass.name})` : `${L(T.passHere)}（${pass.name}）` }),
