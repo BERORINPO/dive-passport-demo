@@ -452,6 +452,7 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .rd__k { font-size: 14px; color: var(--muted); padding-top: 3px; word-break: auto-phrase; }   /* 長い項目名は文節で折る（「最後に / 潜った日」） */
 .rd__v { font-weight: 700; overflow-wrap: anywhere; }
 .rd__sub { display: block; font-weight: 400; font-size: 14px; color: var(--muted); margin-top: 2px; }
+.rd__v .url { margin: 8px 0 0; font-weight: 400; }   /* 写せなかったリンクを、右の列の中に出す */
 .rd--unsure .rd__v, .rd--unsure .rd__sub { color: var(--warn); }
 .band { margin: 16px 0; padding: 10px 0; border-top: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2); }
 .band__title { margin: 0 0 4px; font-weight: 700; }

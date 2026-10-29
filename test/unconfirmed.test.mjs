@@ -435,7 +435,7 @@ test('お客さんのリンクの画面: 同行者の欄には値を出さず、
   assert.match(root.textContent, /この方の分は、お店が確かめます: 生年月日・住所/);
   assert.ok(!/1990-04-01/.test(root.textContent), '代表者の値は同行者の欄に出ない');
   assert.equal(buttons(root, '合っている').length, 0);
-  assert.equal(buttons(root, 'さんのリンクを写す').length, 0, '予約のリンクからは、同行者の値を見せるリンクを作らせない');
+  assert.equal(buttons(root, 'リンクを写す').length, 0, '予約のリンクからは、同行者の値を見せるリンクを作らせない');
 });
 
 /* ---------- Worker（お客さんのリンク） ---------- */
