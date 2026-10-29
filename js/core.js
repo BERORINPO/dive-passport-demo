@@ -675,6 +675,21 @@
       document.documentElement.lang = lang;
       langListeners.forEach(fn => fn());
     },
+    /* お客さんのページ（ask・walkin）で選んだ言葉を、この端末に覚える（W3C: 選んだ言葉を保存し、次に開いたときも使う）。
+       覚えていなければ端末の言葉。保存できない端末（プライベートの窓など）では、その場だけ */
+    guestLang: {
+      KEY: 'redux-guest-lang',
+      get() {
+        let saved = '';
+        try { saved = localStorage.getItem('redux-guest-lang') || ''; } catch (e) { saved = ''; }
+        if (saved === 'ja' || saved === 'en') return saved;
+        return (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+      },
+      set(lang) {
+        try { localStorage.setItem('redux-guest-lang', lang); } catch (e) { /* 覚えられなくても、切り替えはできる */ }
+        R.setLang(lang);
+      }
+    },
     el,
     /* 1 つ選ぶ選択肢の形（design.md の部品）。横につなげるのは、320 幅でも 1 行に収まる短い名前のときだけ。
        2 つなら 8 字まで、3 つなら 5 字まで。長い物（ツアー名・英語）は、2 行に折れないよう罫線の行にする */

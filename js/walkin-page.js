@@ -172,9 +172,9 @@
     render();
   }
 
-  document.getElementById('lang').addEventListener('click', () => R.setLang(R.lang === 'ja' ? 'en' : 'ja'));
+  document.getElementById('lang').addEventListener('click', () => R.guestLang.set(R.lang === 'ja' ? 'en' : 'ja'));
   R.onLang(render);
-  R.lang = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
+  R.lang = R.guestLang.get();
   render();
   /* 開いたまま別の QR を開いたとき（# だけが変わってページは読み直されない） */
   window.addEventListener('hashchange', () => location.reload());
