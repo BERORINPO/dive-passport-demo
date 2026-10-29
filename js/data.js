@@ -158,6 +158,7 @@
     /* まとめて書けば入るの手順の行 */
     bulkStepRead: { ja: '{n} か所を読み取りました。入れていきます', en: 'Read {n} fields. Filling them in' },
     bulkStepCheck: { ja: '印の所を確かめて、足りない所を入れてください', en: 'Please check the marked fields and add anything missing' },
+    bulkKept: { ja: 'ご自分で入れた所は変えていません（{fields}）', en: 'Fields you entered yourself were left as they are ({fields})' },
     translated: { ja: '「{q}」へのお店の答えを、AI が訳しました', en: "The shop's answer to \"{q}\", translated by AI" },
     original: { ja: '元の文（日本語）', en: 'Original (Japanese)' },
     healthStop: { ja: '体のことは、ここでは答えません。参加できるかはお店が確かめます。お店に直接聞いてください。',
