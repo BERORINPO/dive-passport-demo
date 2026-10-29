@@ -37,11 +37,12 @@ export const CSP = { index, pass, ask, trial, data };
 export const COMMON = [['X-Content-Type-Options', 'nosniff'], ['Referrer-Policy', 'no-referrer'], ['X-Robots-Tag', 'noindex, nofollow'],
   ['Cross-Origin-Opener-Policy', 'same-origin'], ['Permissions-Policy', 'geolocation=(), microphone=(), payment=(), usb=()']];
 
-/* ページごとの見出し（共通の物のあとに付ける） */
+/* ページごとの見出し（共通の物のあとに付ける）。no-transform: Cloudflare に HTML を書き換えさせない（ダッシュボードの計測の自動の差し込みは
+   zone 全体（本体のサイト reduxdive.com も）にかかるので、ここでは止めて、計測は Worker が国で出し分けて足す 1 つだけにする。決定ログ 2026-10-29 analytics-no-transform） */
 export const PAGE = {
-  index: [['Content-Security-Policy', index], ['Cache-Control', 'no-cache']],
-  pass: [['Content-Security-Policy', pass], ['Cache-Control', 'no-cache']],
-  ask: [['Content-Security-Policy', ask], ['Cache-Control', 'no-store']],
-  trial: [['Content-Security-Policy', trial], ['Cache-Control', 'no-store']],
-  data: [['Content-Security-Policy', data], ['Cache-Control', 'no-cache']]
+  index: [['Content-Security-Policy', index], ['Cache-Control', 'no-cache, no-transform']],
+  pass: [['Content-Security-Policy', pass], ['Cache-Control', 'no-cache, no-transform']],
+  ask: [['Content-Security-Policy', ask], ['Cache-Control', 'no-store, no-transform']],
+  trial: [['Content-Security-Policy', trial], ['Cache-Control', 'no-store, no-transform']],
+  data: [['Content-Security-Policy', data], ['Cache-Control', 'no-cache, no-transform']]
 };
