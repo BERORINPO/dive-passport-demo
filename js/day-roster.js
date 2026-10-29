@@ -47,6 +47,7 @@
     const s = R.rosterStore.get();
     const { trip, items } = g;
     const prev = D().previousSite(s, trip);
+    /* 潜水場所・ガイドの欄は data-keep の印で、保存の描き直しのあとも、押した欄のフォーカスと打っている字を引き継ぐ（js/booking.js の render） */
     const edit = (patch) => {
       const r = ui.save('core.editTrip', { tripId: trip.id, patch, at: nowIso() });
       ui.go('day', r.error ? { tripId: trip.id, warn: '入れられませんでした。長すぎないか確かめてください（ガイドは 1 人 40 字まで）' } : { tripId: trip.id, saved: r.saved });
@@ -55,11 +56,11 @@
     /* 便で決めること（名簿の 3 項目）と血中酸素を、時刻の見出しの下の 1 つの表に（design.md の形） */
     return el('div', { class: 'tripfacts' },
       el('label', { class: 'pickrow' }, el('span', { class: 'rd__k', text: labelOf(items, 'site') }),
-        el('input', { class: 'input', type: 'text', maxlength: 80, list: 'site-list', value: trip.site,
+        el('input', { class: 'input', type: 'text', maxlength: 80, list: 'site-list', value: trip.site, 'data-keep': 'trip-site',
           placeholder: prev ? `前の便: ${prev}` : '例: 北の根', onchange: (e) => edit({ site: e.target.value }) })),
       !trip.site && prev ? el('p', { class: 'sheet__note' }, button(`前の便と同じ（${prev}）にする`, () => edit({ site: prev }))) : null,
       el('label', { class: 'pickrow' }, el('span', { class: 'rd__k', text: 'ガイド' }),
-        el('input', { class: 'input', type: 'text', maxlength: 200, list: 'guide-list', value: trip.guides.join('・'),
+        el('input', { class: 'input', type: 'text', maxlength: 200, list: 'guide-list', value: trip.guides.join('・'), 'data-keep': 'trip-guides',
           placeholder: '2 人なら ・ で区切る', onchange: (e) => edit({ guides: e.target.value.split(/[・,、]/) }) })),
       list('site-list', D().usedSites(s)), list('guide-list', D().usedGuides(s)),
       sipeRow(trip.id, ui),
