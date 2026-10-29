@@ -382,16 +382,21 @@
     if (review.done === personId) return renderDone(p, ui);
     const from = [...new Set(Object.values(p.src).filter(src => ['mail', 'paper', 'ccard'].includes(src)))].map(src => SRC_JA[src]);
     const { unsure, others } = C().reviewFields(p, trip);
-    const unconfirmed = C().unconfirmed(s, p, trip).length;
+    const unconfirmedKeys = C().unconfirmed(s, p, trip);
+    const unconfirmed = unconfirmedKeys.length;
+    const itemJa = (k) => (R.roster.ITEMS[trip.kind].find(i => i.key === k) || { ja: k }).ja;
     const patch = patchFrom(p);
     const fixed = Object.keys(patch).length;
     const accepted = unsure.filter(r => !Object.prototype.hasOwnProperty.call(patch, r.field)).length;
     const toggle = (open) => () => { review.open = open; ui.rerender(); };
     return [
       ...ui.head(`${p.name || '名前の分からない人'}さん`, `${from.length ? `${from.join('と')}から読み取りました。` : ''}${ui.md(trip.date)} ${ui.tripLabel(trip)}`),
-      el('p', { class: `flag ${unsure.length ? 'flag--warn' : 'flag--ok'}`, text: `${unsure.length ? '!' : '✓'} 確かめる所 ${unsure.length} 件` }),
+      /* 自信なしが 0 でも未確認が残るときは「✓ 0 件」を出さない（下の未確認の数と食い違って見えるため） */
+      unsure.length || !unconfirmed
+        ? el('p', { class: `flag ${unsure.length ? 'flag--warn' : 'flag--ok'}`, text: `${unsure.length ? '!' : '✓'} 確かめる所 ${unsure.length} 件` }) : null,
       /* AI が読んだまま、まだ誰も確かめていない項目（名簿の紙の「▲未確認」と同じ数え方）。「この内容で名簿に入れる」で確かめ済みになる */
-      unconfirmed ? el('p', { class: 'note', text: `まだ確かめていない項目 ${unconfirmed}（名簿の紙には「▲未確認」と出ます）。下で見比べて、直す所がなければ「この内容で名簿に入れる」を押してください。` }) : null,
+      unconfirmed ? el('p', { class: 'note', text: `まだ確かめていない項目 ${unconfirmed}: ${unconfirmedKeys.map(itemJa).join('・')}`
+        + '（名簿の紙には「▲未確認」と出ます）。元の書類や本人と見比べて、直す所がなければ「この内容で名簿に入れる」を押してください。' }) : null,
       unsure.length ? el('div', { class: 'sheet' }, el('p', { class: 'sheet__title' }, '確かめる所', el('small', { text: `${unsure.length} 項目` })),
         unsure.map(r => fieldBlock(r, p, patch, ui))) : null,
       review.open
