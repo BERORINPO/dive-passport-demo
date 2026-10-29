@@ -116,7 +116,8 @@ test('置く物: trial.html は redux-ask だけに置き、noindex・公式で�
   const files = askFiles();
   assert.ok(files.includes('trial.html') && files.includes('js/trial-page.js') && files.includes('js/ask-api.js'));
   for (const shopOnly of ['index.html', 'js/ai-reader.js', 'js/roster-sync.js', 'js/booking.js', 'js/intake.js', 'js/chat.js']) assert.ok(!files.includes(shopOnly), shopOnly);
-  assert.deepEqual(ASK_ASSETS, ['assets/chara.png', 'assets/logo-mark.png', 'assets/logo-mark-light.png']);
+  assert.deepEqual(ASK_ASSETS, ['assets/chara-hello.png', 'assets/chara-thinking.png', 'assets/chara-answer.png', 'assets/chara-sorry.png', 'assets/chara-done.png',
+    'assets/logo-mark.png', 'assets/logo-mark-light.png'], '案内役の表情 5 枚（決定ログ 2026-10-29 chara-faces）とロゴだけ');
   const h = askHeaders();
   assert.ok(h.includes("/trial\n  Content-Security-Policy: default-src 'none'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js/; style-src 'self'; " +
     "img-src 'self'; connect-src 'self';"), '計測のスクリプトだけを足す（送る先は同じホストの /cdn-cgi/rum。決定ログ 2026-10-29 analytics-same-origin）');

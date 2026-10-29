@@ -174,8 +174,13 @@ html[data-layer="staff"] .bar:not(.is-open) #tab-guest, html[data-layer="staff"]
 .faq__head .h2 { margin: 0 0 6px; }
 .faq__chara { flex: none; width: 56px; height: auto; }
 .faq__mark { width: 30px; height: auto; }
-/* 案内役は原画では左を向いている。いつも文字の左に置くので、左右を返して文字の方を向かせる（原画は書き換えない。決定ログ 2026-10-29 chara-facing） */
-.faq__chara, .faq__mark, .gsteps__chara { transform: scaleX(-1); }
+/* 元の絵（assets/chara.png）は左を向いているので、左右を返して文字の方を向かせる（決定ログ 2026-10-29 chara-facing）。
+   場面ごとの表情の 5 枚（assets/chara-*.png）は、もとから右を向いているので返さない（決定ログ 2026-10-29 chara-faces） */
+.faq__chara[src$="/chara.png"], .faq__mark[src$="/chara.png"], .gsteps__chara[src$="/chara.png"] { transform: scaleX(-1); }
+/* 表情が替わる瞬間だけ、軽いフェード（R.setFace）。「動きを減らす」設定では切り替えだけ */
+.face-in { animation: face-in 0.2s ease-out; }
+@keyframes face-in { from { opacity: 0.35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .face-in { animation: none; } }
 .faq__ask { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 12px; }
 .faq__ask .btn { min-width: 72px; }
 .faq__log { display: grid; gap: 4px; margin-top: 10px; }

@@ -86,7 +86,8 @@ export function swFor(entries, template = readFileSync(join(root, 'sw.js'), 'utf
 /* お客さん用の Worker に置くページ: お店が送ったリンクの ask.html と、店頭の QR の walkin.html と、実在のお店の試し版の trial.html */
 export const ASK_PAGES = ['ask.html', 'walkin.html', 'trial.html', 'data.html'];
 /* trial.html が読む絵（案内役と、css/app.css の --logo-mark のロゴ） */
-export const ASK_ASSETS = ['assets/chara.png', 'assets/logo-mark.png', 'assets/logo-mark-light.png'];
+export const ASK_ASSETS = ['assets/chara-hello.png', 'assets/chara-thinking.png', 'assets/chara-answer.png', 'assets/chara-sorry.png', 'assets/chara-done.png',
+  'assets/logo-mark.png', 'assets/logo-mark-light.png'];
 
 /* ASK_PAGES が読む js と css（script の src と stylesheet の href）。これ以外はお客さん用の Worker に置かない */
 export function askFiles(htmls = ASK_PAGES.map(p => [p, readFileSync(join(root, p), 'utf8')])) {

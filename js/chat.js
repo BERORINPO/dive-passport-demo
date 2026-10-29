@@ -10,7 +10,6 @@
   const { el, L } = R;
   const root = document.getElementById('chat');
 
-  const CHARA = 'assets/chara.png';   // お店の案内役の絵（名前はまだ無い。画面に名前は出さない）
 
   let log = null;
 
@@ -33,15 +32,16 @@
 
   /* 「よく聞かれること」の形（design.md の部品）。質問を罫線の行で並べ、押すと下に答えが開く。
      自由に聞く欄は最後に 1 つ。答えは行の形で、左に案内役の小さい絵（全身のまま。丸く切らない。チャットの吹き出しにしない） */
-  const mark = () => el('img', { class: 'faq__mark', src: CHARA, alt: '', width: 30, height: 30 });
+  /* 答えの左の案内役（場面ごとの表情: 答えた = answer、お店の答えが無い・体のこと = sorry。決定ログ 2026-10-29 chara-faces） */
+  const mark = (face = 'answer') => el('img', { class: 'faq__mark', src: R.CHARA[face], alt: '', width: 30, height: 30 });
   /* lang: 答えの言葉（訳した答えは質問の言葉）。読み上げと字形（中国語を日本語の字で描かない）のため */
-  const answerRow = (text, sub, lang) => {
+  const answerRow = (text, sub, lang, face) => {
     const p = el('p', lang ? { lang } : {});
-    const row = el('div', { class: 'faq__a' }, mark(), el('div', {}, p, sub ? el('small', { text: sub }) : null));
+    const row = el('div', { class: 'faq__a' }, mark(face), el('div', {}, p, sub ? el('small', { text: sub }) : null));
     typeInto(p, text);
     return row;
   };
-  const say = (text) => log.append(answerRow(text));
+  const say = (text, face) => log.append(answerRow(text, '', '', face));
   const you = (text) => log.append(el('p', { class: 'faq__asked', text }));
   const scroll = () => {};
 
@@ -50,7 +50,7 @@
     if (question) {
       // 選び間違いに気づけるように、いつでもお店に回せる
       row.lastChild.append(el('button', { class: 'linkbtn', type: 'button', text: L(R.T.wrongQuestion),
-        onclick: (e) => { e.target.disabled = true; say(L(R.T.notFound)); log.append(handOff(question)); } }));
+        onclick: (e) => { e.target.disabled = true; say(L(R.T.notFound), 'sorry'); log.append(handOff(question)); } }));
     }
     return row;
   }
@@ -81,7 +81,7 @@
     const row = answerRow(text, `${L(R.T.translated).replace('{q}', item.q.ja)} ・ ${L(R.T.updated)} ${item.updated}`, lang);
     row.lastChild.append(el('details', { class: 'faq__orig' }, el('summary', { text: L(R.T.original) }), el('p', { lang: 'ja', text: item.a.ja })),
       el('button', { class: 'linkbtn', type: 'button', text: L(R.T.wrongQuestion),
-        onclick: (e) => { e.target.disabled = true; say(L(R.T.notFound)); log.append(handOff(question)); } }));
+        onclick: (e) => { e.target.disabled = true; say(L(R.T.notFound), 'sorry'); log.append(handOff(question)); } }));
     return row;
   }
 
@@ -103,7 +103,7 @@
     if (turn !== asking) return;
     const langName = got ? L(T.langNames[got.lang] || T.langNames.en) : '';
     steps.done(got && !got.health ? L(T.stepRead).replace('{lang}', langName) : L(T.stepReadPlain));
-    if (got && got.health) { steps.note(L(T.stepHealth)); say(L(T.healthStop)); return; }
+    if (got && got.health) { steps.note(L(T.stepHealth)); steps.face('sorry'); say(L(T.healthStop), 'sorry'); return; }
     steps.doing(L(T.stepSearch).replace('{n}', R.FAQ.length));
     await pause(500);
     if (turn !== asking) return;
@@ -117,6 +117,7 @@
         if (turn !== asking) return;
         steps.done(L(T.stepTranslated).replace('{lang}', langName));
       }
+      steps.face('answer');
       log.append(translate ? translatedCard(item, got.answer, text, R.guestAi.langTag(got.lang, `${text} ${got.answer}`)) : answerCard(item, text));
       return;
     }
@@ -125,12 +126,15 @@
     /* AI が「合う答えは無い」と言ったときは、決まった計算の当たりを答えとして出さない（言葉が似ているだけの別の答えになる。
        例: 「駐車場に充電器は？」に駐車場の料金）。候補として「もしかして」に出すだけ。AI に届かなかったときは今までどおり */
     if (r.status === 'hit' && !got) {
+      steps.face('answer');
       log.append(answerCard(r.item, text));
     } else if (r.status === 'hit' || r.status === 'maybe') {
+      steps.face('answer');
       say(L(R.T.didYouMean));
       log.append(candidates(r.status === 'hit' ? [r.item] : r.candidates, text));
     } else {
-      say(L(R.T.notFound));
+      steps.face('sorry');
+      say(L(R.T.notFound), 'sorry');
       log.append(handOff(text));
     }
   }
@@ -158,7 +162,7 @@
     form.addEventListener('submit', (e) => { e.preventDefault(); const q = input.value; input.value = ''; input.focus(); ask(q); });
     root.replaceChildren(
       el('div', { class: 'faq__head' },
-        el('img', { class: 'faq__chara', src: CHARA, alt: '', width: 56, height: 58 }),
+        el('img', { class: 'faq__chara', src: R.CHARA.hello, alt: '', width: 56, height: 56 }),
         el('h2', { class: 'h2', text: L(R.T.faqTitle) })),
       form,
       el('p', { class: 'faq__note', text: L(R.T.faqNote) }),
