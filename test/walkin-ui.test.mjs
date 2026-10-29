@@ -471,8 +471,9 @@ test('お客さんの画面: 鍵を URL から消し、便の日付・時刻・�
   assert.match(g.root.textContent, /健康のことは、ここでは聞きません/);
   const inputs = all(g.root, 'input');
   const type = (i, v) => { inputs[i].value = v; return Promise.all((inputs[i].listeners.input || []).map(fn => fn({ target: inputs[i] }))); };
-  /* name, people, birthDate, address, 緊急(名前, ご関係, 電話), email */
-  await type(0, '見本 太郎'); await type(1, '2'); await type(2, '1990-05-01'); await type(3, '那覇市'); await type(4, '見本 花子'); await type(5, '妻'); await type(6, '090'); await type(7, 'a@b.example');
+  /* name, people, 生年月日（年・月・日の 3 欄）, address, 緊急(名前, ご関係, 電話), email */
+  await type(0, '見本 太郎'); await type(1, '2'); await type(2, '1990'); await type(3, '5'); await type(4, '1'); await type(5, '那覇市');
+  await type(6, '見本 花子'); await type(7, '妻'); await type(8, '090'); await type(9, 'a@b.example');
   await all(g.root, 'form')[0].listeners.submit[0]({ preventDefault() {} });
   await settle();
   assert.deepEqual(g.sent[1].body, { k: KEY('g'), action: 'submit', tripId: 't1', name: '見本 太郎', people: 2, email: 'a@b.example', birthDate: '1990-05-01', address: '那覇市',

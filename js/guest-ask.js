@@ -34,8 +34,8 @@
     address: { ja: '住所', en: 'Address' },
     emergency: { ja: '緊急時の連絡先（一緒に潜らない人）', en: 'Emergency contact (someone not diving with you)' },
     eName: { ja: 'お名前', en: 'Name' },
-    eRelation: { ja: '続柄（例: 母）', en: 'Relation (e.g. mother)' },
-    ePhone: { ja: '電話', en: 'Phone' },
+    eRelation: { ja: '続柄（任意。例: 母）', en: 'Relation (optional, e.g. mother)' },
+    ePhone: { ja: '電話（海外は + と国番号から）', en: 'Phone (with + and country code)' },
     cert: { ja: 'C カード（ダイビングの認定証）', en: 'Diving certification card' },
     certDate: { ja: '取得した年月', en: 'Month you got it' },
     dives: { ja: '潜った本数', en: 'Logged dives' },
@@ -150,7 +150,7 @@
   function draftOf(p) {
     if (!drafts[p.id]) {
       drafts[p.id] = { name: '', birthDate: '', address: '', emergency: { name: '', relation: '', phone: '' }, cert: { course: '', date: '' },
-        courses: '', dives: '', lastDive: '', answers: Array(R.roster.HEALTH_QUESTIONS).fill(null), consent: false, today: '' };
+        courses: '', dives: '', lastDive: '', answers: Array(R.roster.HEALTH_QUESTIONS).fill(null), consent: false, today: '', birthParts: { y: '', m: '', d: '' } };
     }
     return drafts[p.id];
   }
@@ -170,7 +170,7 @@
         el('p', { class: 'note', text: L(T.nameFirstNote) }),
         el('button', { class: 'btn btn--small btn--ghost', type: 'button', text: L(T.nameFirst), onclick: () => sendName(entry, d) }));
     }
-    if (ask.includes('birthDate')) out.push(field(T.birthDate, input(d, 'birthDate', { type: 'date', max: R.today(), autocomplete: 'bday' })));
+    if (ask.includes('birthDate')) out.push(R.dateParts({ legend: L(T.birthDate), parts: d.birthParts, onChange: (iso) => { d.birthDate = iso; } }));
     if (ask.includes('address')) out.push(field(T.address, input(d, 'address', { type: 'text', maxlength: 120, autocomplete: 'street-address' })));
     if (ask.includes('emergency')) {
       const e = d.emergency;
@@ -249,7 +249,11 @@
         R.roster.COURSES.filter(Boolean).map(c => el('option', { value: c, selected: d.course === c, text: courseLabel(c) }))),
       el('input', { class: 'input input--short', type: 'month', value: d.date, oninput: bind('date') }));
     }
-    const type = { birthDate: 'date', dives: 'number', lastDive: 'month' }[field] || 'text';
+    if (field === 'birthDate') {
+      d.parts = d.parts || R.datePartsOf(d.v);
+      return R.dateParts({ legend: L(CONF_LABEL.birthDate), parts: d.parts, onChange: (iso) => { d.v = iso; } });
+    }
+    const type = { dives: 'number', lastDive: 'month' }[field] || 'text';
     const extra = field === 'dives' ? { min: 0, max: 100000, inputmode: 'numeric' } : {};
     return el('input', { class: 'input', type, value: d.v, maxlength: 120, ...extra, oninput: bind('v') });
   }

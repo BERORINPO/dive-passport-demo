@@ -36,7 +36,7 @@
     emergency: { ja: '緊急時の連絡先', en: 'Emergency contact' },
     eName: { ja: 'お名前', en: 'Name' },
     eRelation: { ja: 'ご関係（任意）', en: 'Relation (optional)' },
-    ePhone: { ja: '電話番号', en: 'Phone number' },
+    ePhone: { ja: '電話番号（海外は + と国番号から）', en: 'Phone (with + and country code)' },
     email: { ja: 'メールアドレス（任意）', en: 'Email (optional)' },
     submit: { ja: '送る', en: 'Send' },
     sending: { ja: '送っています…', en: 'Sending…' },
@@ -68,7 +68,7 @@
   let sending = false;
   let problems = [];              // 直してほしい項目の名前
   let message = null;             // 送れなかったときの文
-  const draft = { name: '', people: '1', birthDate: '', address: '', emergency: { name: '', relation: '', phone: '' }, email: '' };
+  const draft = { name: '', people: '1', birthDate: '', birthParts: { y: '', m: '', d: '' }, address: '', emergency: { name: '', relation: '', phone: '' }, email: '' };
 
   const kindJa = { dive: 'ダイビング', snorkel: 'スノーケル' };
   const clock = (t) => (t ? t.replace(/^0/, '') : L(T.noStart));
@@ -95,8 +95,10 @@
 
   function renderForm() {
     const e = draft.emergency;
+    /* 本人の名前・電話が自動入力で入らないよう、緊急時の連絡先は section-emergency で区切る（続柄は自動入力しない） */
+    const fill = { name: 'section-emergency name', relation: 'off', phone: 'section-emergency tel' };
     const sub = (k, label, type, max) => el('input', { class: 'input', type, value: e[k], maxlength: max, placeholder: L(label), 'aria-label': L(label),
-      oninput: (ev) => { e[k] = ev.target.value; } });
+      autocomplete: fill[k], enterkeyhint: 'next', inputmode: k === 'phone' ? 'tel' : null, oninput: (ev) => { e[k] = ev.target.value; } });
     const names = problems.map(p => L(FIELD_JA[p] || T.failed)).join(' / ');
     const errors = el('p', { class: 'errors', role: 'alert', text: problems.length ? `${L(T.needs)}${names}` : message ? L(message) : '' });
     return [
@@ -105,7 +107,7 @@
       el('form', { class: 'card form', novalidate: true, onsubmit: (ev) => { ev.preventDefault(); submit(); } },
         field(T.name, input(() => draft.name, (v) => { draft.name = v; }, { type: 'text', maxlength: 60, autocomplete: 'name', 'aria-invalid': String(bad('name')) })),
         field(T.people, input(() => draft.people, (v) => { draft.people = v; }, { type: 'number', min: 1, max: 10, inputmode: 'numeric', class: 'input input--short' })),
-        field(T.birthDate, input(() => draft.birthDate, (v) => { draft.birthDate = v; }, { type: 'date', max: view.today, autocomplete: 'bday' })),
+        R.dateParts({ legend: L(T.birthDate), parts: draft.birthParts, invalid: bad('birthDate'), onChange: (iso) => { draft.birthDate = iso; } }),
         field(T.address, input(() => draft.address, (v) => { draft.address = v; }, { type: 'text', maxlength: 120, autocomplete: 'street-address' })),
         el('fieldset', { class: 'group' }, el('legend', { class: 'label', text: L(T.emergency) }),
           sub('name', T.eName, 'text', 60), sub('relation', T.eRelation, 'text', 20), sub('phone', T.ePhone, 'tel', 30)),

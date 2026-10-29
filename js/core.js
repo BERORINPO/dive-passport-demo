@@ -28,6 +28,7 @@
   }
 
   const pad = (n) => String(n).padStart(2, '0');
+  const halfDigits = (t) => String(t).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));   // 全角の数字を半角に
   const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const addDays = (d, n) => { const x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; };
 
@@ -704,6 +705,36 @@
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    /* 覚えている日付（生年月日）を年・月・日の 3 つの数の欄で聞く（GOV.UK の dates の型。カレンダーで何十年も戻らせない）。
+       並びは日本語なら年・月・日、ほかは日・月・年。parts（{ y, m, d }。書きかけを描き直しで消さないため、呼ぶ側の下書きに置く）を書き換え、
+       3 つがそろって実在する日なら YYYY-MM-DD を、そうでなければ '' を onChange に渡す（空なら呼ぶ側の検査が「生年月日」を知らせる） */
+    dateParts: ({ legend, parts, onChange, invalid = false }) => {
+      const isoOf = () => {
+        const y = Number(parts.y);
+        const m = Number(parts.m);
+        const d = Number(parts.d);
+        if (!/^\d{4}$/.test(parts.y) || !/^\d{1,2}$/.test(parts.m) || !/^\d{1,2}$/.test(parts.d)) return '';
+        const day = new Date(Date.UTC(y, m - 1, d));
+        if (day.getUTCFullYear() !== y || day.getUTCMonth() !== m - 1 || day.getUTCDate() !== d) return '';
+        return `${parts.y}-${pad(m)}-${pad(d)}`;
+      };
+      const box = (key, label, max, size) => el('label', { class: `dateparts__part dateparts__part--${size}` },
+        el('span', { class: 'label label--small', text: R.L(label) }),
+        el('input', { class: 'input', type: 'text', inputmode: 'numeric', maxlength: max, value: parts[key], autocomplete: `bday-${{ y: 'year', m: 'month', d: 'day' }[key]}`,
+          enterkeyhint: 'next', 'aria-invalid': String(invalid),
+          oninput: (e) => { parts[key] = halfDigits(e.target.value).trim(); onChange(isoOf()); } }));
+      const Y = box('y', { ja: '年', en: 'Year' }, 4, 'year');
+      const M = box('m', { ja: '月', en: 'Month' }, 2, 'small');
+      const D = box('d', { ja: '日', en: 'Day' }, 2, 'small');
+      return el('fieldset', { class: 'group' }, el('legend', { class: 'label', text: legend }),
+        el('div', { class: 'dateparts' }, R.lang === 'ja' ? [Y, M, D] : [D, M, Y]),
+        el('p', { class: 'note', text: R.L({ ja: '例: 1990 年 4 月 27 日', en: 'For example, 27 4 1990' }) }));
+    },
+    /* 前に入れた YYYY-MM-DD を 3 つの欄の値にする */
+    datePartsOf: (iso) => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+      return m ? { y: m[1], m: String(Number(m[2])), d: String(Number(m[3])) } : { y: '', m: '', d: '' };
     },
     /* 画面の下に固定する操作の帯（design.md）。左が主、右が副。誤りの文もここに入れて、押したボタンの上に出す */
     dock: (...nodes) => {

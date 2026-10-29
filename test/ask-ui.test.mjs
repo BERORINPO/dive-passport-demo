@@ -193,13 +193,14 @@ test('入力欄: 緊急時の連絡先は section-emergency で区切り（続�
   R.guestAsk.remote(source([p]));
   const inputs = all(root, n => n.tagName === 'INPUT');
   const by = (ac) => inputs.find(i => i.getAttribute('autocomplete') === ac);
-  assert.ok(by('bday') && by('street-address'));
+  assert.ok(by('bday-year') && by('bday-month') && by('bday-day') && by('street-address'));
   assert.equal(by('section-emergency name').getAttribute('type'), 'text');
   const tel = by('section-emergency tel');
   assert.equal(tel.getAttribute('type'), 'tel');
   assert.equal(tel.getAttribute('inputmode'), 'tel');
   assert.equal(inputs.filter(i => i.getAttribute('autocomplete') === 'off').length, 1, '続柄だけ');
   assert.ok(inputs.every(i => i.getAttribute('enterkeyhint') === 'next'));
+  assert.equal(inputs.filter(i => i.getAttribute('type') === 'date').length, 0, '生年月日はカレンダーにしない');
 });
 
 test('言葉: お客さんのページで選んだ言葉を端末に覚え、次に開いたときに使う。覚えていなければ端末の言葉。保存できない端末でも切り替えはできる', () => {
@@ -216,6 +217,29 @@ test('言葉: お客さんのページで選んだ言葉を端末に覚え、次
   assert.equal(R.guestLang.get(), 'ja');
   R.guestLang.set('en');
   assert.equal(R.lang, 'en', '覚えられなくても切り替わる');
+});
+
+test('生年月日: 年・月・日の 3 つの数の欄（日本語は年・月・日、英語は日・月・年）。実在する日だけ YYYY-MM-DD で送る。全角の数字も読む', async () => {
+  const ja = boot('ja');
+  const src = source([person('p1', '見本 花子', ['birthDate'])]);
+  const send = src.send;
+  src.send = async (id, input) => (input.birthDate ? send(id, input) : (src.sent.push({ id, input }), { problems: ['birthDate'] }));   // Worker と同じく空は断る
+  ja.R.guestAsk.remote(src);
+  const boxes = () => all(ja.root, n => n.tagName === 'INPUT' && /^bday-/.test(n.getAttribute('autocomplete') || ''));
+  assert.deepEqual(boxes().map(b => b.getAttribute('autocomplete')), ['bday-year', 'bday-month', 'bday-day']);
+  assert.ok(boxes().every(b => b.getAttribute('inputmode') === 'numeric' && b.getAttribute('type') === 'text'));
+  const [y, m, d] = boxes();
+  y.input('１９９０'); m.input('2'); d.input('30');
+  await dockButton(ja.root).click();
+  assert.equal(src.sent[0].input.birthDate, '', '2 月 30 日は無い日なので送らない（Worker が「生年月日」を返す）');
+  d.input('27');
+  await dockButton(ja.root).click();
+  assert.equal(src.sent[1].input.birthDate, '1990-02-27');
+  const en = boot('en');
+  en.R.guestAsk.remote(source([person('p1', 'Emily Carter', ['birthDate'])]));
+  assert.deepEqual(all(en.root, n => n.tagName === 'INPUT' && /^bday-/.test(n.getAttribute('autocomplete') || '')).map(b => b.getAttribute('autocomplete')),
+    ['bday-day', 'bday-month', 'bday-year']);
+  assert.match(en.root.textContent, /For example, 27 4 1990/);
 });
 
 let failed = 0;
