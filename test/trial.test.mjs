@@ -98,9 +98,14 @@ test('道: AI の鍵が無ければ 503（AI を呼ばない）', async () => {
   assert.equal((await post(s, { t: T, kind: 'faq', question: '写真は？' })).status, 503);
 });
 
-test('中身: 2 店とも契約に合い、出どころを持ち、個人の連絡先を画面に出さない', () => {
+test('閉じた試し版: シーサー那覇店の鍵はもう無い（2026-10-30 お店の返事で閉じた）', () => {
+  assert.equal(TRIAL_SHOPS['6f4l8uhPYg6MtLugpZfyog'], undefined);
+  assert.ok(!Object.values(TRIAL_SHOPS).some(p => p.id === 'seasir-naha'));
+});
+
+test('中身: 残っている店はどれも契約に合い、出どころを持ち、個人の連絡先を画面に出さない', () => {
   const keys = Object.keys(TRIAL_SHOPS);
-  assert.equal(keys.length, 2);
+  assert.equal(keys.length, 1);
   for (const t of keys) {
     const p = TRIAL_SHOPS[t];
     assert.ok(checkTrial({ t, kind: 'view' }).ok, `${p.id} の鍵の形`);
