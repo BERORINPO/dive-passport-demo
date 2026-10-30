@@ -34,6 +34,10 @@
   const MAX_TEXT = 20000;                                      // 予約メールの本文の上限（文字）
   const MAX_IMAGE = 4000000;                                   // 写真の上限（base64 の文字数、約 3 MB）
   const MAX_PEOPLE = 30;
+  /* 乗船者名簿（国交省のダイビング船の安全対策ガイドライン、令和 7 年 7 月 24 日公表。推奨で、法の義務ではない）で足す項目。
+     性別は条例の名簿に無いので、お店が入れる（AI には読ませない）。m: 男 / f: 女 / x: その他・答えない */
+  const SEXES = ['m', 'f', 'x'];
+  const MAX_TANK_KINDS = 4;
 
   /* 書類の自動化（plan/auto.md）。予約の連絡先と言語、自動の予定（jobs）、送る連絡（outbox） */
   const LANGS = ['ja', 'en', 'ko', 'zh'];
@@ -138,8 +142,9 @@
   }
 
   /* ---------- 検査 ---------- */
-  /* cancel は中止した便にだけ付く（blankTrip には入れない。前の版の画面が、中止していない便まで読めなくならないように） */
-  const TRIP_SHAPE = [...Object.keys(blankTrip()), 'cancel', 'rosterAt'];
+  /* cancel は中止した便にだけ付く（blankTrip には入れない。前の版の画面が、中止していない便まで読めなくならないように）。
+     plan はダイビング計画（乗船者名簿の紙に出す）を入れた便にだけ付く */
+  const TRIP_SHAPE = [...Object.keys(blankTrip()), 'cancel', 'rosterAt', 'plan'];
   /* leadEmail（お願いを送る先）と lang（送る言葉）は、書類の自動化で足した。無い予約もある（前の版・電話でメールを聞いていない） */
   const BOOKING_SHAPE = [...Object.keys(blankBooking()), 'leadEmail', 'lang'];
   const emailOk = (v) => v === '' || (isStr(v, 254) && EMAIL.test(v));
@@ -161,6 +166,7 @@
       !isList(t.checks, MAX_CHECKS, checkOk) && 'checks',
       !(t.cancel === undefined || cancelOk(t.cancel)) && 'cancel',
       !(t.rosterAt === undefined || isStr(t.rosterAt, 40)) && 'rosterAt',   // 当日の朝に名簿を作った時刻（書類の自動化）
+      !(t.plan === undefined || planOk(t.plan)) && 'plan',
       !isStr(t.createdAt, 40) && 'createdAt'
     ]);
   }
@@ -174,6 +180,21 @@
       (!['return', 'undo', 'here'].includes(x.stage) || (x.shop !== undefined && x.dive !== undefined)) &&
       (x.stage !== 'here' || x.person !== undefined);
   }
+  /* ダイビング計画（乗船者名簿の紙の上半分）。出港・帰港の時刻、出る港、船長、船上の見張り（潜水者安全確保要員）、1 本の潜水時間（分）、
+     タンク（容量 L と本数。4 種類まで）。入れていない所は ''。ポイントは便の site、人数は名簿から数える */
+  const PLAN_KEYS = ['depart', 'back', 'port', 'captain', 'watch', 'minutes', 'tanks'];
+  function blankPlan() {
+    return { depart: '', back: '', port: '', captain: '', watch: '', minutes: '', tanks: [] };
+  }
+  const tankOk = (x) => onlyKeys(x, ['size', 'count']) && Number.isInteger(x.size) && x.size >= 1 && x.size <= 20 &&
+    Number.isInteger(x.count) && x.count >= 0 && x.count <= MAX_PEOPLE * MAX_DIVES;
+  function planOk(p) {
+    return onlyKeys(p, PLAN_KEYS) && PLAN_KEYS.every(k => has(p, k)) && isTime(p.depart) && isTime(p.back) &&
+      isStr(p.port, 40) && isStr(p.captain, 40) && isStr(p.watch, 40) &&
+      (p.minutes === '' || (Number.isInteger(p.minutes) && p.minutes >= 1 && p.minutes <= 180)) &&
+      isList(p.tanks, MAX_TANK_KINDS, tankOk) && new Set(p.tanks.map(x => x.size)).size === p.tanks.length;
+  }
+
   /* 便の中止。いつ・理由・中止を確かめた相乗りのお店（乗り合いの便だけ）。中止していない便には欄ごと無い */
   function cancelOk(c) {
     return onlyKeys(c, ['at', 'reason', 'acked']) && isStr(c.at, 40) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(c.at) && CANCEL_REASONS.includes(c.reason) &&
@@ -239,14 +260,16 @@
     ];
   }
 
-  const PERSON_KEYS = Object.keys(blankPerson());
+  /* sex は乗船者名簿のためにお店が入れた人にだけ付く（blankPerson には入れない。前の版の画面が、入れていない人まで読めなくならないように） */
+  const PERSON_KEYS = [...Object.keys(blankPerson()), 'sex'];
 
   function validatePerson(p) {
     if (!isObj(p) || p.v !== VERSION) return result(['version']);
     return result([
-      !onlyKeys(p, PERSON_KEYS) && 'keys', !isId(p.id) && 'id', !isId(p.bookingId) && 'bookingId', ...personFieldsOk(p),
+      !onlyKeys(p, PERSON_KEYS) && 'keys',
+      !(p.sex === undefined || p.sex === '' || SEXES.includes(p.sex)) && 'sex', !isId(p.id) && 'id', !isId(p.bookingId) && 'bookingId', ...personFieldsOk(p),
       !isStr(p.courses, 120) && 'courses', !healthOk(p.health) && 'health', !isStr(p.guide, 40) && 'guide',
-      !(isObj(p.src) && Object.keys(p.src).every(k => AI_FIELDS.includes(k) || ['courses', 'health', 'guide'].includes(k)) &&
+      !(isObj(p.src) && Object.keys(p.src).every(k => AI_FIELDS.includes(k) || ['courses', 'health', 'guide', 'sex'].includes(k)) &&
         Object.values(p.src).every(s => FIELD_SRC.includes(s))) && 'src',
       !isList(p.unsure, 20, u => AI_FIELDS.includes(u)) && 'unsure', !isStr(p.checkedAt, 40) && 'checkedAt'
     ]);
@@ -422,6 +445,7 @@
   R.roster = {
     VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, CHECK_STAGES, MAX_DIVES, CANCEL_REASONS, CANCEL_TEXT, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
     ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
+    SEXES, MAX_TANK_KINDS, blankPlan, planOk,
     validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody,
     validateReading, fromModel,
     LANGS, JOB_KINDS, OUT_KINDS, OUT_STATUS, isJst, emailOk, jobOk, outOk,
