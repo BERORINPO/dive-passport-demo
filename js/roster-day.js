@@ -99,6 +99,8 @@
   function setSpo2(state, { id, dive, side, value, at }) {
     const p = state.people.find(x => x.id === id);
     if (!p) throw new Error(`setSpo2: 人が見つからない (${id})`);
+    /* 健康の質問を紙で聞くお店（試用の形）は、血中酸素も名簿に入れない（健康の数値を預からない。決定ログ 2026-11-01 trial-health-paper） */
+    if (C().paperOf(state)) throw new Error('setSpo2: 紙のお店は血中酸素を入れない');
     const booking = state.bookings.find(b => b.id === p.bookingId);
     if (p.health.heldBy || !booking || C().isPartnerBooking(booking)) throw new Error('setSpo2: 乗り合いの他のお店のお客さんの数値は、この店に入れない');
     if (!Number.isInteger(dive) || dive < 1 || dive > S().SPO2_DIVES) throw new Error(`setSpo2: dive は 1〜${S().SPO2_DIVES} (${dive})`);

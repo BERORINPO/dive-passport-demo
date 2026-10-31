@@ -320,6 +320,25 @@ test('予約の受け口 API（migration 0008）を本物の SQLite につない
   assert.equal((await shop.intakeBooking(hash, body, 'order-4')).status, 401);
 });
 
+test('試用のお店は健康を紙で始める（tools/shop.mjs paper。決定ログ 2026-11-01 trial-health-paper）: 名簿がまだ無いお店だけに紙の名簿を置き、もうある名簿は消さない。見本の default には使えない', async () => {
+  const { shopSql, parseArgs } = await import('../tools/shop.mjs');
+  const db = await sqliteD1();
+  const sql = (...argv) => db.raw.exec(shopSql(parseArgs(argv)));
+  sql('paper', '--id', 'shop-a', '--name', "A's ダイブ");
+  const got = await getRoster(db, 'shop-a');
+  assert.equal(got.version, 1);
+  const state = checkPut({ base: 1, state: JSON.parse(got.text) }, { today: '2026-11-01', at: '2026-11-01T00:00:00.000Z' });
+  assert.ok(state.ok, 'サーバーの厳しい検査が通す');
+  assert.ok(R.rosterCore.paperOf(state.state), '紙の印が付く');
+  assert.equal(state.state.log.at(-1).after.health, 'paper', '切り替えが記録に残る');
+  await putRoster(db, 'shop-b', 0, JSON.stringify(R.roster.blankState('B マリン')), '2026-11-01T00:00:00.000Z');
+  const before = await getRoster(db, 'shop-b');
+  sql('paper', '--id', 'shop-b', '--name', 'B マリン');
+  assert.deepEqual(await getRoster(db, 'shop-b'), before, 'もうある名簿は変えない（画面で切り替える）');
+  assert.throws(() => shopSql(parseArgs(['paper', '--id', 'default', '--name', '見本'])), /default/);
+  assert.throws(() => shopSql(parseArgs(['paper', '--id', 'shop-c'])), /--name/);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

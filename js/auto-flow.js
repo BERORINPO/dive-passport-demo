@@ -65,6 +65,9 @@
   const dueText = (due) => `${Number(due.slice(5, 7))}/${Number(due.slice(8, 10))} ${due.slice(11)}`;
   const ADDED_JA = { ai: '予約メールが届き、AI が読んで便に入れた', guest: 'お客さんが自社の予約フォームから入れた', staff: 'お店が予約を入れた', system: '予約が入った' };
   const PLAN_JA = { request: 'お願いを送る', remind: 'まだなら、もう一度お願いを送る', eve: 'まだなら、お店に知らせる', morning: '名簿を作り、当日の体調の質問を送る' };
+  /* 健康の質問を紙で聞くお店は、当日の朝の体調の質問を送らない（roster-auto.js の needToday が空）。予定の文もそれに合わせる */
+  const PAPER_MORNING = { plan: '名簿を作る', done: '名簿を作った' };
+  const planJa = (s, kind) => (kind === 'morning' && R.rosterCore.paperOf(s) ? PAPER_MORNING.plan : PLAN_JA[kind]);
   function outLine(o) {
     const what = A().isPartnersNotice(o) ? 'お店に知らせた: 相乗りのお店の確認待ち（乗り合いの画面で見る）'
       : o.kind === 'staff' ? 'お店に知らせた: 名簿の項目が届いていない人がいる'
@@ -93,7 +96,7 @@
     const lines = items.map(x => (x.kind === 'added'
       ? el('li', { class: 'bk' }, el('span', { class: 'bk__name' }, el('span', { class: 'fig', text: jstOf(x.at) }), `　${ADDED_JA[x.who] || ADDED_JA.system}`))
       : x.kind === 'out' ? outLine(x.out)
-        : el('li', { class: 'bk bk--next' }, el('span', { class: 'bk__name' }, el('span', { class: 'fig', text: dueText(x.due) }), `　予定: ${PLAN_JA[x.job.kind]}`))));
+        : el('li', { class: 'bk bk--next' }, el('span', { class: 'bk__name' }, el('span', { class: 'fig', text: dueText(x.due) }), `　予定: ${planJa(s, x.job.kind)}`))));
     return [
       ...ui.head(people.length > 1 ? `${lead} ほか ${people.length - 1} 人` : lead, trip ? `${ui.md(trip.date)} ${ui.tripLabel(trip)}` : ''),
       el('div', { class: 'sheet' },
@@ -183,7 +186,8 @@
     const late = waiting && j.due <= R.nowJst();
     return boardLine({
       at: withDay ? dueText(j.due) : j.due.slice(11).replace(/^0/, ''), next: waiting && !late,
-      name: waiting ? `${PLAN_JA[j.kind]}（予定）` : j.status === 'skipped' ? 'そろっていたので送らなかった' : DONE_JA[j.kind],
+      name: waiting ? `${planJa(state, j.kind)}（予定）` : j.status === 'skipped' ? 'そろっていたので送らなかった'
+        : j.kind === 'morning' && R.rosterCore.paperOf(state) ? PAPER_MORNING.done : DONE_JA[j.kind],
       st: late ? ['wait', '・待っている'] : waiting ? null : ['ok', j.status === 'skipped' ? '✓ そろった' : '✓ 済んだ'],
       meta: outMeta(state, ui, r), extra: toFlow(ui, r.booking.id)
     });
