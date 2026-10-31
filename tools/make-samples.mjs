@@ -21,7 +21,7 @@ const BOOKINGS = {
   e3: { site: 'お問い合わせフォーム', ref: '', date: '2026-10-24', start: '', tour: 'ファンダイビング',
     people: 1, lead_name: '見本 健太', lead_phone: '090-0000-1801', unsure: ['date', 'start'] },
   e4: { site: 'メール', ref: '', date: '2026-10-24', start: '', tour: '体験ダイビング',
-    people: 3, lead_name: '見本 大輔', lead_phone: '090-0101-2323', lead_email: 'daisuke@mail.example', unsure: ['date', 'start'] }
+    people: 3, lead_name: '見本 大輔', lead_phone: '090-0000-1901', lead_email: 'daisuke@mail.example', unsure: ['date', 'start'] }
 };
 
 const truth = JSON.parse(readFileSync(join(dir, 'samples', 'truth.json'), 'utf8'));
