@@ -387,14 +387,15 @@
      入れ子の項目（緊急連絡先・C カード・サイズ・健康）は、渡した所だけ前の値に重ねる（{ emergency: { phone } } でよい）。
      値の形は roster-schema.js のとおりに渡す（潜った本数は数。フォームの文字は画面で数に直す）。
      引数や直した後の形が違えば例外にする。画面は try / catch で受け、入れた値を消さずにお客さんへ知らせる */
-  const EDITABLE = [...SIMPLE, 'emergency', 'cert', 'courses', 'sizes', 'health', 'guide'];
+  const EDITABLE = [...SIMPLE, 'emergency', 'cert', 'courses', 'sizes', 'health', 'guide', 'sex'];
   const NESTED = ['emergency', 'cert', 'sizes', 'health'];
   const isPlain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
   /* 記録に残す前と後。健康の答えは中身を残さず、答えた数・当日の答えの有無・誰が確かめたか・同意の版だけにする。
      同意を取り消したら答えを消すので、記録にも残さない。書き換えたことは、いつ・誰が・どの項目かで分かる */
   const logHealth = (h) => ({ answered: (Array.isArray(h.answers) ? h.answers : []).filter(a => a !== null && a !== undefined).length,
     today: !!h.today, todayAt: typeof h.todayAt === 'string' ? h.todayAt : '', heldBy: h.heldBy || '', consentVer: h.consentVer || '' });
-  const logPick = (o, keys) => Object.fromEntries(keys.map(k => [k, k === 'health' ? logHealth(o.health) : o[k]]));
+  /* 性別（sex）は入れた人にだけ付く欄なので、無い人の「前」は '' として残す */
+  const logPick = (o, keys) => Object.fromEntries(keys.map(k => [k, k === 'health' ? logHealth(o.health) : k === 'sex' ? o.sex || '' : o[k]]));
   /* 前の版で記録に残った健康の答えの中身を、logHealth の形に書き換える。保存から読み込むとき、形の検査の前に 1 回（決定ログ health-log） */
   function scrubLog(state) {
     const old = (side) => isPlain(side) && isPlain(side.health) && has(side.health, 'answers');
@@ -413,7 +414,8 @@
     if (!before) throw new Error(`editPerson: 人が見つからない (${id})`);
     const full = Object.fromEntries(Object.keys(patch).filter(k => EDITABLE.includes(k))
       .map(k => [k, NESTED.includes(k) && isPlain(patch[k]) ? { ...before[k], ...patch[k] } : patch[k]]));
-    const keys = Object.keys(full).filter(k => !same(full[k], before[k]));
+    const prev = (k) => (k === 'sex' ? before.sex || '' : before[k]);
+    const keys = Object.keys(full).filter(k => !same(full[k], prev(k)));
     if (!keys.length) return state;
     /* 入れ子の一部だけ直したときは、触っていない所（AI が読んだ電話など）を確かめ済みにしない。自信なしの印と AI の出どころを残す */
     const partial = (k) => has(S().SUB, k) && isPlain(patch[k]) && !S().SUB[k].every(x => has(patch[k], x));
@@ -431,13 +433,19 @@
   /* ---------- 便で決めること（潜水場所・ガイド・船・乗り合いのお店）と、名簿を書き出した記録 ---------- */
   const TRIP_TEXT = ['site', 'boat', 'host'];
   const TRIP_LIST = ['guides', 'partners'];
-  const TRIP_EDITABLE = [...TRIP_TEXT, ...TRIP_LIST];
+  const TRIP_EDITABLE = [...TRIP_TEXT, ...TRIP_LIST, 'plan'];
+  /* ダイビング計画は、渡した所だけ前の値（無ければ空の計画）に重ねる。字は前後の空白を落とす。形は validateTrip が確かめる */
+  function cleanPlan(before, patch) {
+    const merged = { ...S().blankPlan(), ...(before.plan || {}), ...(isPlain(patch) ? patch : {}) };
+    return Object.fromEntries(Object.entries(merged).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v]));
+  }
+  const cleanTripValue = (before, k, v) => (k === 'plan' ? cleanPlan(before, v)
+    : TRIP_TEXT.includes(k) ? String(v).trim() : (Array.isArray(v) ? v : []).map(g => String(g).trim()).filter(Boolean));
   /* お店が便の潜水場所・ガイド・船・乗り合いのお店を入れる。前と後を記録に残す */
   function editTrip(state, { tripId, patch, at }) {
     const before = state.trips.find(t => t.id === tripId);
     if (!before) throw new Error(`editTrip: 便が見つからない (${tripId})`);
-    const clean = Object.fromEntries(Object.keys(patch).filter(k => TRIP_EDITABLE.includes(k)).map(k => [k,
-      TRIP_TEXT.includes(k) ? String(patch[k]).trim() : (Array.isArray(patch[k]) ? patch[k] : []).map(g => String(g).trim()).filter(Boolean)]));
+    const clean = Object.fromEntries(Object.keys(patch).filter(k => TRIP_EDITABLE.includes(k)).map(k => [k, cleanTripValue(before, k, patch[k])]));
     const merged = { ...before, ...clean };
     /* 中止を確かめたお店は、今の相乗りのお店だけ（外したお店の「確かめた」を残さない） */
     const after = merged.cancel && clean.partners
@@ -454,11 +462,11 @@
   }
 
   /* 名簿を印刷した・CSV に書き出した。人数と、健康の欄を入れたかだけを残す（中身は残さない）。
-     paper: 乗り合いの合同名簿（joint）・札ボード（board）。条例の名簿なら渡さない */
+     paper: 乗り合いの合同名簿（joint）・札ボード（board）・相乗りのお店に返す名簿（partner）・乗船者名簿（manifest）。条例の名簿なら渡さない */
   function logOutput(state, { tripId, act, people, health, paper, at }) {
     if (!['print', 'csv'].includes(act)) throw new Error(`logOutput: act は print / csv (${act})`);
     if (!state.trips.some(t => t.id === tripId)) throw new Error(`logOutput: 便が見つからない (${tripId})`);
-    const kind = ['joint', 'board', 'partner'].includes(paper) ? { paper } : {};
+    const kind = ['joint', 'board', 'partner', 'manifest'].includes(paper) ? { paper } : {};
     return withLog(state, entry(at, 'staff', act, 'trip', tripId, { after: { people: Number(people) || 0, health: health !== false, ...kind } }));
   }
 

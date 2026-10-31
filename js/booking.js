@@ -55,6 +55,7 @@
 
   let mode = 'list';        // list / board（書類の自動化、auto-flow.js）/ mail / phone / intake（名簿の取り込み）/ review（読み取りを確かめる）/ ask（お客さんに聞く）
                             // day（今日の名簿）/ spo2（血中酸素）/ print（条例の名簿）/ ics（カレンダー）/ log（記録）は day-roster.js
+                            // manifest（乗船者名簿とダイビング計画）/ manifestprint（その紙）は boat-manifest.js
                             // share（乗り合い）/ partner（他のお店役）/ partnerpaper / joint（合同名簿）/ jointprint / boat（船の上）/ callout（名前で呼ぶ）は share-roster.js
                             // partnerphoto（他のお店が写真で名前を渡す）は partner-photo.js
                             // kept（端末に残した名簿を見て戻す）
@@ -446,7 +447,8 @@
   R.bookingEdit.init(ui);
   const DAY_MODES = { day: 'renderDay', spo2: 'renderSpo2', cancel: 'renderCancel', print: 'renderPrint', ics: 'renderIcs', log: 'renderLog' };
   const SHARE_MODES = { share: 'renderShare', partner: 'renderPartner', partnerpaper: 'renderPartnerPaper', joint: 'renderJoint', jointprint: 'renderJointPrint', boat: 'renderBoat', callout: 'renderCallout' };
-  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint', 'pastprint'];
+  const MANIFEST_MODES = { manifest: 'renderManifest', manifestprint: 'renderManifestPrint' };
+  const PRINT_MODES = ['print', 'partnerpaper', 'jointprint', 'pastprint', 'manifestprint'];
 
   function render() {
     R.bookingAdd.beforeRender();
@@ -461,6 +463,7 @@
             : mode === 'flow' ? R.autoFlow.render({ bookingId: askBooking, ui })
             : mode === 'board' ? (loadUnread(), R.autoFlow.renderBoard({ ui, unread: unreadView() }))
             : DAY_MODES[mode] ? R.dayRoster[DAY_MODES[mode]]({ tripId: dayTrip, ui })
+            : MANIFEST_MODES[mode] ? R.boatManifest[MANIFEST_MODES[mode]]({ tripId: dayTrip, ui })
               : SHARE_MODES[mode] ? R.shareRoster[SHARE_MODES[mode]]({ tripId: dayTrip, shop: shareShop, ui })
                 : mode === 'partnerphoto' ? R.partnerPhoto.render({ tripId: dayTrip, shop: shareShop, ui })
                   : mode === 'past' ? R.pastTrips.renderList({ ui })

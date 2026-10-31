@@ -639,3 +639,26 @@ html { scroll-padding-top: calc(96px + var(--band-h, 0px)); }
 
 /* 幅 380px より狭いと、上の帯の店名（#brandSub）が「画面の切り替え」と重なる。店名は画面の見出しにも出ているので、狭い時は上の帯から省く */
 @media (max-width: 380px) { #brandSub { display: none; } }
+
+/* ---------- 乗船者名簿とダイビング計画（js/boat-manifest.js。国交省のダイビング船の安全対策ガイドライン）---------- */
+.mf__counts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.mf__warn, .mf__miss { color: var(--warn); font-weight: 700; }
+.mf__src { display: block; margin-top: 2px; font-size: 14px; color: var(--muted); }
+.mf__pair { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mf__time { max-width: 160px; }
+.mf__tanks { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.mf__tank { display: flex; align-items: center; gap: 6px; }
+.mf__tank .input { width: 88px; }
+.mf__sex { width: auto; }
+.mf__person { align-items: center; }
+.paper__table--plan { min-width: 0; margin-bottom: 10px; }
+.paper__table--plan th { width: 16%; }
+.paper__table--manifest { min-width: 640px; }
+.paper__table--manifest .mf__col--n { width: 5%; }
+.paper__table--manifest .mf__col--name { width: 19%; }
+.paper__table--manifest .mf__col--sex, .paper__table--manifest .mf__col--age { width: 7%; }
+.paper__table--manifest .mf__col--address { width: 29%; }
+.paper__table--manifest .mf__col--emergency { width: 33%; }
+.paper__sign { display: flex; gap: 24px; margin: 12px 0 0; font-size: 12px; }
+.paper__sign span { flex: 1; padding-bottom: 16px; border-bottom: 1px solid var(--paper-rule); }
+@media print { .paper__table--manifest { min-width: 0; } }
