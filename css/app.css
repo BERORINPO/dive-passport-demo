@@ -75,6 +75,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
   padding: 8px 16px 0; background: var(--bg); border-bottom: 2px solid var(--ink);
 }
+/* タブの行が無い帯（お客さんの画面・案内のページ）は、名前が下の線に付かないよう下にも余白を取る */
+.bar:not(:has(.tabs)) { padding-bottom: 8px; }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; min-width: 0; }
 /* 案内役の絵は全身のまま小さく（丸く切らない）。店員の画面には出さない（REDUX の文字だけ） */
 /* REDUX のロゴの印（コンパスと波。reduxdive.com のロゴ logo-redux.png の左側を切り出した物）。お客さんの画面も店員の画面も同じ物を出す。
