@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>お店の試用の案内（REDUX）</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- お店向けの試用の案内（決定ログ 2026-10-31 shop-trial-page）。アンケートに返事をくれたお店へのメールに URL を書いて渡す。
+     申し込みはメールの返信で受け、ここでは何も集めない（入力欄もアドレスも置かない）。運営者の名前は出さない（Yosuke、2026-10-31）。
+     スクリプトも字体も画像も読まない。書いてある約束（無料・1 か月・やめたら消す）を変えたら、決定ログの行も直す -->
+<header class="bar">
+  <div class="brand">
+    <span class="brand__name">REDUX</span>
+  </div>
+</header>
+<main class="wrap wrap--narrow">
+<h1 class="page__h1">予約メールと申込書から、名簿を作ります</h1>
+<p class="lead">沖縄のダイビングショップ向けに、無料で 1 か月の試用を受けています。最初は 3 店までです。</p>
+
+<section class="sheet">
+  <h2 class="sheet__title">使えること</h2>
+  <dl class="facts">
+    <div class="rd"><dt class="rd__k">条例の名簿</dt><dd class="rd__v">予約メールと紙の申込書を AI が読み、13 項目の名簿に入れます。印刷と CSV で出せます</dd></div>
+    <div class="rd"><dt class="rd__k">足りない所</dt><dd class="rd__v">住所や生年月日が足りない人には、こちらからメールでお願いします。健康の質問は本人が答えます</dd></div>
+    <div class="rd"><dt class="rd__k">船の書類</dt><dd class="rd__v">乗船者名簿・ダイビング計画・診断書が要る人の一覧が、名簿から出ます</dd></div>
+  </dl>
+</section>
+
+<section class="sheet">
+  <h2 class="sheet__title">始め方</h2>
+  <ol class="steps">
+    <li>案内のメールに「試したい」と返信する</li>
+    <li>お店の予約メールを、REDUX のアドレスへ転送する設定をする（手順はこちらから送ります。約 10 分）</li>
+    <li>スマホで、お店の名簿を開く</li>
+  </ol>
+</section>
+
+<section class="sheet">
+  <h2 class="sheet__title">お金とデータ</h2>
+  <p class="sheet__note">試用のあいだは料金がかかりません。続けるかどうかは、1 か月のあとに決めてもらいます。黙って料金が始まることはありません。</p>
+  <p class="sheet__note">健康の答えは AI に送りません。名簿を見られるのは、お店の人だけです。試用をやめるときは、名簿を CSV でお渡ししてから、こちらで消します。</p>
+  <p class="sheet__note">AI は米国の Anthropic のものを使います。</p>
+</section>
+
+<p><a class="btn btn--big" href="https://berorinpo.github.io/dive-passport-demo/">見本の画面を触ってみる</a></p>
+<p class="note">見本の名前と数字は、すべて作り物です。沖縄の専門学校の学生が作っています。申し込みと質問は、案内のメールへの返信で受けています。</p>
+</main>
+<footer class="foot wrap wrap--narrow"><a class="linkbtn linkbtn--muted" href="data.html">データの扱いと外部送信について / How data is handled</a></footer>
+</body>
+</html>
