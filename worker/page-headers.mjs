@@ -31,8 +31,10 @@ const trial = ask.replace(`img-src 'none'`, `img-src 'self'`).replace(`script-sr
 /* data.html（データの扱いと外部送信についての公表ページ）は CSS だけを読む */
 const data = join([`default-src 'none'`, `script-src 'none'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`, ...TAIL]);
 
-/* shops.html（お店向けの試用の案内。決定ログ 2026-10-31 shop-trial-page）も CSS だけを読むので、data と同じ */
-export const CSP = { index, pass, ask, trial, data, shops: data };
+/* shops.html（お店向けの試用の案内。決定ログ 2026-10-31 shop-lp）はスクリプトを読まず、同じ場所の字体・画面の絵・CM の動画だけを読む */
+const shops = join([`default-src 'none'`, `script-src 'none'`, `style-src 'self'`, `font-src 'self'`, `img-src 'self'`, `media-src 'self'`, `connect-src 'none'`, ...TAIL]);
+
+export const CSP = { index, pass, ask, trial, data, shops };
 
 /* どのページにも付ける見出し */
 export const COMMON = [['X-Content-Type-Options', 'nosniff'], ['Referrer-Policy', 'no-referrer'], ['X-Robots-Tag', 'noindex, nofollow'],
@@ -46,5 +48,5 @@ export const PAGE = {
   ask: [['Content-Security-Policy', ask], ['Cache-Control', 'no-store, no-transform']],
   trial: [['Content-Security-Policy', trial], ['Cache-Control', 'no-store, no-transform']],
   data: [['Content-Security-Policy', data], ['Cache-Control', 'no-cache, no-transform']],
-  shops: [['Content-Security-Policy', data], ['Cache-Control', 'no-cache, no-transform']]
+  shops: [['Content-Security-Policy', shops], ['Cache-Control', 'no-cache, no-transform']]
 };

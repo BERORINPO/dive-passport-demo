@@ -663,6 +663,59 @@ html { scroll-padding-top: calc(96px + var(--band-h, 0px)); }
 .paper__sign span { flex: 1; padding-bottom: 16px; border-bottom: 1px solid var(--paper-rule); }
 @media print { .paper__table--manifest { min-width: 0; } }
 
-/* お店向けの試用の案内（shops.html）の手順 */
-.steps { margin: 10px 0 0; padding: 0 var(--inset) 0 calc(var(--inset) + 22px); }
-.steps li { margin: 6px 0; }
+/* ---------- お店向けの試用の案内（shops.html。決定ログ 2026-10-31 shop-lp）----------
+   本物の画面を順に見せる 1 枚。白い面を積まず、区切りは罫線と余白。端末の枠は描かず、画面の絵に細い線だけ */
+body.lp { overflow-x: clip; }
+html:has(body.lp) { overflow-x: clip; scroll-padding-bottom: 80px; }
+.lp h1, .lp h2, .lp p, .lp summary, .lp dd { word-break: auto-phrase; }   /* 日本語を文節で折る */
+.lp-wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+.lp-hero { display: grid; gap: 40px; padding: 40px 0 64px; align-items: center; }
+.lp-h1 { margin: 0; font-size: 30px; line-height: 1.35; font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
+.lp-lede { margin: 16px 0 0; color: var(--muted); max-width: 30em; }
+.lp-terms { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.lp-terms b, .lp-fig { font-family: var(--font-figure); color: var(--ink); }
+.lp-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 56px; padding: 0 28px; border-radius: 999px; background: var(--accent);
+  color: var(--accent-ink); font-weight: 700; text-decoration: none; white-space: nowrap; transition: background var(--dur) var(--ease-out); }
+.lp-btn:hover { background: color-mix(in oklch, var(--accent) 86%, var(--ink)); }
+.lp-btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.lp-hero .lp-btn { margin-top: 24px; }
+.lp-shot { margin: 0; justify-self: center; width: min(100%, 340px); }
+.lp-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--surface); }
+.lp-shot figcaption { margin-top: 8px; font-size: 14px; color: var(--muted); }
+.lp-tour { border-top: 2px solid var(--ink); }
+.lp-step { display: grid; gap: 24px; padding: 64px 0; border-bottom: 1px solid var(--line); align-items: center; }
+.lp-step p { margin: 8px 0 0; max-width: 28em; }
+.lp-h2 { margin: 0; font-size: 22px; line-height: 1.45; font-weight: 700; }
+.lp-n { font-family: var(--font-figure); color: var(--accent); margin-right: 8px; }
+.lp-h3 { margin: 0 0 16px; font-size: 18px; font-weight: 700; }
+.lp-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; justify-self: center; width: min(100%, 560px); }
+.lp-pair .lp-shot { width: 100%; }
+.lp-cm { padding: 64px 0; border-bottom: 1px solid var(--line); }
+.lp-cm video { display: block; width: 100%; max-width: 720px; height: auto; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--ink); }
+.lp-facts { padding: 64px 0 24px; }
+.lp-facts dl { margin: 0; border-top: 2px solid var(--ink); }
+.lp-row { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.lp-row dt { color: var(--muted); }
+.lp-row dd { margin: 0; }
+.lp-faq { padding: 40px 0 64px; }
+.lp-faq details { border-bottom: 1px solid var(--line); }
+.lp-faq details:first-of-type { border-top: 2px solid var(--ink); }
+.lp-faq summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; gap: 16px; padding: 16px 0; min-height: 48px; font-weight: 700; }
+.lp-faq summary::-webkit-details-marker { display: none; }
+.lp-faq summary::after { content: "＋"; color: var(--accent); flex: none; }
+.lp-faq details[open] summary::after { content: "－"; }
+.lp-faq details p { margin: 0 0 16px; }
+/* 下の帯: 3 段目から本文の終わりまで、画面の下に付いてくる（JS なし。.lp-later の中だけで止まる） */
+.lp-dock { position: sticky; bottom: 0; z-index: 1; background: var(--bg); border-top: 2px solid var(--ink); padding: 8px 0; }
+.lp-dock .lp-wrap { display: flex; align-items: center; gap: 16px; min-height: 56px; }
+.lp-dock span { font-size: 14px; color: var(--muted); min-width: 0; }
+.lp-dock .lp-btn { margin-left: auto; padding: 0 22px; }
+.lp .foot { display: grid; gap: 4px; justify-items: start; }
+@media (min-width: 768px) {
+  .lp-h1 { font-size: 42px; }
+  .lp-hero { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); padding-top: 64px; }
+  .lp-step { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 64px; }
+  .lp-step:nth-child(even) > .lp-shot, .lp-step:nth-child(even) > .lp-pair { order: -1; }
+}
+@media (max-width: 359px) { .lp-dock span { display: none; } }
+@media (prefers-reduced-motion: reduce) { .lp-btn { transition: none; } }

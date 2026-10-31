@@ -349,7 +349,9 @@ test('お客さん用の Worker（Access なし）: /api/ask だけを受け、�
   const files = askFiles();
   assert.equal(files[0], 'ask.html');
   assert.ok(files.includes('js/ask-page.js') && files.includes('css/app.css'));
-  for (const shopOnly of ['index.html', 'js/booking.js', 'js/roster-sync.js', 'js/ai-reader.js', 'js/app.js', 'css/fonts.css']) assert.ok(!files.includes(shopOnly), shopOnly);
+  for (const shopOnly of ['index.html', 'js/booking.js', 'js/roster-sync.js', 'js/ai-reader.js', 'js/app.js']) assert.ok(!files.includes(shopOnly), shopOnly);
+  /* 字体の束はお店向けの案内（shops.html）だけが読む。お客さんのページは読まない（取りに行った束から、入れた字が分かるため） */
+  for (const page of ['ask.html', 'walkin.html', 'trial.html']) assert.ok(!readFileSync(new URL(`../${page}`, import.meta.url), 'utf8').includes('css/fonts.css'), page);
   const h = askHeaders(readFileSync(new URL('../index.html', import.meta.url), 'utf8'));
   assert.ok(h.includes("/ask\n  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'self'"));
   assert.ok(!h.includes('cdn.jsdelivr.net') && !/^\/index/m.test(h), 'お店の画面のヘッダは写さない');

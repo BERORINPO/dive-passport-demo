@@ -15,7 +15,7 @@ const outAsk = join(root, 'dist-ask');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
 const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^walkin\.html$/, /^data\.html$/, /^shops\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
-  /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.png$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/];
+  /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.png$/, /^assets\/lp\/[^/]+\.(webp|jpg|mp4)$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/];
 
 export function siteFiles() {
   return execFileSync('git', ['ls-files', '-z'], { cwd: root }).toString('utf8').split('\0').filter(Boolean)
@@ -101,10 +101,13 @@ export function askFiles(htmls = ASK_PAGES.map(p => [p, readFileSync(join(root, 
   return [...htmls.map(([page]) => page), ...new Set(refs)];
 }
 
+/* shops.html（お店向けの試用の案内）が読む画面の絵・CM と字体。git に入っている物だけ（決定ログ 2026-10-31 shop-lp） */
+export const askLpFiles = () => siteFiles().filter(f => /^assets\/lp\//.test(f) || /^fonts\//.test(f));
+
 export function askHeaders() {
   const all = headers().split('\n');
   /* 共通（/*）と、ask.html・/ask の CSP、js と css のキャッシュだけを、同じ書き方で写す */
-  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/trial.html', '/trial', '/data.html', '/data', '/shops.html', '/shops', '/js/*', '/css/*']);
+  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/trial.html', '/trial', '/data.html', '/data', '/shops.html', '/shops', '/fonts/*', '/js/*', '/css/*']);
   const out = [];
   let on = false;
   for (const line of all) {
@@ -116,7 +119,7 @@ export function askHeaders() {
 
 function buildAsk() {
   rmSync(outAsk, { recursive: true, force: true });
-  const files = [...askFiles(), ...ASK_ASSETS];
+  const files = [...new Set([...askFiles(), ...ASK_ASSETS, ...askLpFiles()])];
   for (const f of files) {
     mkdirSync(dirname(join(outAsk, f)), { recursive: true });
     cpSync(join(root, f), join(outAsk, f));
