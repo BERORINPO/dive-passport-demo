@@ -170,6 +170,19 @@ test('予約のリンクで入れる: 健康以外だけを受け、Worker が�
   assert.ok(!JSON.stringify(ok.view).includes('那覇市'), '入れた中身は返さない');
 });
 
+test('診断書の知らせ: 1 人ずつのリンクで「はい」と答えたら出る。予約のリンクには出さない', async () => {
+  const { s, key, people } = await booked();
+  const id = people[1].id;
+  const pkey = keyOf((await (await call(s, '/api/ask', { k: key, action: 'person-link', personId: id })).json()).url);
+  const before = await (await call(s, '/api/ask', { k: pkey, action: 'view' })).json();
+  assert.equal(before.people[0].medical, null, '答える前は決められないので出さない');
+  const sent = await (await call(s, '/api/ask', { k: pkey, action: 'send', personId: id, input: { answers: ['no', 'yes', 'no', 'no', 'no'], consent: true } })).json();
+  assert.deepEqual(sent.problems, []);
+  assert.deepEqual(sent.view.people[0].medical, { status: 'missing', why: ['yes'], ageFrom: '', days: 365, until: '' });
+  const booking = await (await call(s, '/api/ask', { k: key, action: 'view' })).json();
+  assert.ok(booking.people.every(p => p.medical === null), '予約のリンク（転送されうる）には健康にかかわる知らせを出さない');
+});
+
 test('1 人ずつのリンク: 予約のリンクから作れる。その人の健康だけを受け、当日の体調は便の日だけ', async () => {
   const { s, key, people } = await booked('2026-10-28');
   const id = people[1].id;

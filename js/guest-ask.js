@@ -54,6 +54,17 @@
     todayNote: { ja: '参加できるかは、お店が決めます。この答えは名簿としてお店が 1 年残します。乗り合いの便でも、同じ船の他のお店には渡しません。', en: 'The shop decides whether you can join. The shop keeps this answer for one year in the participant list. It is not passed to other shops, even on shared boats.' },
     todayWait: { ja: '当日の朝に、このページで体調を答えます', en: 'On the morning of the tour, answer here how you feel' },
     todayDemo: { ja: '（デモ）当日として答える', en: '(Demo) Answer as if it were the day' },
+    medTitle: { ja: '医師の診断書をお願いします', en: 'Please bring a doctor\'s medical statement' },
+    medAge: { ja: '当店では、{age} 歳以上の方に医師の診断書をお願いしています。', en: 'This shop asks guests aged {age} and over for a doctor\'s medical statement.' },
+    medYes: { ja: '健康の質問に「はい」があったので、医師の診断書をお願いしています。', en: 'You answered "Yes" to a health question, so the shop asks for a doctor\'s medical statement.' },
+    medForm: { ja: '用紙はお店が案内します。分からなければお店に聞いてください。', en: 'The shop will tell you which form to use. Ask the shop if you are not sure.' },
+    medTerm: { ja: 'ダイビングの日に、診断日から {days} 日以内のもの。', en: 'It must be dated within {days} days before the dive.' },
+    medEarly: { ja: '検査と書類づくりに日数がかかります。早めに病院へご相談ください。', en: 'Tests and paperwork take time. Please see a doctor early.' },
+    medBring: { ja: '診断書は当日お店へお持ちください。写真を送る必要はありません。潜ってよいかは、医師とお店が決めます。',
+      en: 'Bring the statement to the shop on the day. You do not need to send a photo. The doctor and the shop decide whether you can dive.' },
+    medOk: { ja: '✓ お店は診断書を受け取っています（{until} まで）', en: '✓ The shop has your medical statement (valid until {until})' },
+    medExpired: { ja: '受け取った診断書は {until} で期限が切れ、ダイビングの日には使えません。新しい診断書をお願いします。',
+      en: 'The statement the shop has expires on {until}, before the dive. Please bring a new one.' },
     symTitle: { ja: '水に入ってから、こうなったらすぐガイドに', en: 'In the water, tell your guide right away if you feel:' },
     symNote: { ja: 'お店は海に入る前と後に、指先の機器で血中の酸素を測ることがあります。測った数値は、このお店だけが名簿と一緒に 1 年残し、他のお店や AI には渡しません。',
       en: 'The shop may check your blood oxygen with a fingertip sensor before and after each dive. Only this shop keeps the readings, for one year with the participant list; they are not passed to other shops or to an AI.' },
@@ -495,6 +506,21 @@
       }));
   }
 
+  /* 医師の診断書の知らせ（js/roster-medical.js の guestMedical。本物のリンクでは 1 人ずつのリンクだけに付く） */
+  const fillIn = (t, vals) => Object.entries(vals).reduce((s, [k, x]) => s.replace(`{${k}}`, String(x)), L(t));
+  function medicalPart(entry) {
+    const m = entry.medical;
+    if (!m) return null;
+    const until = m.until ? m.until.replace(/-/g, '/') : '';
+    if (m.status === 'ok') return el('p', { class: 'flag flag--ok', role: 'status', text: fillIn(T.medOk, { until }) });
+    return el('div', { class: 'sheet' }, el('p', { class: 'sheet__title', text: L(T.medTitle) }),
+      m.why.includes('age') ? el('p', { text: fillIn(T.medAge, { age: m.ageFrom }) }) : null,
+      m.why.includes('yes') ? el('p', { text: L(T.medYes) }) : null,
+      m.status === 'expired' ? el('p', { class: 'flag flag--warn', text: fillIn(T.medExpired, { until }) }) : null,
+      el('p', { text: `${fillIn(T.medTerm, { days: m.days })}${R.lang === 'en' ? ' ' : ''}${L(T.medEarly)}` }),
+      el('p', { class: 'sheet__note', text: `${L(T.medForm)}${R.lang === 'en' ? ' ' : ''}${L(T.medBring)}` }));
+  }
+
   function renderForm(v) {
     const { trip, items } = v;
     const entry = v.people.find(x => x.person.id === personId) || v.people[0];
@@ -528,6 +554,7 @@
       remote && v.kind === 'booking' ? healthLinks(v) : null,
       entry.needsToday && entry.ask.length ? el('p', { class: 'note', text: L(T.todayLater) }) : null,
       entry.needsToday && !entry.ask.length ? todayPart(trip, d, entry) : null,
+      medicalPart(entry),
       symptomCard(),
       canSend ? R.dock(
         el('p', { class: 'errors', role: 'alert', text: problemText() }),
@@ -557,6 +584,8 @@
     if (!v) return null;
     const booking = s.bookings.find(b => b.id === bookingId);
     v.shop = booking && C().isPartnerBooking(booking) ? booking.shop : s.shop.name;   // 乗り合いの他のお店のお客さんには、そのお店の名前を出す
+    /* 試作はお店の端末で開くので、全員の分に診断書の知らせを付ける（本物のリンクは 1 人ずつのリンクだけ。worker/ask-core.mjs） */
+    v.people = v.people.map(x => ({ ...x, medical: R.rosterMedical.guestMedical(s, x.person.id) }));
     return v;
   }
 

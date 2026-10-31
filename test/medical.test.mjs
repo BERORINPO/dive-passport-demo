@@ -131,6 +131,16 @@ test('乗り合いの他のお店のお客さんは数えず、診断日も持�
   assert.equal(m.rows.some(r => r.person.id === second.id), false);
 });
 
+test('お客さんへの知らせ: 要る人だけ。年齢そのものと「はい」の項目は出さない', () => {
+  assert.deepEqual(M.guestMedical(base, first.id), { status: 'missing', why: ['age'], ageFrom: 60, days: 365, until: '' });
+  assert.deepEqual(M.guestMedical(base, second.id), { status: 'missing', why: ['yes'], ageFrom: '', days: 365, until: '' });
+  const got = edit(base, second.id, { health: { medAt: '2026-10-01' } });
+  assert.deepEqual(M.guestMedical(got, second.id), { status: 'ok', why: ['yes'], ageFrom: '', days: 365, until: '2027-09-30' });
+  const young = edit(base, first.id, { birthDate: '1990-01-01' });
+  assert.equal(M.guestMedical(young, first.id), null);
+  assert.equal(M.guestMedical(base, 'nobody'), null);
+});
+
 test('暦の計算: 月末・うるう年をまたぐ', () => {
   assert.equal(M.addDays('2026-01-31', 1), '2026-02-01');
   assert.equal(M.addDays('2028-02-28', 1), '2028-02-29');
