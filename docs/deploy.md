@@ -188,6 +188,59 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 
 確かめ方（2026-10-28 に通した）: `ask.reduxdive.com/ask` が 200／MAIL_SENDERS のアドレスから `inbox@reduxdive.com` に予約メールを送る → 名簿に入り予定が 4 つできる → 次の Cron でお願いのメールが届く／Cron のあとに BACKUP の KV に `day:<お店>:<日付>` ができる。届いた記録は GraphQL の `emailRoutingAdaptive` で見られる
 
+## 10. 試用をやめたお店の後始末（shops.html の約束「やめるとき: 名簿を CSV でお渡しし、30 日以内に、こちらの控えも含めて消します」）
+
+- 道具は `tools/offboard.mjs`。本番の D1・KV にはつながず、CSV と、消す文・消すキーの一覧を出すだけ。消すのは取り消せないので、出た物を人（Yosuke）が確かめて実行する（tools/shop.mjs・restore.mjs と同じ）
+- 期限の数え方: D1 は消したあとも Time Travel（巻き戻しのための履歴）に最大 30 日残り、こちらから消す方法は無い。だから**全部なくなる日 = 消した日 + 30 日**。約束の 30 日を守れるのは、**やめた日のうちに消したとき**で、遅れた日数だけ超える
+- 見本の名簿（default）は対象外（道具が止める）。以下 `SHOP` はお店の id（D1 の shops の id）
+- D1 を読む・消すには 8 節の 3 と同じ API トークン（D1 の編集の権限だけの物をその場で作る）。終わったら失効させる
+
+1. CSV を作る（約 5 分）。D1 から今の名簿と済んだ便を取り、1 つの CSV にする。列は画面の「今日の名簿」の CSV と同じ（条例の 13 項目。ダイビングとスノーケリングが混ざる列は「／」でつなぐ）。乗り合いの他のお店のお客さんは入らない。健康の 2 欄を外すなら `--no-health`。済んだ便に読めない行があれば止まる（承知なら `--allow-skipped`）
+   ```bash
+   SHOP=shop-a
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data "{\"sql\":\"SELECT state FROM rosters WHERE shop = ?1\",\"params\":[\"$SHOP\"]}" > live.json
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/d1/database/f74f3e8d-7869-4899-9bdf-33c3737a5654/query" -H "Authorization: Bearer $CF_API_TOKEN" -H "content-type: application/json" --data "{\"sql\":\"SELECT part, day, body FROM roster_past WHERE shop = ?1 ORDER BY day, part\",\"params\":[\"$SHOP\"]}" > past.json
+   node tools/offboard.mjs csv --shop $SHOP --live live.json --past past.json --out $SHOP.csv
+   ```
+   出た「便 N 本・お客さん M 人」が、お店の感覚と合うか見る（0 人や極端に少ないときは渡さず、D1 を見る）。`--out` を使う（PowerShell の `>` は字の符号を変える）
+2. CSV を渡して、お店に確かめる。渡し方は Yosuke が決める（健康の欄が入るので、受け取れるのはそのお店の人だけ）。「受け取って開けた」の返事を、日付が残る形（メールの返事）でもらう。返事を待つ間も日は進むので、やめた日から 30 日を超えそうなら、消す前に Yosuke に聞く。渡し終えたら `$SHOP.csv`・`live.json`・`past.json` を消す（お客さんの情報そのもの）
+3. 消す前に控える（約 3 分）
+   - 後の 8・9 で外す人とアドレスを、shops の行から控える（D1 のコンソール: `SELECT id, name, members, sites, inbox, senders FROM shops WHERE id = '<SHOP>'`）
+   - 表ごとの行数を数える 1 文を出し、D1 のコンソール（redux-rosters）に貼って Execute
+     ```bash
+     node tools/offboard.mjs check --shop $SHOP --before
+     ```
+4. 消す。出た 11 文を、D1 のコンソールに**1 文ずつ、上から順に**貼って Execute
+   ```bash
+   node tools/offboard.mjs wipe --shop $SHOP
+   ```
+   - 最初の文は shops の行。お店の一覧から外れると、予約フォーム・届いたメール・スタッフの画面・Cron が、このお店を相手にしなくなる（一覧に残したまま名簿を消すと、Cron が「名簿が無くなりました」の警報を出し、KV にまた書く）
+   - 鍵（api_keys）の表は最後。鍵の id でつながる 2 表（api_idempotency・daily_counts の api）を先に消すため、順を変えない。途中で止まったら、同じ文を最初からもう一度流してよい（流し終えた文は何も起きない）
+   - 全店あわせた数の行（daily_counts の shop が `*`）は、お店の情報を持たないので消さない
+5. D1 に残っていないか確かめる。出た 1 文を貼って Execute し、**全部の n が 0**（表は 11 行）なら消えている
+   ```bash
+   node tools/offboard.mjs check --shop $SHOP
+   ```
+   0 でない表があれば、その表の行を見て消す。`api_idempotency` と `daily_counts(api)` は「鍵の無い行」を数えるので、このお店の物か、前からある別の物かは行を見て決める
+6. KV（BACKUP の控えと、BUDGET の回数）を消す。BUDGET は redux-ask と同じ KV。一覧を取り、道具がそのお店のキーだけを選び、出た JSON の中身（お店の id が合うか）を `cat` で見てから消す（`kv bulk delete` は消す前に確認を聞く。`--force` は付けない）。消したあと一覧を取り直し、`--verify` が 0 件で終わること（消した直後は最長 1 分ほど一覧に出ることがある）。一覧が 1000 件ちょうどだと道具が止まる（途中で切れている恐れ。`--prefix "day:$SHOP:"` のように種類ごとに絞って取り直す）
+   ```bash
+   for B in BACKUP BUDGET; do
+     npx wrangler@4.151.0 kv key list --binding $B --remote > $B-keys.json
+     node tools/offboard.mjs kv --shop $SHOP --binding $B --list $B-keys.json > $B-delete.json
+     cat $B-delete.json
+     npx wrangler@4.151.0 kv bulk delete $B-delete.json --binding $B --remote
+   done
+   # しばらく待ってから、取り直して 0 件を確かめる
+   for B in BACKUP BUDGET; do
+     npx wrangler@4.151.0 kv key list --binding $B --remote > $B-keys.json
+     node tools/offboard.mjs kv --shop $SHOP --binding $B --list $B-keys.json --verify
+   done
+   ```
+   消すキー: BACKUP は `day:SHOP:*`（毎日の控え）・`past:SHOP:*`（済んだ便の写し）・`alert:SHOP:*`（警報）・`pastcursor:SHOP`、BUDGET は `day:SHOP:*`・`month:SHOP:*`。`cron:last` はお店のものではないので消さない
+7. Time Travel は消せない。5・6 が済んだ日を控え、**全部なくなる日（消した日 + 30 日）**をお店への連絡に書く。この間は D1 を Time Travel で戻さない（戻すと、消した名簿が戻る。戻したら 4〜6 をやり直す）。やめた日より遅れて消したときは、全部なくなる日が約束の 30 日を超えるので、そのことをお店に伝える
+8. Access から外す（Yosuke の画面操作）。Zero Trust → Access で、app.reduxdive.com の Policy から 3 で控えたスタッフのメール（members）を外し、secret `ALLOWED_EMAILS` からも外す（`npx wrangler@4.151.0 secret put ALLOWED_EMAILS`。残る人を「,」区切りで入れ直す）。予約フォームのサイトを secret `SITE_ORIGINS` に足していたら、それも外す
+9. Email Routing の転送の規則を外す（Yosuke の画面操作）。Cloudflare の Email → Email Routing の Routing rules から、3 で控えた受け口（inbox）のアドレスの規則を消す（API なら 9 節の `/zones/{zone}/email/routing/rules`）。お店の側の自動転送も、止めてもらうよう伝える。止めるまでの転送は、お店の一覧に無いので断られる（4 の最初の文で外れている）
+
 ## 壊れた版を置いたとき（戻し方）
 1. `npx wrangler@4.151.0 deployments list`（お店の Worker）と `npx wrangler@4.151.0 deployments list -c wrangler.ask.jsonc`（redux-ask）で、前の版の Version ID を見る
 2. `npx wrangler@4.151.0 rollback <前の Version ID> --message "<理由>"` で戻す。redux-ask も壊したなら、`-c wrangler.ask.jsonc` を付けて同じようにする（Service Binding があるので、戻すときは redux-ask を先、お店の Worker を後）
