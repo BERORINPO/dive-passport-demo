@@ -28,19 +28,27 @@ function target(state, link, today) {
   return { v, people };
 }
 
+/* AI が読んだ値を見せる・直せるのは、お店（か Cron）が作った鍵だけ。予約のリンクを持つお客さんが作った 1 人ずつのリンクは、空の項目（健康の答えなど）を入れるだけ。
+   診断書の知らせ（medical）も同じ鍵だけ（決定ログ 2026-11-01 booking-minted-health） */
+const showsValues = (link) => link.mintedBy === 'staff';
+
+/* 健康の答えがまだ何も入っていない人（答えも答えた日も空）。一部だけ入っている人は含めない */
+const healthBlank = (person) => person.health.historyAt === '' && person.health.answers.every(a => a === null);
+
+/* 1 人ずつのリンクで、健康の答え（既往症）を入れていい項目。お店が作った鍵は今までどおり。
+   予約のリンクを持つお客さんが作った鍵（転送されうる）は、まだ何も入っていない人にだけ入れる（答え済み・一部だけ入っている人の答えは書き換えない） */
+const healthAsk = (entry, link) => entry.ask.filter(k => HEALTH.includes(k) && (showsValues(link) || healthBlank(entry.person)));
+
 /* 1 人分の「まだ」の所を、リンクの種類で分ける */
 function split(entry, link, isDay) {
   const forHealth = !!link.personId;
-  const ask = forHealth ? entry.ask.filter(k => HEALTH.includes(k)) : entry.ask.filter(k => !HEALTH.includes(k));
-  const healthOpen = entry.ask.some(k => HEALTH.includes(k)) || entry.needsToday;
+  const ask = forHealth ? healthAsk(entry, link) : entry.ask.filter(k => !HEALTH.includes(k));
+  const healthOpen = (forHealth ? ask.length > 0 : entry.ask.some(k => HEALTH.includes(k))) || entry.needsToday;
   return { ask, needsToday: forHealth && entry.needsToday, todayOpen: forHealth && entry.needsToday && isDay, healthOpen };
 }
 
 /* お客さんに見せる物。名簿の中身は出さない（名前・聞く項目の名前・入っている項目の名前・C カードの講習の名前だけ）。
    例外は confirm だけ: AI が読んだまま確かめていない値を、予約のリンクでは代表者の分だけ、1 人ずつのリンクではその人の分だけ出す（決定ログ 2026-10-28 unconfirmed-marks） */
-/* AI が読んだ値を見せる・直せるのは、お店（か Cron）が作った鍵だけ。予約のリンクを持つお客さんが作った 1 人ずつのリンクは、空の項目（健康の答えなど）を入れるだけ */
-const showsValues = (link) => link.mintedBy === 'staff';
-
 export function linkView(state, link, today) {
   const t = target(state, link, today);
   if (!t) return null;
@@ -61,8 +69,9 @@ export function linkView(state, link, today) {
            ほかの人は未確認の項目の名前（confirmLeft）だけ。確かめるとこの一覧から消える */
         confirm: showsValues(link) ? e.confirm : [], confirmLeft: showsValues(link) ? e.confirmLeft : [],
         parts: { emergency: e.parts.emergency, cert: e.parts.cert, course: e.parts.course, date: '', hasDate: !!e.parts.date },
-        /* 医師の診断書の知らせ。健康にかかわるので、その人の 1 人ずつのリンクだけ（予約のリンクは転送されうる） */
-        medical: link.personId ? R.rosterMedical.guestMedical(state, e.person.id) : null
+        /* 医師の診断書の知らせ。健康にかかわる（既往症があると分かる）ので、お店が作った 1 人ずつのリンクだけ。
+           予約のリンクと、それを持つ人が作った 1 人ずつのリンクは転送されうるので出さない */
+        medical: link.personId && showsValues(link) ? R.rosterMedical.guestMedical(state, e.person.id) : null
       };
     })
   };
@@ -80,7 +89,7 @@ export function applyLink(state, link, req, { today, at }) {
     return G().confirmGuest(state, { id: entry.person.id, agree: req.agree, fix: req.fix, at, viewer: link.personId });
   }
   if (req.action === 'send') {
-    const only = link.personId ? HEALTH : entry.ask.filter(k => !HEALTH.includes(k));
+    const only = link.personId ? healthAsk(entry, link) : entry.ask.filter(k => !HEALTH.includes(k));
     return G().applyGuest(state, { id: entry.person.id, input: req.input, today, at, only });
   }
   /* 当日の体調は、1 人ずつのリンクで、Worker の日付が便の日のときだけ。答えたあとは「少し調子が悪い」への変更だけ受ける
