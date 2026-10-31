@@ -38,6 +38,11 @@
      性別は条例の名簿に無いので、お店が入れる（AI には読ませない）。m: 男 / f: 女 / x: その他・答えない */
   const SEXES = ['m', 'f', 'x'];
   const MAX_TANK_KINDS = 4;
+  /* 医師の診断書のお店の決まり（shop.medical。入れていない店は MEDICAL_DEFAULT）。公式の決まりは無く、店ごとに違う。
+     最初の値は沖縄の店で多い形: 健康の答えに「はい」があれば要る（指導団体の病歴診断書と同じ）・60 歳以上は答えに関わらず要る・
+     期限は診断日から 365 日（65 歳以上は 90 日）・体験ダイビングは 65 歳まで。年齢の欄を '' にすると、その決まりは使わない */
+  const MEDICAL_DEFAULT = Object.freeze({ age: 60, olderAge: 65, days: 365, olderDays: 90, trialMax: 65 });
+  const MEDICAL_KEYS = Object.keys(MEDICAL_DEFAULT);
 
   /* 書類の自動化（plan/auto.md）。予約の連絡先と言語、自動の予定（jobs）、送る連絡（outbox） */
   const LANGS = ['ja', 'en', 'ko', 'zh'];
@@ -195,6 +200,12 @@
       isList(p.tanks, MAX_TANK_KINDS, tankOk) && new Set(p.tanks.map(x => x.size)).size === p.tanks.length;
   }
 
+  /* 診断書の決まり。年齢は '' か 1〜120、日数は 1〜730（2 年）。全部の欄がそろっている形だけ */
+  const isAge = (v) => v === '' || (Number.isInteger(v) && v >= 1 && v <= 120);
+  const isDays = (v) => Number.isInteger(v) && v >= 1 && v <= 730;
+  const medicalOk = (m) => onlyKeys(m, MEDICAL_KEYS) && MEDICAL_KEYS.every(k => has(m, k)) &&
+    isAge(m.age) && isAge(m.olderAge) && isDays(m.days) && isDays(m.olderDays) && isAge(m.trialMax);
+
   /* 便の中止。いつ・理由・中止を確かめた相乗りのお店（乗り合いの便だけ）。中止していない便には欄ごと無い */
   function cancelOk(c) {
     return onlyKeys(c, ['at', 'reason', 'acked']) && isStr(c.at, 40) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(c.at) && CANCEL_REASONS.includes(c.reason) &&
@@ -231,13 +242,15 @@
      heldBy は、乗り合いの他のお店のお客さんで、健康はそのお店が確かめる（答えはこの店に来ない）ときの、そのお店の名前（P5。無くてもよい）。
      heldBy のある人は答えを持たない。todayAt は、そのお店が便の日に当日の体調を確かめた日。
      spo2 は、お店が便の日に測った血中酸素（1 本目から順に、潜る前 pre と潜った後 post。入れていない所は ''。無くてもよい）。
-     健康の欄と同じ扱いで、そのお店だけが持つ。heldBy のある人には入れない */
+     健康の欄と同じ扱いで、そのお店だけが持つ。heldBy のある人には入れない。
+     medAt は、お店が受け取った医師の診断書の診断日（入れた人にだけ付く。無くてもよい）。中身は持たない。heldBy のある人には入れない */
   const isSpo2 = (v) => v === '' || (Number.isInteger(v) && v >= SPO2_MIN && v <= SPO2_MAX);
   const spo2Ok = (list) => list === undefined || (isList(list, SPO2_DIVES, d => onlyKeys(d, ['pre', 'post']) && isSpo2(d.pre) && isSpo2(d.post)) &&
     list.length === SPO2_DIVES);
   const spo2Empty = (list) => list === undefined || list.every(d => d.pre === '' && d.post === '');
   function healthOk(h) {
-    return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer', 'heldBy', 'spo2']) && isDay(h.historyAt) &&
+    return onlyKeys(h, ['historyAt', 'answers', 'todayAt', 'today', 'consentAt', 'consentVer', 'heldBy', 'spo2', 'medAt']) && isDay(h.historyAt) &&
+      (h.medAt === undefined || isDay(h.medAt)) && (!h.heldBy || !h.medAt) &&
       isList(h.answers, HEALTH_QUESTIONS, isAnswer) && h.answers.length === HEALTH_QUESTIONS &&
       isDay(h.todayAt) && TODAY.includes(h.today) &&
       (h.consentAt === undefined || isDay(h.consentAt)) && (h.consentVer === undefined || isStr(h.consentVer, 20)) &&
@@ -282,8 +295,10 @@
       Number.isInteger(s.redacted) && s.redacted >= 0);
   }
 
-  /* 人の記録の health は中身を持たない形だけ（答えた数・当日の答えの有無・日・誰が確かめたか・同意の版。roster-core.js の logHealth） */
-  const logHealthOk = (h) => h === undefined || (onlyKeys(h, ['answered', 'today', 'todayAt', 'heldBy', 'consentVer']) &&
+  /* 人の記録の health は中身を持たない形だけ（答えた数・当日の答えの有無・日・誰が確かめたか・同意の版。roster-core.js の logHealth）。
+     med は診断書を受け取った印（受け取った人にだけ付く。診断日は残さない） */
+  const logHealthOk = (h) => h === undefined || (onlyKeys(h, ['answered', 'today', 'todayAt', 'heldBy', 'consentVer', 'med']) &&
+    (h.med === undefined || h.med === true) &&
     Number.isInteger(h.answered) && h.answered >= 0 && h.answered <= HEALTH_QUESTIONS && typeof h.today === 'boolean' &&
     isDay(h.todayAt) && isStr(h.heldBy, 60) && isStr(h.consentVer, 20));
 
@@ -331,7 +346,8 @@
     if (!isObj(s) || s.v !== VERSION) return result(['version']);
     const all = (list, fn) => Array.isArray(list) && list.every(x => fn(x).ok);
     return result([
-      !(isObj(s.shop) && isStr(s.shop.name, 60) && (s.shop.health === undefined || s.shop.health === 'paper')) && 'shop',   // health: 'paper' は健康の質問を紙で聞く
+      !(isObj(s.shop) && isStr(s.shop.name, 60) && (s.shop.health === undefined || s.shop.health === 'paper') &&   // health: 'paper' は健康の質問を紙で聞く
+        (s.shop.medical === undefined || medicalOk(s.shop.medical))) && 'shop',   // medical: 診断書の決まり（入れた店だけ）
       !all(s.trips, validateTrip) && 'trips', !all(s.bookings, validateBooking) && 'bookings',
       !all(s.people, validatePerson) && 'people', !(Array.isArray(s.log) && s.log.every(logOk)) && 'log',
       !(s.jobs === undefined || isList(s.jobs, MAX_JOBS, jobOk)) && 'jobs', !(s.outbox === undefined || isList(s.outbox, MAX_OUTBOX, outOk)) && 'outbox'
@@ -445,7 +461,7 @@
   R.roster = {
     VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, CHECK_STAGES, MAX_DIVES, CANCEL_REASONS, CANCEL_TEXT, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
     ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
-    SEXES, MAX_TANK_KINDS, blankPlan, planOk,
+    SEXES, MAX_TANK_KINDS, blankPlan, planOk, MEDICAL_DEFAULT, MEDICAL_KEYS, medicalOk,
     validateTrip, validateBooking, validatePerson, validateState, validateRequest, requestBody,
     validateReading, fromModel,
     LANGS, JOB_KINDS, OUT_KINDS, OUT_STATUS, isJst, emailOk, jobOk, outOk,

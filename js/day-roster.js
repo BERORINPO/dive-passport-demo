@@ -23,7 +23,8 @@
   const FIELD_JA = { name: '氏名', birthDate: '生年月日', phone: '電話', address: '住所', emergency: '緊急時の連絡先', cert: 'C カード',
     courses: '講習受講歴', dives: '経験', lastDive: '最後に潜った日', sizes: 'サイズ', health: '健康の欄', guide: 'ガイド',
     site: '潜水場所', guides: 'ガイド', source: '予約の出どころ', people: '人数', leadName: '代表者', leadPhone: '代表者の電話', note: 'メモ',
-    boat: '船', host: '船を出す店', partners: '乗り合いのお店', plan: 'ダイビング計画', sex: '性別' };
+    boat: '船', host: '船を出す店', partners: '乗り合いのお店', plan: 'ダイビング計画', sex: '性別',
+    medical: '診断書の決まり' };
   let icsRange = 'ahead';   // ahead（今日から先の便）/ day（この日の便だけ）
   let csvHealth = false;    // CSV に健康の欄（既往症・当日の健康状態）を入れるか。初めは入れない。書き出した後と、便を替えたときに戻す
   let csvTrip = '';
@@ -157,7 +158,7 @@
             : el('span', { class: 'st st--ok', text: x.done ? '✓ そろった' : '✓ お客さんの分' }),
           x.unconfirmed.length ? button('確かめる', () => reviewUnconfirmed(x.person, tripId, ui)) : null)))) : null,
       /* ほかの書き出しは 1 行にまとめる。主な操作（印刷）だけを下の帯に */
-      el('p', { class: 'morelinks' }, button('乗船者名簿', () => ui.go('manifest', { tripId })),
+      el('p', { class: 'morelinks' }, button('乗船者名簿', () => ui.go('manifest', { tripId })), button('診断書', () => ui.go('medical', { tripId })),
         button('乗り合い', () => ui.go('share', { tripId })), button('名簿の取り込み', () => ui.go('intake', { tripId })),
         button('CSV に書き出す', () => exportCsv(trip, ui)), button('カレンダー（.ics）', () => ui.go('ics', { tripId })), button('記録', () => ui.go('log', { tripId })),
         trip.cancel || trip.host ? null : button('この便を中止にする', () => ui.go('cancel', { tripId }), 'linkbtn linkbtn--warn')),
