@@ -811,6 +811,91 @@ test('M7: 端末の名簿が読めず書けないときも、サーバーの名�
   assert.equal(local.getItem('redux-roster-v1'), '{broken', '読めなかった元の文字には書かない');
 });
 
+/* 「端末に残した名簿に戻す」の試験の下ごしらえ: 便だけの名簿を残した名簿として置き、その後に予約を 1 件入れてサーバーまで送る。
+   戻すと予約 1 件が消える形（あとで他の端末の予約が入ると、戻した名簿はそれを消してしまう） */
+async function restoreSetup() {
+  const srv = server();
+  const local = memory();
+  const a = device(srv, local);
+  await a.rosterStore.startSync();
+  mkTrip(a);
+  await a.rosterStore.whenSynced();
+  const key = `redux-roster-v1-kept-${Date.now() - 60000}`;
+  local.raw.set(key, JSON.stringify(a.rosterStore.get()));
+  mkBooking(a, { leadName: '見本 花子', people: 1 });
+  await a.rosterStore.whenSynced();
+  return { srv, local, a, key };
+}
+const leadsOnServer = (srv) => serverState(srv).bookings.map(b => b.leadName).sort();
+
+test('CRITICAL: 残した名簿に戻すと決めたあと、送る前に他の端末の予約が入っていたら、置き換えは当てない（その予約を消さない）。戻そうとした名簿は残して知らせる', async () => {
+  const { srv, local, a, key } = await restoreSetup();
+  const b = device(srv);
+  await b.rosterStore.startSync();
+  /* 送る直前に、他の端末が予約を入れる（押した時の版から進む） */
+  srv.beforePut = async () => { mkBooking(b, { leadName: '見本 二郎', people: 2 }); await b.rosterStore.whenSynced(); };
+  assert.equal(a.rosterStore.restoreKept(key), true);
+  await a.rosterStore.whenSynced();
+  assert.deepEqual(leadsOnServer(srv), ['見本 二郎', '見本 花子'], '他の端末の予約も、元の予約も消えない');
+  assert.deepEqual(a.rosterStore.get().bookings.map(x => x.leadName).sort(), ['見本 二郎', '見本 花子'], '画面もサーバーの名簿');
+  assert.equal(a.rosterStore.note(), 'sync-kept');
+  assert.equal(a.rosterStore.pending(), 0);
+  assert.equal(local.getItem(OPS), null, '当てなかった置き換えは貯めに残さない');
+  const kept = a.rosterStore.kept(true);
+  assert.ok(kept.some(k => k.ok && k.trips === 1 && k.bookings === 0), '戻そうとした名簿は、もう一度戻せるように残る');
+  assert.ok(kept.some(k => k.ok && k.bookings === 1), '戻す前の名簿も残る');
+});
+
+test('CRITICAL: つながる前に戻すと決めても、つながるまでに他の端末の予約が入っていたら当てない。開き直しても同じ（貯めに押した時の版が残る）', async () => {
+  const { srv, local, a, key } = await restoreSetup();
+  const offline = device(srv, local);   // 電波が無いまま開き直した端末
+  srv.down = true;
+  await offline.rosterStore.startSync();
+  assert.equal(offline.rosterStore.restoreKept(key), true);
+  await offline.rosterStore.whenSynced();
+  const saved = JSON.parse(local.getItem(OPS)).ops;
+  assert.deepEqual(saved.map(o => o.op), ['roster.replace']);
+  assert.equal(saved[0].from, srv.db.rows.get('default').version, '最後にサーバーとつないだ時の版を貯めに置く');
+  srv.down = false;
+  const b = device(srv);
+  await b.rosterStore.startSync();
+  mkBooking(b, { leadName: '見本 二郎', people: 2 });   // つながる前に、他の端末が予約を入れた
+  await b.rosterStore.whenSynced();
+  const reopened = device(srv, local);   // 画面を閉じて開き直す
+  assert.equal(await reopened.rosterStore.startSync(), true);
+  await reopened.rosterStore.whenSynced();
+  assert.deepEqual(leadsOnServer(srv), ['見本 二郎', '見本 花子']);
+  assert.equal(reopened.rosterStore.note(), 'sync-kept');
+  assert.equal(local.getItem(OPS), null);
+  assert.ok(reopened.rosterStore.kept(true).some(k => k.ok && k.trips === 1 && k.bookings === 0), '戻そうとした名簿は残る');
+});
+
+test('戻すと決めてからサーバーの版が進んでいなければ、今までどおり置き換わる（つながる前に戻した場合も。人が減っても通る）', async () => {
+  const { srv, local, key } = await restoreSetup();
+  const offline = device(srv, local);
+  srv.down = true;
+  await offline.rosterStore.startSync();
+  assert.equal(offline.rosterStore.restoreKept(key), true);
+  await offline.rosterStore.whenSynced();
+  assert.equal(offline.rosterStore.pending(), 1, 'つながらないうちは貯めておく');
+  srv.down = false;
+  await offline.rosterStore.refresh();   // 電波が戻って、つなぎ直す
+  assert.deepEqual(leadsOnServer(srv), [], 'サーバーの名簿が戻した名簿になる');
+  assert.notEqual(offline.rosterStore.note(), 'sync-kept');
+  assert.equal(local.getItem(OPS), null);
+});
+
+test('戻すと決める前に送り中だった自分の直しで版が進んでも、戻した名簿は当たる（自分の直しの分は進んだと数えない）', async () => {
+  const { srv, a, key } = await restoreSetup();
+  const tripId = a.rosterStore.get().trips[0].id;
+  editSite(a, tripId, '南の根');   // 送り始める（送っている間に戻すと決める）
+  assert.equal(a.rosterStore.restoreKept(key), true);
+  await a.rosterStore.whenSynced();
+  assert.deepEqual(leadsOnServer(srv), [], '戻した名簿が当たる');
+  assert.equal(serverState(srv).trips[0].site, '北の根', '送り中だった直し（南の根）も、戻した名簿に置き換わる');
+  assert.notEqual(a.rosterStore.note(), 'sync-kept');
+});
+
 let failed = 0;
 for (const t of tests) {
   try {
