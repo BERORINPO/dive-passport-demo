@@ -14,7 +14,7 @@ const out = join(root, 'dist');
 const outAsk = join(root, 'dist-ask');
 
 /* 置いてよい物だけを並べる（足したい物は、ここに書く）。*.local.* は手元の確かめ用なので置かない */
-const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^walkin\.html$/, /^data\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
+const KEEP = [/^index\.html$/, /^sw\.js$/, /^pass\.html$/, /^ask\.html$/, /^walkin\.html$/, /^data\.html$/, /^shops\.html$/, /^robots\.txt$/, /^favicon\.svg$/, /^css\/[^/]+\.css$/, /^js\/[^/]+\.js$/,
   /^fonts\/[^/]+\.(woff2|css|txt)$/, /^fonts\/SHA256SUMS$/, /^assets\/[^/]+\.png$/, /^assets\/samples\/[^/]+\.(jpg|txt)$/];
 
 export function siteFiles() {
@@ -33,6 +33,7 @@ export function headers() {
     block(['/ask.html', '/ask', '/walkin.html', '/walkin'], page('ask')),
     block(['/trial.html', '/trial'], page('trial')),
     block(['/data.html', '/data'], page('data')),
+    block(['/shops.html', '/shops'], page('shops')),
     /* どの束を取ったかで画面の字が分かるので、長くためて取りに来る回数を減らす（Worker を通らないので path はログに出ない） */
     block(['/fonts/*'], ['Cache-Control: public, max-age=31536000, immutable']),
     block(['/js/*', '/css/*'], ['Cache-Control: no-cache']),
@@ -83,8 +84,8 @@ export function swFor(entries, template = readFileSync(join(root, 'sw.js'), 'utf
   return template.replace("'__REDUX_SW_SHELL__'", shell.map(p => `'${p}'`).join(', ')).replace('__REDUX_SW_VERSION__', version);
 }
 
-/* お客さん用の Worker に置くページ: お店が送ったリンクの ask.html と、店頭の QR の walkin.html と、実在のお店の試し版の trial.html */
-export const ASK_PAGES = ['ask.html', 'walkin.html', 'trial.html', 'data.html'];
+/* お客さん用の Worker に置くページ: お店が送ったリンクの ask.html と、店頭の QR の walkin.html と、実在のお店の試し版の trial.html と、お店向けの試用の案内の shops.html */
+export const ASK_PAGES = ['ask.html', 'walkin.html', 'trial.html', 'data.html', 'shops.html'];
 /* trial.html が読む絵（案内役と、css/app.css の --logo-mark のロゴ） */
 export const ASK_ASSETS = ['assets/chara-hello.png', 'assets/chara-thinking.png', 'assets/chara-answer.png', 'assets/chara-sorry.png', 'assets/chara-done.png',
   'assets/logo-mark.png', 'assets/logo-mark-light.png'];
@@ -103,7 +104,7 @@ export function askFiles(htmls = ASK_PAGES.map(p => [p, readFileSync(join(root, 
 export function askHeaders() {
   const all = headers().split('\n');
   /* 共通（/*）と、ask.html・/ask の CSP、js と css のキャッシュだけを、同じ書き方で写す */
-  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/trial.html', '/trial', '/data.html', '/data', '/js/*', '/css/*']);
+  const keep = new Set(['/*', '/ask.html', '/ask', '/walkin.html', '/walkin', '/trial.html', '/trial', '/data.html', '/data', '/shops.html', '/shops', '/js/*', '/css/*']);
   const out = [];
   let on = false;
   for (const line of all) {

@@ -662,3 +662,7 @@ html { scroll-padding-top: calc(96px + var(--band-h, 0px)); }
 .paper__sign { display: flex; gap: 24px; margin: 12px 0 0; font-size: 12px; }
 .paper__sign span { flex: 1; padding-bottom: 16px; border-bottom: 1px solid var(--paper-rule); }
 @media print { .paper__table--manifest { min-width: 0; } }
+
+/* お店向けの試用の案内（shops.html）の手順 */
+.steps { margin: 10px 0 0; padding: 0 var(--inset) 0 calc(var(--inset) + 22px); }
+.steps li { margin: 6px 0; }

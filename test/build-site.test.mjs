@@ -2,7 +2,7 @@
 // 実行: node test/build-site.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { headers, siteFiles, askHeaders } from '../tools/build-site.mjs';
+import { headers, siteFiles, askHeaders, askFiles } from '../tools/build-site.mjs';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -38,6 +38,17 @@ test('公表ページ（data.html）: 置く物に入り、お客さまの画面
   const page = readFileSync(new URL('../data.html', import.meta.url), 'utf8');
   assert.ok(!/<script/.test(page) && page.includes("script-src 'none'"));
   for (const words of ['Cloudflare, Inc.', 'Anthropic, PBC', 'cookie', '送る先', '目的', 'Sent to', 'Why']) assert.ok(page.includes(words), words);
+});
+
+test('お店向けの試用の案内（shops.html）: お客さん用の Worker に置き、スクリプトも入力欄も無い。約束の文がある', () => {
+  assert.ok(siteFiles().includes('shops.html'));
+  assert.ok(askFiles().includes('shops.html'));
+  const ask = askHeaders().split(/\r?\n/);
+  const at = ask.indexOf('/shops');
+  assert.ok(at > 0 && ask[at + 1].includes("script-src 'none'") && ask[at + 2] === '  Cache-Control: no-cache, no-transform');
+  const page = readFileSync(new URL('../shops.html', import.meta.url), 'utf8');
+  assert.ok(!/<script|<form|<input|<textarea|mailto:|@/.test(page.replace(/<!--[\s\S]*?-->/g, '')), 'ここでは何も集めず、アドレスも書かない');
+  for (const words of ['無料', '1 か月', '先着 3 店', 'AI には送りません', '30 日以内', '控えも含めて消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
 });
 
 test('お店の画面の CSP: 音（media-src）は要らない（声をやめた）。画像は同じ場所と blob・data だけ', () => {
