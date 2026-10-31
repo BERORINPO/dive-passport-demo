@@ -48,7 +48,7 @@ test('お店向けの試用の案内（shops.html）: お客さん用の Worker 
   assert.ok(at > 0 && ask[at + 1].includes("script-src 'none'") && ask[at + 2] === '  Cache-Control: no-cache, no-transform');
   const page = readFileSync(new URL('../shops.html', import.meta.url), 'utf8');
   assert.ok(!/<script|<form|<input|<textarea|mailto:|@/.test(page.replace(/<!--[\s\S]*?-->/g, '')), 'ここでは何も集めず、アドレスも書かない');
-  for (const words of ['無料', '1 か月', '3 店', '健康の答えは AI に送りません', 'こちらで消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
+  for (const words of ['無料', '1 か月', '先着 3 店', 'AI には送りません', '30 日以内', '控えも含めて消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
 });
 
 test('お店の画面の CSP: 音（media-src）は要らない（声をやめた）。画像は同じ場所と blob・data だけ', () => {
