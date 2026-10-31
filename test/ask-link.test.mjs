@@ -597,7 +597,7 @@ test('向こうの答えは信用しない: 形が合わない答えは 500（cr
 
 test('redux-ask の束: D1 の binding も、名簿・お店の一覧・鍵の行・お店の道を読むファイルも入らない。口は 9 つの RPC だけ', () => {
   const files = reachable('worker/ask-index.mjs').filter(f => f.startsWith('worker/')).sort();
-  assert.deepEqual(files, ['worker/analytics-core.mjs', 'worker/api-http.mjs', 'worker/ask-index.mjs', 'worker/ask-input.mjs', 'worker/ask-key.mjs', 'worker/auto-core.mjs',
+  assert.deepEqual(files, ['worker/analytics-core.mjs', 'worker/api-http.mjs', 'worker/ask-index.mjs', 'worker/ask-input.mjs', 'worker/ask-key.mjs', 'worker/auto-core.mjs', 'worker/backup-core.mjs',
     'worker/page-headers.mjs', 'worker/page-serve.mjs', 'worker/past-core.mjs', 'worker/public-handler.mjs', 'worker/shop-client.mjs', 'worker/site-guard.mjs', 'worker/sync-core.mjs',
     'worker/trial-core.mjs'], '足すときは、ここに増えるファイルが D1・名簿・お店の道に触れないことを確かめてから');
   for (const f of files) {

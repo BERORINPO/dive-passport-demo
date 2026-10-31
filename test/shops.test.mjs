@@ -10,7 +10,7 @@ import { handlePublic as servePublic } from '../worker/public-handler.mjs';
 import { ShopService } from '../worker/shop-service.mjs';
 import { scheduled } from '../worker/auto.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
-import { shopForEmail, shopForOrigin, shopForRecipient, shopsFromRows, shopsProblem, singleShop, knownShop } from '../worker/shop-core.mjs';
+import { shopForEmail, shopForOrigin, shopForRecipient, shopsFromRows, shopsProblem, singleShop, knownShop, replyToFor, replyAddress } from '../worker/shop-core.mjs';
 import { listShops, shopsWhy } from '../worker/shop-db.mjs';
 import { fakeKv, fakeAccess, fakeD1, fakeTurnstile, fakeRateLimit, fakeMail, fakeShopBinding, checkRedirect } from '../worker/fakes.mjs';
 
@@ -327,17 +327,94 @@ test('ザクのレビュー: 一覧から消したお店は、Cron もリンク�
 
 test('お店を足す道具（tools/shop.mjs）: 作る値を Worker がそのまま読める。合わない値は止める', async () => {
   const { shopSql, parseArgs } = await import('../tools/shop.mjs');
-  const sql = shopSql(parseArgs(['add', '--id', 'shop-a', '--name', "A's ダイブ", '--member', 'Staff@Example.com', '--site', 'https://shop-a.example.com', '--inbox', 'A@reduxdive.com', '--sender', 'fwd@shop-a.example.com']));
-  const m = sql.match(/VALUES \('((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)'\)/);
-  const [id, name, members, sites, inbox, senders] = m.slice(1).map(x => x.replace(/''/g, "'"));
-  const read = shopsFromRows([{ id, name, members, sites, inbox, senders }]);
+  const sql = shopSql(parseArgs(['add', '--id', 'shop-a', '--name', "A's ダイブ", '--member', 'Staff@Example.com', '--site', 'https://shop-a.example.com', '--inbox', 'A@reduxdive.com', '--sender', 'fwd@shop-a.example.com',
+    '--reply-to', 'Info@Shop-A.example.com']));
+  const m = sql.match(/VALUES \('((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)', '((?:[^']|'')*)'\)/);
+  const [id, name, members, sites, inbox, senders, reply_to] = m.slice(1).map(x => x.replace(/''/g, "'"));
+  const read = shopsFromRows([{ id, name, members, sites, inbox, senders, reply_to }]);
   assert.equal(read.length, 1);
-  assert.deepEqual(read[0], { id: 'shop-a', name: "A's ダイブ", members: ['staff@example.com'], sites: ['https://shop-a.example.com'], inbox: 'a@reduxdive.com', senders: ['fwd@shop-a.example.com'] });
+  assert.deepEqual(read[0], { id: 'shop-a', name: "A's ダイブ", members: ['staff@example.com'], sites: ['https://shop-a.example.com'], inbox: 'a@reduxdive.com', senders: ['fwd@shop-a.example.com'],
+    replyTo: 'info@shop-a.example.com' });
+  assert.match(sql, /reply_to = excluded\.reply_to;$/, 'add は返信先も上書きする（付けなければ空に戻る）');
+  assert.match(shopSql(parseArgs(['add', '--id', 'x', '--name', 'x', '--member', 'a@b.co'])), /, ''\) ON CONFLICT/, '--reply-to が無ければ空');
   for (const bad of [['add', '--id', 'Bad Id', '--name', 'x', '--member', 'a@b.co'], ['add', '--id', 'x', '--name', 'x'], ['add', '--id', 'x', '--name', 'x', '--member', 'a@b.co', '--site', 'http://evil.example.com'],
-    ['add', '--id', 'x', '--name', 'x', '--member', "a'@b.co"], ['drop', '--id', 'x']]) {
+    ['add', '--id', 'x', '--name', 'x', '--member', "a'@b.co"], ['drop', '--id', 'x'],
+    ['add', '--id', 'x', '--name', 'x', '--member', 'a@b.co', '--reply-to', 'not an address'], ['add', '--id', 'x', '--name', 'x', '--member', 'a@b.co', '--reply-to', 'a@b.co, c@d.co'],
+    ['set-reply-to', '--id', 'Bad Id', '--reply-to', 'a@b.co'], ['set-reply-to', '--id', 'x'], ['set-reply-to', '--id', 'x', '--reply-to', 'a@b.co\r\nBcc: c@d.co']]) {
     assert.throws(() => shopSql(parseArgs(bad)), undefined, bad.join(' '));
   }
   assert.match(shopSql(parseArgs(['keep-sample', '--member', 'a@b.co'])), /VALUES \('default'/);
+  /* 返信先だけを直す 1 文（いまある行の他の欄は変えない）。入れた値を Worker がそのまま読める */
+  const upd = shopSql(parseArgs(['set-reply-to', '--id', 'shop-a', '--reply-to', ' Info@Shop-A.example.com ']));
+  assert.equal(upd, "UPDATE shops SET reply_to = 'info@shop-a.example.com' WHERE id = 'shop-a';");
+});
+
+test('お店ごとの返信先（core）: reply_to は形を確かめて読む。合わなければ空（行は捨てない）。選び方: 行にあればそれ、無ければ 1 店だけ REPLY_TO、2 店以上は付けない', () => {
+  const row = (id, replyTo) => ({ id, name: id, members: '[]', sites: '[]', inbox: '', senders: '[]', reply_to: replyTo });
+  for (const bad of ['', '   ', 'not an address', 'a@b', 'a@b.co, c@d.co', 'a@b.co\r\nBcc: c@d.co', '<a@b.co>', '"a"@b.co', `${'x'.repeat(250)}@b.co`, null, undefined, 42]) {
+    assert.equal(replyAddress(bad), '', String(bad).slice(0, 20));
+    assert.deepEqual(shopsFromRows([row('shop-a', bad)]).map(x => x.replyTo), [''], `形の合わない返信先でも行は捨てない: ${String(bad).slice(0, 20)}`);
+  }
+  assert.equal(shopsFromRows([{ id: 'shop-a', name: 'A', members: '[]', sites: '[]', inbox: '', senders: '[]' }])[0].replyTo, '', '欄が無い行（0010 より前の形）も空');
+  assert.equal(shopsFromRows([row('shop-a', ' Info@Shop-A.example.com ')])[0].replyTo, 'Info@Shop-A.example.com', '前後の空白は取る');
+  const two = shopsFromRows([row('shop-a', 'a@a.example'), row('shop-b', '')]);
+  assert.equal(replyToFor(two, 'shop-a', 'env@x.example'), 'a@a.example', '行にあれば、REPLY_TO より行');
+  assert.equal(replyToFor(two, 'shop-b', 'env@x.example'), '', '2 店以上で行に無ければ、REPLY_TO に落とさず付けない');
+  assert.equal(replyToFor(two, 'shop-z', 'env@x.example'), '', '一覧に無いお店も同じ');
+  const one = shopsFromRows([row('shop-a', '')]);
+  assert.equal(replyToFor(one, 'shop-a', 'env@x.example'), 'env@x.example', '1 店だけで行に無ければ、今までどおり REPLY_TO');
+  assert.equal(replyToFor(one, 'shop-a'), '', 'REPLY_TO も無ければ付けない');
+  assert.equal(replyToFor(shopsFromRows([row('shop-a', 'a@a.example')]), 'shop-a', 'env@x.example'), 'a@a.example', '1 店でも行にあれば行');
+  assert.equal(replyToFor([singleShop('default')], 'default', 'env@x.example'), 'env@x.example', 'SINGLE_SHOP の 1 店は REPLY_TO');
+});
+
+test('お店ごとの返信先（Cron）: 2 店とも別々の返信先で送る。行に無い店には、REPLY_TO があっても付けない（別のお店の返信先に流さない）。直せば次から付く', async () => {
+  const s = setup();
+  s.env.REPLY_TO = 'owner-a@a.example';   // 前の 1 店の時の secret。2 店になっても全店に付けない
+  s.db.shops.get('shop-a').reply_to = 'info@a.example';
+  s.turnstile.hostname = 'shop-a.example.com';
+  assert.equal((await siteBooking(s, SITE_A, '見本 一郎')).status, 202);
+  s.turnstile.hostname = 'shop-b.example.com';
+  assert.equal((await siteBooking(s, SITE_B, '見本 二郎')).status, 202);
+  await scheduled(s.env, s.io);
+  const sent = s.env.EMAIL.sent;
+  const by = (shop) => sent.find(m => m.from.name === shop);
+  assert.equal(sent.length, 2);
+  assert.equal(by('A ダイブ').replyTo, 'info@a.example', 'A のお客さんの返信は A へ');
+  assert.equal(Object.hasOwn(by('B マリン'), 'replyTo'), false, 'B には Reply-To を付けない（A にも REPLY_TO にも流さない）');
+  /* B の返信先を入れると、次の連絡から付く */
+  s.db.shops.get('shop-b').reply_to = 'info@b.example';
+  assert.equal((await siteBooking(s, SITE_B, '見本 三郎')).status, 202);
+  sent.length = 0;
+  await scheduled(s.env, s.io);
+  assert.deepEqual(sent.map(m => [m.from.name, m.replyTo]), [['B マリン', 'info@b.example']]);
+  /* 返信先の打ち間違い（形が合わない）は、全店を止めず、その店だけ付けない */
+  s.db.shops.get('shop-b').reply_to = 'info@b.example, info@a.example';
+  assert.equal((await siteBooking(s, SITE_B, '見本 四郎')).status, 202);
+  sent.length = 0;
+  await scheduled(s.env, s.io);
+  assert.deepEqual(sent.map(m => [m.from.name, m.replyTo]), [['B マリン', undefined]]);
+});
+
+test('お店ごとの返信先（Cron）: 一覧が 1 店だけ（行・SINGLE_SHOP）なら今までどおり REPLY_TO。その店の行に返信先があれば行が先', async () => {
+  const one = setup();
+  one.db.shops.delete('shop-b');
+  one.env.REPLY_TO = 'env@x.example';
+  one.turnstile.hostname = 'shop-a.example.com';
+  assert.equal((await siteBooking(one, SITE_A, '見本 一郎')).status, 202);
+  await scheduled(one.env, one.io);
+  assert.equal(one.env.EMAIL.sent[0].replyTo, 'env@x.example', '行が 1 つで返信先が空なら REPLY_TO');
+  one.db.shops.get('shop-a').reply_to = 'info@a.example';
+  assert.equal((await siteBooking(one, SITE_A, '見本 二郎')).status, 202);
+  one.env.EMAIL.sent.length = 0;
+  await scheduled(one.env, one.io);
+  assert.equal(one.env.EMAIL.sent[0].replyTo, 'info@a.example', '行に返信先があれば REPLY_TO より行');
+  const single = setup({ shops: false, single: 'default' });
+  single.env.REPLY_TO = 'env@x.example';
+  single.turnstile.hostname = 'shop-a.example.com';
+  assert.equal((await siteBooking(single, SITE_A, '見本 三郎')).status, 202);
+  await scheduled(single.env, single.io);
+  assert.equal(single.env.EMAIL.sent[0].replyTo, 'env@x.example', 'SINGLE_SHOP は REPLY_TO');
 });
 
 let failed = 0;

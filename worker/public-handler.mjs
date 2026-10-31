@@ -21,7 +21,8 @@ import { shopClient } from './shop-client.mjs';
 import { keyHash } from './ask-key.mjs';
 import { checkAsk, MAX_ASK_BODY, checkWalkin, MAX_WALKIN_BODY, MAX_INTAKE_BODY, bearerOf, idemKeyOf } from './ask-input.mjs';
 import { verifyTurnstile, underLimit } from './site-guard.mjs';
-import { MAX_BOOKING_BODY, cronFresh, CRON_STALE_MS } from './auto-core.mjs';
+import { MAX_BOOKING_BODY, CRON_STALE_MS } from './auto-core.mjs';
+import { cronHealth } from './backup-core.mjs';
 import { checkTrial, MAX_TRIAL_BODY } from './trial-core.mjs';
 
 const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/walkin': ['POST'], '/api/bookings': ['POST', 'OPTIONS'], '/api/v1/bookings': ['POST'], '/api/health': ['GET'],
@@ -30,15 +31,16 @@ const BOOKING_NEEDS = ['TURNSTILE_SECRET'];
 
 const hasLimiter = (l) => Boolean(l && typeof l.limit === 'function');
 
-/* 外の死活監視（Cloudflare と別の系統）が 5 分ごとに見る口。返すのは Cron が最後に動いた時刻だけ。止まっていれば 503 */
-async function cronHealth(env, io, note) {
+/* 外の死活監視（Cloudflare と別の系統）が 5 分ごとに見る口。返すのは Cron が最後に動いた時刻と、その回の失敗の数と、短い理由だけ（お店の名前・中身は出さない）。
+   Cron が止まっている・お店ごとの失敗がある・控えの失敗があるときは 503。決まりは backup-core.mjs の cronHealth */
+async function cronStatus(env, io, note) {
   try {
-    const got = cronFresh(env.BUDGET ? await env.BUDGET.get('cron:last') : null, new Date(io.now() - CRON_STALE_MS).toISOString());
-    if (!got.ok) note.why = 'cron-stale';
-    return json(got.ok ? 200 : 503, { ok: got.ok, cronAt: got.at });
+    const got = cronHealth(env.BUDGET ? await env.BUDGET.get('cron:last') : null, new Date(io.now() - CRON_STALE_MS).toISOString());
+    if (!got.ok) note.why = got.why;
+    return json(got.ok ? 200 : 503, { ok: got.ok, cronAt: got.at, failed: got.failed, backupFailed: got.backupFailed, why: got.why });
   } catch (e) {
     note.why = 'kv';
-    return json(503, { ok: false, cronAt: '' });
+    return json(503, { ok: false, cronAt: '', failed: 0, backupFailed: 0, why: 'kv' });
   }
 }
 
@@ -168,7 +170,7 @@ export async function handlePublic(request, env, io) {
     else if (!methods.includes(request.method)) res = json(405, { error: 'method' }, { allow: methods.join(', ') });
     else if (url.pathname === '/api/bookings') res = await bookings(request, env, io, note);
     else if (url.pathname === '/api/v1/bookings') res = await intake(request, env, io, note);
-    else if (url.pathname === '/api/health') res = await cronHealth(env, io, note);
+    else if (url.pathname === '/api/health') res = await cronStatus(env, io, note);
     else if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; res = json(403, { error: 'site' }); }
     else if (url.pathname === '/api/walkin') res = await walkin(request, env, io, note);
     else if (url.pathname === '/api/trial') res = await trial(request, env, io, note);
