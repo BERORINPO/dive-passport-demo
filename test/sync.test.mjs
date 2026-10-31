@@ -437,6 +437,15 @@ test('core: checkPut と readStored は時計を読まず、渡した今日で�
   assert.deepEqual(readStored(JSON.stringify(base), { today: TODAY, at: AT }), base);
 });
 
+test('core: お店の診断書の決まり（shop.medical）は置ける。お店の余分な項目は断る', () => {
+  const R = globalThis.REDUX;
+  const ruled = R.rosterCore.setMedicalRules(base, { rules: { age: '' }, at: AT });
+  const got = checkPut({ base: 0, state: ruled }, { today: TODAY, at: AT });
+  assert.ok(got.ok, got.error);
+  assert.equal(got.state.shop.medical.age, '');
+  assert.equal(checkPut({ base: 0, state: { ...base, shop: { ...base.shop, other: 1 } } }, { today: TODAY, at: AT }).ok, false);
+});
+
 let failed = 0;
 for (const t of tests) {
   try {

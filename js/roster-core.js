@@ -127,6 +127,17 @@
     return withLog({ ...state, shop }, entry(at, 'staff', 'edit', 'state', '', { fields: ['health'], before: { health: mode(!paper) }, after: { health: mode(paper) } }));
   }
 
+  /* 診断書のお店の決まり（js/roster-medical.js が当てはめる）。渡した欄だけ今の決まりに重ねる。形が違えば例外。変えたら記録に残す */
+  const medicalOf = (state) => ({ ...S().MEDICAL_DEFAULT, ...((state.shop && state.shop.medical) || {}) });
+  function setMedicalRules(state, { rules, at }) {
+    const before = medicalOf(state);
+    const after = { ...before, ...pick(isPlain(rules) ? rules : {}, S().MEDICAL_KEYS.filter(k => isPlain(rules) && has(rules, k))) };
+    if (!S().medicalOk(after)) throw new Error('setMedicalRules: 決まりの形が合わない');
+    if (same(before, after) && state.shop.medical) return state;
+    return withLog({ ...state, shop: { ...state.shop, medical: after } },
+      entry(at, 'staff', 'edit', 'state', '', { fields: ['medical'], before: { medical: before }, after: { medical: after } }));
+  }
+
   /* AI に送った記録。量と、塗った印と、健康の情報が見えたかだけで、中身は残さない */
   function logAi(state, { at, sent }) {
     if (!sent) return state;   // 送る前に断ったときは、送った記録も無い
@@ -393,7 +404,8 @@
   /* 記録に残す前と後。健康の答えは中身を残さず、答えた数・当日の答えの有無・誰が確かめたか・同意の版だけにする。
      同意を取り消したら答えを消すので、記録にも残さない。書き換えたことは、いつ・誰が・どの項目かで分かる */
   const logHealth = (h) => ({ answered: (Array.isArray(h.answers) ? h.answers : []).filter(a => a !== null && a !== undefined).length,
-    today: !!h.today, todayAt: typeof h.todayAt === 'string' ? h.todayAt : '', heldBy: h.heldBy || '', consentVer: h.consentVer || '' });
+    today: !!h.today, todayAt: typeof h.todayAt === 'string' ? h.todayAt : '', heldBy: h.heldBy || '', consentVer: h.consentVer || '',
+    ...(h.medAt ? { med: true } : {}) });   // 診断書を受け取った印だけ（診断日は残さない）
   /* 性別（sex）は入れた人にだけ付く欄なので、無い人の「前」は '' として残す */
   const logPick = (o, keys) => Object.fromEntries(keys.map(k => [k, k === 'health' ? logHealth(o.health) : k === 'sex' ? o.sex || '' : o[k]]));
   /* 前の版で記録に残った健康の答えの中身を、logHealth の形に書き換える。保存から読み込むとき、形の検査の前に 1 回（決定ログ health-log） */
@@ -758,7 +770,7 @@
   const OP_MODULES = { core: () => R.rosterCore, auto: () => R.rosterAuto, share: () => R.rosterShare, guest: () => R.rosterGuest, day: () => R.rosterDay };
   const OP_NAMES = [
     'core.logAi', 'core.addTrip', 'core.addBookingToTrip', 'core.editPerson', 'core.editTrip', 'core.logOutput', 'core.cancelTrip', 'core.reopenTrip',
-    'core.ackCancel', 'core.confirmReview', 'core.applyReadingTo', 'core.setHealthPaper', 'core.editBooking', 'core.cancelBooking',
+    'core.ackCancel', 'core.confirmReview', 'core.applyReadingTo', 'core.setHealthPaper', 'core.setMedicalRules', 'core.editBooking', 'core.cancelBooking',
     'auto.runDue', 'auto.addFromReading', 'auto.addFromForm', 'auto.planJobs', 'auto.moveBooking', 'auto.requestResend', 'auto.resend', 'auto.confirmSent',
     'share.addBigSample', 'share.addPartner', 'share.removePartner', 'share.setHost', 'share.addPartnerPeople', 'share.setPartnerGuide',
     'share.handOver', 'share.recordReturn', 'share.undoReturn', 'share.recordHere', 'share.recordLeave',
@@ -803,7 +815,8 @@
   }
 
   R.rosterCore = {
-    COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
+    COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, medicalOf, setMedicalRules,
+    peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, reviewFields, confirmReview, toCheck, scrubLog,
     mergeReading, addBooking, applyReadingTo, applyReading, editPerson, checkPerson, unconfirmed, unconfirmedFields, unconfirmedByPerson,
