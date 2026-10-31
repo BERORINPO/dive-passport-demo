@@ -2,7 +2,7 @@
 // 実行: node test/build-site.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { headers, siteFiles, askHeaders, askFiles } from '../tools/build-site.mjs';
+import { headers, siteFiles, askHeaders, askFiles, askLpFiles } from '../tools/build-site.mjs';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -40,17 +40,22 @@ test('公表ページ（data.html）: 置く物に入り、お客さまの画面
   for (const words of ['Cloudflare, Inc.', 'Anthropic, PBC', 'cookie', '送る先', '目的', 'Sent to', 'Why']) assert.ok(page.includes(words), words);
 });
 
-test('お店向けの試用の案内（shops.html）: お客さん用の Worker に置き、スクリプトも入力欄も無い。約束の文がある', () => {
+test('お店向けの試用の案内（shops.html）: お客さん用の Worker に置き、スクリプトも入力欄も無い。申し込み先は trial@ だけ。約束の文がある', () => {
   assert.ok(siteFiles().includes('shops.html'));
   assert.ok(askFiles().includes('shops.html'));
+  const lp = askLpFiles();
+  for (const f of ['assets/lp/roster.webp', 'assets/lp/cm.mp4', 'assets/lp/cm-poster.jpg']) assert.ok(lp.includes(f), f);
+  assert.ok(lp.some(f => /^fonts\/.+\.woff2$/.test(f)), '字体も置く');
   const ask = askHeaders().split(/\r?\n/);
   const at = ask.indexOf('/shops');
-  assert.ok(at > 0 && ask[at + 1].includes("script-src 'none'") && ask[at + 2] === '  Cache-Control: no-cache, no-transform');
-  const page = readFileSync(new URL('../shops.html', import.meta.url), 'utf8');
-  assert.ok(!/<script|<form|<input|<textarea|mailto:|@/.test(page.replace(/<!--[\s\S]*?-->/g, '')), 'ここでは何も集めず、アドレスも書かない');
-  for (const words of ['無料', '1 か月', '先着 3 店', 'AI には送りません', '30 日以内', '控えも含めて消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
+  assert.ok(at > 0 && ask[at + 1].includes("script-src 'none'") && ask[at + 1].includes("media-src 'self'") && ask[at + 2] === '  Cache-Control: no-cache, no-transform');
+  assert.ok(ask.includes('/fonts/*'), 'ask にも字体の見出しを付ける');
+  const page = readFileSync(new URL('../shops.html', import.meta.url), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+  assert.ok(!/<script|<form|<input|<textarea/.test(page), 'ここでは何も集めない');
+  assert.deepEqual([...new Set([...page.matchAll(/[\w.+-]+@[\w.-]+/g)].map(m => m[0]))], ['trial@reduxdive.com'], '書くアドレスは申し込み先だけ');
+  for (const words of ['先着 <b>3</b> 店', 'AI には送りません', '<span class="lp-fig">30</span> 日以内', '控えも含めて消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
+  for (const m of page.matchAll(/<img [^>]*>/g)) assert.match(m[0], /width="\d+" height="\d+"/, '絵は幅と高さを書く（読み込みで画面がずれない）');
 });
-
 test('お店の画面の CSP: 音（media-src）は要らない（声をやめた）。画像は同じ場所と blob・data だけ', () => {
   const csp = indexCsp();
   assert.ok(!csp.includes('media-src'));

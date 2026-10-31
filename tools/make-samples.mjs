@@ -15,13 +15,13 @@ const { roster } = globalThis.REDUX;
 
 const BOOKINGS = {
   e1: { site: '予約サイト（見本）', ref: 'YS-20261020-0042', date: '2026-10-24', start: '08:30', tour: '体験ダイビング（ボート2本）',
-    people: 2, lead_name: '見本 花子', lead_phone: '090-1234-5678', unsure: [] },
+    people: 2, lead_name: '見本 花子', lead_phone: '090-0000-1701', lead_email: 'hanako@mail.example', unsure: [] },
   e2: { site: 'Booking Platform (sample)', ref: 'TB-88231', date: '2026-10-24', start: '', tour: 'Fun Dive, 2 tanks',
-    people: 2, lead_name: 'Seo-yeon Kim', lead_phone: '+82 10-1234-5678', unsure: ['start'] },
+    people: 2, lead_name: 'Seo-yeon Kim', lead_phone: '+82 10-0000-1702', unsure: ['start'] },
   e3: { site: 'お問い合わせフォーム', ref: '', date: '2026-10-24', start: '', tour: 'ファンダイビング',
-    people: 1, lead_name: '見本 健太', lead_phone: '090-4545-6767', unsure: ['date', 'start'] },
+    people: 1, lead_name: '見本 健太', lead_phone: '090-0000-1801', unsure: ['date', 'start'] },
   e4: { site: 'メール', ref: '', date: '2026-10-24', start: '', tour: '体験ダイビング',
-    people: 3, lead_name: '見本 大輔', lead_phone: '090-0101-2323', unsure: ['date', 'start'] }
+    people: 3, lead_name: '見本 大輔', lead_phone: '090-0000-1901', lead_email: 'daisuke@mail.example', unsure: ['date', 'start'] }
 };
 
 const truth = JSON.parse(readFileSync(join(dir, 'samples', 'truth.json'), 'utf8'));

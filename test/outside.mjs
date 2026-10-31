@@ -149,6 +149,8 @@ function tagProblems({ tag, attrs, content }, rule) {
     /* URL を受け取る属性は、タブを消して読む（/<タブ>/evil を // と読むため。(a) の網は scheme の無い物を拾わない） */
     if (URL_ATTRS.has(k)) {
       (k === 'srcset' ? v.split(',').map(x => x.trim().split(/\s+/)[0]) : [v]).forEach(x => {
+        /* <a href="mailto:"> は押した人のメールの道具を開くだけで、ページは何も読まない（shops.html の申し込み。宛先は test/build-site.test.mjs が確かめる） */
+        if (tag === 'a' && k === 'href' && /^mailto:[^/\\]+$/i.test(x.replace(/[\t\n\r]/g, '').trim())) return;
         const u = external(x);
         if (u && u !== 'bad' && !allowedBy(rule.allow, u)) out.push(`外の読み込み先が許可に無い（${k}）: ${show(u)}`);
       });
