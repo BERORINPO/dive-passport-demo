@@ -92,6 +92,14 @@ test('名簿の紙: 健康の 2 欄は「紙の申込書」と出し、そろっ
   assert.ok(table.rows.every(r => r.cells.history === C.PAPER_TEXT && r.cells.today === C.PAPER_TEXT));
 });
 
+test('血中酸素: 紙のお店では名簿に入れない（健康の数値を預からない。決定ログ 2026-11-01 trial-health-paper）。アプリで聞くお店は今まで通り', () => {
+  ['../js/data-sipe.js', '../js/roster-day.js'].forEach(load);
+  const D = globalThis.REDUX.rosterDay;
+  const put = (st) => D.setSpo2(st, { id: st.people[0].id, dive: 1, side: 'pre', value: 98, at: AT });
+  assert.throws(() => put(setup(true).st), /紙のお店/);
+  assert.equal(put(setup(false).st).people[0].health.spo2[0].pre, 98);
+});
+
 
 let failed = 0;
 for (const t of tests) {

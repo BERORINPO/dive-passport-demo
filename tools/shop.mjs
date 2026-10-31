@@ -3,12 +3,14 @@
 // 使い方:
 //   node tools/shop.mjs add --id shop-a --name "A ダイブ" --member staff@example.com [--member …] [--site https://shop-a.example.com] [--inbox a@reduxdive.com] [--sender fwd@shop-a.example.com] [--reply-to info@shop-a.example.com]
 //   node tools/shop.mjs set-reply-to --id shop-a --reply-to info@shop-a.example.com   返信先（お客さんへのメールの Reply-To）だけを直す。いまある行の他の欄は変えない
+//   node tools/shop.mjs paper --id shop-a --name "A ダイブ"   健康の質問を紙で聞く名簿で始める（試用の形。名簿がまだ無いお店だけ。もうあるお店は画面の「健康の質問（お店ごと）」で切り替える）
 //   node tools/shop.mjs remove --id shop-a
 //   node tools/shop.mjs keep-sample       見本の名簿（default）を、お店を足したあとも見えるようにする行（スタッフは --member で）
 // add は同じ id があれば上書きする（--reply-to を付けないと、返信先も空に戻る。返信先だけ直すなら set-reply-to）。1 店目を足すと、見本（default）の名簿は一覧に無い限り誰からも見えなくなる
 // 返信先が空のお店は、一覧が 1 店だけなら secret の REPLY_TO、2 店以上なら Reply-To を付けない。2 店目を足す前に、1 店目の返信先を入れておく
 import { fileURLToPath } from 'node:url';
 import { SHOP_ID, replyAddress } from '../worker/shop-core.mjs';
+import '../worker/sync-core.mjs';
 
 const EMAIL = /^[^\s@'"]+@[^\s@'"]+\.[^\s@'"]+$/;
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
@@ -63,7 +65,8 @@ export function shopSql(a) {
     if (!SHOP_ID.test(a.id || '')) throw new Error('--id は英小文字・数字・- の 40 字まで');
     return `UPDATE shops SET reply_to = ${q(replyTo(a.replyTo))} WHERE id = ${q(a.id)};`;
   }
-  if (a.cmd !== 'add') throw new Error('使えるのは add・set-reply-to・remove・keep-sample');
+  if (a.cmd === 'paper') return paperSql(a);
+  if (a.cmd !== 'add') throw new Error('使えるのは add・set-reply-to・paper・remove・keep-sample');
   if (!SHOP_ID.test(a.id || '')) throw new Error('--id は英小文字・数字・- の 40 字まで');
   const name = String(a.name || '').trim();
   if (!name || name.length > 60) throw new Error('--name（お店の名前、60 字まで）が要る');
@@ -76,6 +79,19 @@ export function shopSql(a) {
   const cols = [q(a.id), q(name), q(JSON.stringify(members)), q(JSON.stringify(sites)), q(inbox), q(JSON.stringify(senders)), q(reply)];
   return `INSERT INTO shops (id, name, members, sites, inbox, senders, reply_to) VALUES (${cols.join(', ')}) ` +
     'ON CONFLICT(id) DO UPDATE SET name = excluded.name, members = excluded.members, sites = excluded.sites, inbox = excluded.inbox, senders = excluded.senders, reply_to = excluded.reply_to;';
+}
+
+/* 試用のお店は健康の質問を紙で聞く（plan/meibo.md「健康を紙で聞く」、決定ログ 2026-11-01 trial-health-paper）。
+   名簿がまだ無いお店に、紙の印と切り替えの記録だけの名簿を置く 1 文。名簿がもうあれば何もしない（ON CONFLICT DO NOTHING。中身を消さない）。
+   見本（default）には使わない（デモはアプリで聞く） */
+export function paperSql(a, at = new Date().toISOString()) {
+  if (!SHOP_ID.test(a.id || '') || a.id === 'default') throw new Error('--id は英小文字・数字・- の 40 字まで（見本の default は除く）');
+  const name = String(a.name || '').trim();
+  if (!name || name.length > 60) throw new Error('--name（お店の名前、60 字まで）が要る');
+  const R = globalThis.REDUX;
+  const state = R.rosterCore.setHealthPaper(R.roster.blankState(name), { paper: true, at });
+  if (!R.roster.validateState(state).ok) throw new Error('名簿の形が合わない');
+  return `INSERT INTO rosters (shop, version, state, updated_at) VALUES (${q(a.id)}, 1, ${q(JSON.stringify(state))}, ${q(at)}) ON CONFLICT(shop) DO NOTHING;`;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

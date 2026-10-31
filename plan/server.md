@@ -71,7 +71,7 @@ CREATE TABLE rosters (
 - 一覧が空・表が無いときは 503（2026-10-28 shops-fail-closed。全員が 1 店の名簿を共有しない）。env の `SINGLE_SHOP`（お店の id）を書いたときだけ、その 1 店（今までの default）で動く。2 店が同じ受け口・メール・サイトを持つ一覧も 503
 - 判定は worker/shop-core.mjs（core）、読み出しは worker/shop-db.mjs。テストは test/shops.test.mjs
 
-お店を足す（今は D1 のコンソールで。画面は後で）。`node tools/shop.mjs add --id … --name … --member …` が値を確かめて 1 文を作る（remove・keep-sample も）:
+お店を足す（今は D1 のコンソールで。画面は後で）。`node tools/shop.mjs add --id … --name … --member …` が値を確かめて 1 文を作る（set-reply-to・paper・remove・keep-sample も。試用のお店の受け入れの順は docs/deploy.md の 9b）:
 ```sql
 INSERT INTO shops (id, name, members, sites, inbox, senders) VALUES ('shop-a', 'A ダイブ', '["staff@example.com"]', '["https://shop-a.example.com"]', '', '[]');
 ```

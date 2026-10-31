@@ -188,6 +188,16 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 
 確かめ方（2026-10-28 に通した）: `ask.reduxdive.com/ask` が 200／MAIL_SENDERS のアドレスから `inbox@reduxdive.com` に予約メールを送る → 名簿に入り予定が 4 つできる → 次の Cron でお願いのメールが届く／Cron のあとに BACKUP の KV に `day:<お店>:<日付>` ができる。届いた記録は GraphQL の `emailRoutingAdaptive` で見られる
 
+## 9b. 試用のお店を受け入れる（2026-11-01。健康は紙で始める）
+
+試用のお店は、健康の質問を今まで通り紙の申込書で聞く（shops.html の約束、決定ログ 2026-11-01 trial-health-paper）。名簿を作る前に紙の印を付けておくので、順番を守る。
+1. **2 店目からは先に**、いまあるお店の返信先を入れる: `node tools/shop.mjs set-reply-to --id <店> --reply-to <アドレス>`（入れないと、2 店になった時点で Reply-To が外れる）
+2. お店を足す: `node tools/shop.mjs add --id <店> --name <名前> --member <スタッフのメール> --inbox <店>@reduxdive.com --reply-to <お店のアドレス>`。11/9 のデモを続けるなら `keep-sample` の行も足す（1 店目を足すと見本は誰からも見えなくなる）
+3. 紙の名簿で始める: `node tools/shop.mjs paper --id <店> --name <名前>`。名簿がまだ無いときだけ効く（もうあるお店は、予約の一覧の「健康の質問（お店ごと）」で切り替える）
+4. 1〜3 の文を D1 のコンソール（redux-rosters）に 1 文ずつ貼って Execute。`SELECT shop, json_extract(state, '$.shop.health') FROM rosters;` でそのお店が paper か確かめる
+5. ★ Access の Policy と secret `ALLOWED_EMAILS` にスタッフを足す（ALLOWED_EMAILS は丸ごと上書きなので、今の値に足した全体を入れる。権限の付与なので Yosuke が画面で）
+6. ★ Email Routing に `<店>@reduxdive.com` → お店の Worker の規則を足し、お店に予約メールの転送の手順を送る
+
 ## 10. 試用をやめたお店の後始末（shops.html の約束「やめるとき: 名簿を CSV でお渡しし、30 日以内に、こちらの控えも含めて消します」）
 
 - 道具は `tools/offboard.mjs`。本番の D1・KV にはつながず、CSV と、消す文・消すキーの一覧を出すだけ。消すのは取り消せないので、出た物を人（Yosuke）が確かめて実行する（tools/shop.mjs・restore.mjs と同じ）

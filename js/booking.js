@@ -239,7 +239,7 @@
     const pick = (on) => () => {
       const r = save('core.setHealthPaper', { paper: on, at: now() });
       notice = r.error ? { kind: 'warn', text: '切り替えられませんでした' }
-        : { kind: 'ok', text: on ? '健康の質問は、紙の申込書で聞きます。お客さんのリンクと自動の連絡では聞きません。' : '健康の質問を、お客さんのリンクで聞きます。' };
+        : { kind: 'ok', text: on ? '健康の質問は、紙の申込書で聞きます。お客さんのリンクと自動の連絡では聞かず、血中酸素もここには入れません。' : '健康の質問を、お客さんのリンクで聞きます。' };
       render();
     };
     const opt = (on, text) => el('button', { class: 'ptab', type: 'button', 'aria-pressed': String(paper === on), text, onclick: pick(on) });
@@ -422,7 +422,7 @@
         el('p', { class: 'sheet__title' }, 'お客さんに送るリンク', el('small', { text: '予約 1 件に 1 つ' })),
         url ? el('p', { class: 'url', text: url }) : null,
         el('p', { class: 'sheet__note', text: real
-          ? `LINE やメールに貼って送ります。お客さんはログインなしで開き、この予約の人の「まだ」の所だけを入れられます。健康の質問は、そこから 1 人ずつのリンクで本人が答えます。${mine && mine.expiresOn ? `${md(mine.expiresOn)} まで使えます。` : ''}作り直すと、前に送ったリンクは開けなくなります。`
+          ? `LINE やメールに貼って送ります。お客さんはログインなしで開き、この予約の人の「まだ」の所だけを入れられます。${C().paperOf(s) ? '健康の質問は、紙の申込書で聞きます。' : '健康の質問は、そこから 1 人ずつのリンクで本人が答えます。'}${mine && mine.expiresOn ? `${md(mine.expiresOn)} まで使えます。` : ''}作り直すと、前に送ったリンクは開けなくなります。`
           : 'LINE やメールに貼って送ります。開いた人は、この予約の人の「まだ」の所だけを入れられます。試作では、この端末の中だけで開けます。' })),
       mine && mine.error ? el('p', { class: 'flag flag--warn', role: 'status', text: mine.error === 404
         ? 'サーバーにまだこの予約が届いていません。少し待ってから、もう一度押してください。' : 'リンクを作れませんでした。もう一度押してください。' }) : null,

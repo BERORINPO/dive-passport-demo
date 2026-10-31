@@ -225,6 +225,7 @@
 
   /* ---------- 血中酸素（県警の体調チェック表。判定は roster-day.js、数値と言葉は data-sipe.js） ---------- */
   function sipeRow(tripId, ui) {
+    if (C().paperOf(R.rosterStore.get())) return null;   // 紙のお店は血中酸素を入れない（roster-day.js の setSpo2）
     const g = D().sipeRows(R.rosterStore.get(), tripId);
     if (!g || !g.rows.length) return null;
     return el('div', { class: 'pickrow pickrow--act' },
@@ -306,6 +307,7 @@
   function renderSpo2({ tripId, ui }) {
     const g = D().sipeRows(R.rosterStore.get(), tripId);
     if (!g) return [...ui.head('血中酸素'), el('p', { class: 'errors', text: 'この便が見つかりません。' }), ui.back()];
+    if (C().paperOf(R.rosterStore.get())) return [...ui.head('血中酸素'), el('p', { class: 'sheet__note', text: '健康の質問を紙の申込書で聞くお店なので、血中酸素はここには入れません。測った数値は紙に残してください。' }), ui.back()];
     const { trip } = g;
     if (tripId !== spo2BadTrip) { spo2Bad = {}; spo2BadTrip = tripId; }
     if (g.shown >= S().SPO2_DIVES) thirdTrip = tripId;   // 3 本目の数値を消しても、入力の途中で欄ごと消さない
