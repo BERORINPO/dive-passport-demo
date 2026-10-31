@@ -73,5 +73,18 @@
       counts: { missing: count('missing'), expired: count('expired'), ok: count('ok'), unknown: count('unknown'), none: count('none') } };
   }
 
-  R.rosterMedical = { STATUS, addDays, validUntil, judge, medicalList };
+  /* お客さんに見せる知らせ（予約のリンクの画面）。要らない・決められない人、乗り合いの他のお店のお客さんは null。
+     出すのは要る理由の種類と、決まりの年齢・日数・期限だけ（答えのどれが「はい」か、年齢そのものは出さない） */
+  function guestMedical(state, personId) {
+    const person = state.people.find(p => p.id === personId);
+    const booking = person && state.bookings.find(b => b.id === person.bookingId);
+    const trip = booking && state.trips.find(t => t.id === booking.tripId);
+    if (!trip || C().isPartnerBooking(booking) || C().isHeld(person)) return null;
+    const rules = C().medicalOf(state);
+    const r = judge(person, trip, rules, { paper: C().paperOf(state) });
+    if (!r.why.length) return null;
+    return { status: r.status, why: r.why, ageFrom: r.why.includes('age') ? rules.age : '', days: r.days, until: r.until };
+  }
+
+  R.rosterMedical = { STATUS, addDays, validUntil, judge, medicalList, guestMedical };
 })();

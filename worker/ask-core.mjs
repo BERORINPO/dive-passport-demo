@@ -5,6 +5,8 @@ import '../js/roster-schema.js';
 import '../js/roster-core.js';
 import '../js/roster-guest.js';
 import '../js/roster-auto.js';
+import '../js/roster-day.js';
+import '../js/roster-medical.js';
 
 const R = globalThis.REDUX;
 const G = () => R.rosterGuest;
@@ -58,7 +60,9 @@ export function linkView(state, link, today) {
         /* 「この内容で合っていますか」: AI が読んだまま確かめていない値。値が見えるのは、予約のリンクでは代表者だけ、1 人ずつのリンクではその人だけ。
            ほかの人は未確認の項目の名前（confirmLeft）だけ。確かめるとこの一覧から消える */
         confirm: showsValues(link) ? e.confirm : [], confirmLeft: showsValues(link) ? e.confirmLeft : [],
-        parts: { emergency: e.parts.emergency, cert: e.parts.cert, course: e.parts.course, date: '', hasDate: !!e.parts.date }
+        parts: { emergency: e.parts.emergency, cert: e.parts.cert, course: e.parts.course, date: '', hasDate: !!e.parts.date },
+        /* 医師の診断書の知らせ。健康にかかわるので、その人の 1 人ずつのリンクだけ（予約のリンクは転送されうる） */
+        medical: link.personId ? R.rosterMedical.guestMedical(state, e.person.id) : null
       };
     })
   };
