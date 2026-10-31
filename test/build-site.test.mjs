@@ -61,6 +61,8 @@ test('お店向けの試用の案内（shops.html）: お客さん用の Worker 
   for (const u of mails) assert.ok(u.searchParams.get('body').includes('お店の名前') && u.searchParams.get('body').includes('予約メールが届くアドレス'), u.href);
   assert.equal(new Set(mails.map(u => u.searchParams.get('subject'))).size, 3, '件名は押した所ごとに違う');
   assert.ok(page.includes('<span class="lp-addr">trial@reduxdive.com</span>'), 'メールの道具が開かない人のために、宛先を字でも出す');
+  /* 実際の動きと食い違う言い切りを書かない（お店は印の所を直す・お客さんが返事をしないと名簿はそろわない。メイ FAIL 2026-11-01） */
+  for (const words of ['書き写す所はありません', '書き写す所はない', '1 回だけ', '朝には名簿', '項目すべて']) assert.ok(!page.includes(words), words);
 });
 test('お店の画面の CSP: 音（media-src）は要らない（声をやめた）。画像は同じ場所と blob・data だけ', () => {
   const csp = indexCsp();
