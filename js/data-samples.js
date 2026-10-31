@@ -1,6 +1,8 @@
 /* 見本の読み取り（tools/make-samples.mjs が作る。手で直さない）。
    AI の読み取り試験 (2026-10-21) の Haiku の答え。予約の項目はメールの本文から手で書いた。中身はすべて架空。
-   SAMPLE_MAILS は見本の予約メールの文面（assets/samples/e*.txt と同じ） */
+   SAMPLE_MAILS は見本の予約メールの文面（assets/samples/e*.txt と同じ）
+   電話番号は 2026-10-31 に、実在しうる番号から使われていない番号帯 (090-0000-1xxx など) へ置き換えた（メイの WARN）。
+   書類の番号も同じに描き直し、Haiku で取り直して新しい番号を全部正しく読むことを確かめた。番号以外は 2026-10-21 の答えのまま */
 (() => {
   'use strict';
   const R = (globalThis.REDUX = globalThis.REDUX || {});
@@ -185,12 +187,12 @@
    {
     "name": "見本 一美",
     "birthDate": "1992-07-03",
-    "phone": "090-1234-0001",
+    "phone": "090-0000-1101",
     "address": "沖縄県那覇市見本町1-2-3",
     "emergency": {
      "name": "見本 一郎",
      "relation": "父",
-     "phone": "090-1234-0002"
+     "phone": "090-0000-1102"
     },
     "cert": {
      "course": "OW",
@@ -219,7 +221,7 @@
     "emergency": {
      "name": "見本 由美",
      "relation": "妻",
-     "phone": "090-2222-3333"
+     "phone": "090-0000-1201"
     },
     "cert": {
      "course": "AOW",
@@ -245,12 +247,12 @@
    {
     "name": "見本 美咲",
     "birthDate": "2001-01-15",
-    "phone": "080-3333-4444",
+    "phone": "080-0000-1301",
     "address": "東京都江東区見本1-1-1",
     "emergency": {
      "name": "見本 美和",
      "relation": "母",
-     "phone": "080-5555-6666"
+     "phone": "080-0000-1302"
     },
     "cert": {
      "course": "NONE",
@@ -274,12 +276,12 @@
    {
     "name": "見本 拓也",
     "birthDate": "1988-09-09",
-    "phone": "090-7777-8888",
+    "phone": "090-0000-1401",
     "address": "福岡県福岡市見本区5-6-7",
     "emergency": {
      "name": "見本 恵",
      "relation": "妻",
-     "phone": "090-9999-0000"
+     "phone": "090-0000-1402"
     },
     "cert": {
      "course": "RESCUE",
@@ -305,7 +307,7 @@
    {
     "name": "見本 翔太",
     "birthDate": "1999-05-05",
-    "phone": "070-1111-2222",
+    "phone": "070-0000-1501",
     "address": "神奈川県横浜市見本区8-9-10",
     "emergency": {
      "name": "",
@@ -339,7 +341,7 @@
     "emergency": {
      "name": "見本 和夫",
      "relation": "夫",
-     "phone": "090-1212-3434"
+     "phone": "090-0000-1601"
     },
     "cert": {
      "course": "AOW",
@@ -368,7 +370,7 @@
    "tour": "体験ダイビング（ボート2本）",
    "people": 2,
    "leadName": "見本 花子",
-   "leadPhone": "090-1234-5678",
+   "leadPhone": "090-0000-1701",
    "leadEmail": "hanako@mail.example",
    "unsure": []
   },
@@ -376,7 +378,7 @@
    {
     "name": "見本 花子",
     "birthDate": "",
-    "phone": "090-1234-5678",
+    "phone": "090-0000-1701",
     "address": "",
     "emergency": {
      "name": "",
@@ -431,7 +433,7 @@
    "tour": "Fun Dive, 2 tanks",
    "people": 2,
    "leadName": "Seo-yeon Kim",
-   "leadPhone": "+82 10-1234-5678",
+   "leadPhone": "+82 10-0000-1702",
    "unsure": [
     "start"
    ]
@@ -440,7 +442,7 @@
    {
     "name": "Seo-yeon Kim",
     "birthDate": "1990-06-15",
-    "phone": "+82 10-1234-5678",
+    "phone": "+82 10-0000-1702",
     "address": "",
     "emergency": {
      "name": "",
@@ -497,7 +499,7 @@
    "tour": "ファンダイビング",
    "people": 1,
    "leadName": "見本 健太",
-   "leadPhone": "090-4545-6767",
+   "leadPhone": "090-0000-1801",
    "unsure": [
     "date",
     "start"
@@ -507,12 +509,12 @@
    {
     "name": "見本 健太",
     "birthDate": "1995-12-24",
-    "phone": "090-4545-6767",
+    "phone": "090-0000-1801",
     "address": "北海道札幌市見本区3-3-3",
     "emergency": {
      "name": "見本 洋子",
      "relation": "母",
-     "phone": "090-8989-0101"
+     "phone": "090-0000-1802"
     },
     "cert": {
      "course": "AOW",
@@ -628,15 +630,15 @@
   R.SAMPLE_MAILS = {
  "e1": {
   "note": "予約サイトの通知 (2 人、同行者は名前だけ)",
-  "text": "件名: 【予約確定】体験ダイビング（ボート2本） 10/24（土）\n送信者: 予約サイト（見本） <no-reply@yoyaku.example>\n\nB マリン（見本） ご担当者様\n\n以下の予約が確定しました。\n予約番号: YS-20261020-0042\nプラン: 体験ダイビング（ボート2本）\n日時: 2026年10月24日（土） 8:30 集合\n人数: 大人 2 名\n代表者: 見本 花子（ミホン ハナコ）様\n電話番号: 090-1234-5678\nメール: hanako@mail.example\n備考: 同行者は 見本 太郎 です。2人とも潜るのは初めてです。"
+  "text": "件名: 【予約確定】体験ダイビング（ボート2本） 10/24（土）\n送信者: 予約サイト（見本） <no-reply@yoyaku.example>\n\nB マリン（見本） ご担当者様\n\n以下の予約が確定しました。\n予約番号: YS-20261020-0042\nプラン: 体験ダイビング（ボート2本）\n日時: 2026年10月24日（土） 8:30 集合\n人数: 大人 2 名\n代表者: 見本 花子（ミホン ハナコ）様\n電話番号: 090-0000-1701\nメール: hanako@mail.example\n備考: 同行者は 見本 太郎 です。2人とも潜るのは初めてです。"
  },
  "e2": {
   "note": "海外の予約サイト (英語、2 人)",
-  "text": "Subject: New booking: Kerama Fun Dive (2 tanks) - Oct 24, 2026\nFrom: Booking Platform (sample) <noreply@tours.example>\n\nBooking ref: TB-88231\nActivity: Fun Dive, 2 tanks\nDate: Saturday, October 24, 2026\nLead traveler: Seo-yeon Kim\nPhone: +82 10-1234-5678\nParticipants: 2\n\nAnswers to your questions:\n- Date of birth of each participant: Seo-yeon 1990-06-15 / Min-jun 1988-02-03\n- Certification level and year: Seo-yeon Open Water (2018). Min-jun has no certification, wants a Discover Scuba.\n- Hotel for pickup: Sample Hotel Naha"
+  "text": "Subject: New booking: Kerama Fun Dive (2 tanks) - Oct 24, 2026\nFrom: Booking Platform (sample) <noreply@tours.example>\n\nBooking ref: TB-88231\nActivity: Fun Dive, 2 tanks\nDate: Saturday, October 24, 2026\nLead traveler: Seo-yeon Kim\nPhone: +82 10-0000-1702\nParticipants: 2\n\nAnswers to your questions:\n- Date of birth of each participant: Seo-yeon 1990-06-15 / Min-jun 1988-02-03\n- Certification level and year: Seo-yeon Open Water (2018). Min-jun has no certification, wants a Discover Scuba.\n- Hotel for pickup: Sample Hotel Naha"
  },
  "e3": {
   "note": "お店のサイトの問い合わせフォーム (1 人、文が混ざる)",
-  "text": "件名: [お問い合わせ] ファンダイビングの予約希望\n送信者: B マリン（見本） お問い合わせフォーム\n\nお名前: 見本 健太\n生年月日: 1995/12/24\nご住所: 北海道札幌市見本区3-3-3\nお電話: 090-4545-6767\nご希望日: 10月24日\nメッセージ:\nアドバンスを2019年に取りました。本数は40本くらいです。最後に潜ったのは今年の6月です。\n緊急連絡先は母の 見本 洋子（090-8989-0101）でお願いします。"
+  "text": "件名: [お問い合わせ] ファンダイビングの予約希望\n送信者: B マリン（見本） お問い合わせフォーム\n\nお名前: 見本 健太\n生年月日: 1995/12/24\nご住所: 北海道札幌市見本区3-3-3\nお電話: 090-0000-1801\nご希望日: 10月24日\nメッセージ:\nアドバンスを2019年に取りました。本数は40本くらいです。最後に潜ったのは今年の6月です。\n緊急連絡先は母の 見本 洋子（090-0000-1802）でお願いします。"
  },
  "e4": {
   "note": "転送されたメール (3 人、引っかけあり)",
