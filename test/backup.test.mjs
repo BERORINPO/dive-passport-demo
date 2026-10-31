@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { scheduled } from '../worker/auto.mjs';
-import { dropAlert, snapshotOf, baseOf, dayKey, sizeAlert, alertMail, missingMigrations, REQUIRED_TABLES } from '../worker/backup-core.mjs';
+import { dropAlert, snapshotOf, baseOf, dayKey, sizeAlert, alertMail, missingMigrations, REQUIRED_TABLES, cronHealth } from '../worker/backup-core.mjs';
 import { readdirSync } from 'node:fs';
 import { handlePublic } from '../worker/public-handler.mjs';
 import { cronFresh } from '../worker/auto-core.mjs';
@@ -216,7 +216,8 @@ test('点検 2026-10-28 運用 C2: Cron は最後に動いた時刻を残し、�
   const ok = await health();
   assert.equal(ok.status, 200);
   const body = await ok.json();
-  assert.deepEqual(Object.keys(body).sort(), ['cronAt', 'ok'], '返すのは時刻だけ');
+  assert.deepEqual(Object.keys(body).sort(), ['backupFailed', 'cronAt', 'failed', 'ok', 'why'], '返すのは時刻と失敗の数と短い理由だけ');
+  assert.deepEqual([body.ok, body.failed, body.backupFailed, body.why], [true, 0, 0, ''], '失敗が無ければ 200');
   s.io.clock += 46 * 60000;
   assert.equal((await health()).status, 503, '45 分を過ぎたら止まっていると返す');
   s.db.failing = true;
@@ -224,6 +225,108 @@ test('点検 2026-10-28 運用 C2: Cron は最後に動いた時刻を残し、�
   s.db.failing = false;
   assert.equal((await health()).status, 503, '落ちた回は時刻を新しくしない');
   assert.equal(cronFresh('{"at":"x"}', '2026-01-01T00:00:00.000Z').ok, false, '壊れた値は止まっている扱い');
+});
+
+test('cronHealth（core）: 古い・壊れた印は cron-stale。失敗の数が 0 でなければ shop-failed / backup-failed。古い形（数の無い印）は失敗 0。数は整数だけ読む', () => {
+  const since = '2026-10-28T00:00:00.000Z';
+  const fresh = '2026-10-28T00:10:00.000Z';
+  const at = (over) => cronHealth(JSON.stringify({ at: fresh, shops: 2, failed: 0, backupFailed: 0, ...over }), since);
+  assert.deepEqual(at({}), { ok: true, at: fresh, failed: 0, backupFailed: 0, why: '' });
+  assert.deepEqual(at({ failed: 1 }), { ok: false, at: fresh, failed: 1, backupFailed: 0, why: 'shop-failed' });
+  assert.deepEqual(at({ backupFailed: 2 }), { ok: false, at: fresh, failed: 0, backupFailed: 2, why: 'backup-failed' });
+  assert.equal(at({ failed: 1, backupFailed: 1 }).why, 'shop-failed', '両方なら、お店ごとの失敗を先に言う（数は両方返す）');
+  assert.equal(at({ failed: 1, backupFailed: 1 }).backupFailed, 1);
+  assert.equal(at({ failed: 99999 }).failed, 999, '数は 999 まで');
+  for (const odd of ['2', -1, 1.5, null, 'x', {}]) assert.equal(at({ failed: odd, backupFailed: odd }).ok, true, `整数でない値は数えない: ${JSON.stringify(odd)}`);
+  assert.equal(cronHealth(JSON.stringify({ at: fresh, shops: 1 }), since).ok, true, '数の無い古い形の印は失敗 0');
+  assert.deepEqual(cronHealth(JSON.stringify({ at: '2026-10-27T00:00:00.000Z', failed: 3 }), since), { ok: false, at: '2026-10-27T00:00:00.000Z', failed: 3, backupFailed: 0, why: 'cron-stale' }, '古い印は止まっている（数も返す）');
+  for (const bad of [null, '', '{broken', '{"at":"x","failed":3}']) {
+    const got = cronHealth(bad, since);
+    assert.deepEqual([got.ok, got.at, got.failed, got.backupFailed, got.why], [false, '', 0, 0, 'cron-stale'], `壊れた印: ${bad}`);
+  }
+});
+
+test('/api/health: 1 店だけ失敗した回は 503（shop-failed）。数と短い理由だけで、お店の名前も中身も出さない。次の回に直れば 200 に戻る', async () => {
+  const s = setup();
+  store(s, big('2026-11-05'));
+  const good = s.db.rows.get('default');
+  s.db.rows.delete('default');
+  s.db.addShop({ id: 'shop-a', name: 'A ダイブ' });
+  s.db.addShop({ id: 'shop-b', name: 'B マリン' });
+  s.db.rows.set('shop-a', good);
+  s.db.rows.set('shop-b', { version: 1, state: '{broken', updated_at: '' });
+  const health = async () => handlePublic(new Request('https://ask.example/api/health'), { BUDGET: s.env.BUDGET }, s.io);
+  await scheduled(s.env, s.io);   // 2 店のうち 1 店だけ失敗。Cron そのものは落ちない
+  const res = await health();
+  assert.equal(res.status, 503, '1 店の失敗でも「正常」を返さない');
+  const text = await res.text();
+  assert.deepEqual(JSON.parse(text), { ok: false, cronAt: new Date(s.io.clock).toISOString(), failed: 1, backupFailed: 0, why: 'shop-failed' });
+  assert.ok(!/shop-[ab]|ダイブ|マリン|broken/.test(text), '本文にお店の名前も中身も出さない');
+  s.io.clock += 60000;
+  await scheduled(s.env, s.io);
+  assert.equal((await health()).status, 503, '失敗が続く間は 503');
+  s.db.rows.set('shop-b', good);   // 直った
+  s.io.clock += 60000;
+  await scheduled(s.env, s.io);
+  const back = await health();
+  assert.equal(back.status, 200, '次の回が成功すれば戻る');
+  assert.deepEqual([(await back.json()).failed], [0]);
+});
+
+test('/api/health: 全部のお店が失敗した回も 45 分待たずに 503（shop-failed）', async () => {
+  const s = setup();
+  store(s, { ...big('2026-11-05') });
+  s.db.rows.set('default', { ...s.db.rows.get('default'), state: '{broken' });
+  const health = async () => handlePublic(new Request('https://ask.example/api/health'), { BUDGET: s.env.BUDGET }, s.io);
+  await assert.rejects(scheduled(s.env, s.io), /cron failed/, 'Cloudflare の履歴にも失敗と残す');
+  const res = await health();
+  assert.equal(res.status, 503);
+  assert.deepEqual([(await res.json()).why], ['shop-failed']);
+});
+
+test('/api/health: 控えが落ちた回は 503（backup-failed）。控えの置き場所が戻れば 200 に戻る。名簿の送りは止めない', async () => {
+  const s = setup();
+  store(s, big('2026-11-05'));
+  const health = async () => handlePublic(new Request('https://ask.example/api/health'), { BUDGET: s.env.BUDGET }, s.io);
+  s.kv.failing = true;   // 控えの置き場所（KV の BACKUP）が壊れた
+  await scheduled(s.env, s.io);
+  const res = await health();
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { ok: false, cronAt: new Date(s.io.clock).toISOString(), failed: 0, backupFailed: 1, why: 'backup-failed' });
+  assert.ok(logs.some(l => /"backupFailed":1/.test(l)), 'ログにも数が出る');
+  s.kv.failing = false;
+  s.io.clock += 60000;
+  await scheduled(s.env, s.io);
+  assert.equal((await health()).status, 200, '直れば戻る');
+  assert.notEqual(s.kv.peek(dayKey('default', '2026-10-28')), null, '戻った回に控えを取る');
+});
+
+test('/api/health: 警報のメールが送れなかった回は 503（backup-failed）。次の回に送れれば 200 に戻る。メールの設定が無いだけ（no-config）なら鳴らさない', async () => {
+  const s = setup();
+  const st = store(s, big('2026-11-05'));
+  const health = async () => handlePublic(new Request('https://ask.example/api/health'), { BUDGET: s.env.BUDGET }, s.io);
+  await scheduled(s.env, s.io);
+  assert.equal((await health()).status, 200);
+  s.io.clock = T0 + DAY;
+  store(s, { ...st, people: st.people.slice(0, 5) }, { version: 2, today: '2026-10-29' });
+  s.mail.fail = 'E_DELIVERY_FAILED';
+  await scheduled(s.env, s.io);
+  const down = await health();
+  assert.equal(down.status, 503, '警報が運営に届いていない');
+  assert.deepEqual([(await down.json()).why], ['backup-failed']);
+  s.mail.fail = '';
+  s.io.clock += 60000;
+  await scheduled(s.env, s.io);
+  assert.equal((await health()).status, 200, '送れたら戻る');
+  const quiet = setup();
+  const q = store(quiet, big('2026-11-05'));
+  delete quiet.env.ALERT_TO;   // 宛先の設定が無い = 送れない設定。失敗ではなく設定待ち
+  const qHealth = async () => handlePublic(new Request('https://ask.example/api/health'), { BUDGET: quiet.env.BUDGET }, quiet.io);
+  await scheduled(quiet.env, quiet.io);
+  quiet.io.clock = T0 + DAY;
+  store(quiet, { ...q, people: q.people.slice(0, 5) }, { version: 2, today: '2026-10-29' });
+  await scheduled(quiet.env, quiet.io);
+  assert.equal((await qHealth()).status, 200);
 });
 
 test('控えから戻す（tools/restore.mjs）: お店が違えば止め、今の版でだけ書き、戻すと消える数を出す。本物の SQLite で流すと版が進んで名簿が戻る', async () => {

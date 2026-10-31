@@ -9,13 +9,29 @@ const list = (text) => {
   try { const v = JSON.parse(text); return Array.isArray(v) ? v.filter(x => typeof x === 'string').map(x => x.trim()).filter(Boolean) : []; } catch (e) { return []; }
 };
 
-/* D1 の行を、使う形にする。形の合わない行は捨てる（壊れた行で別のお店に振り分けない） */
+/* 返信先（Reply-To）に使えるアドレスか。空白と < > " を含まず 254 字まで（ヘッダに改行や別のアドレスを混ぜない）。使えなければ ''（付けない）。
+   お店の行の reply_to・secret の REPLY_TO（mail.mjs の replyToOf）・tools/shop.mjs の --reply-to が同じ検査を使う */
+export function replyAddress(text) {
+  const v = typeof text === 'string' ? text.trim() : '';
+  return /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(v) && v.length <= 254 ? v : '';
+}
+
+/* D1 の行を、使う形にする。形の合わない行は捨てる（壊れた行で別のお店に振り分けない）。
+   reply_to だけは、形が合わなければ行を捨てずに '' にする（返信先の打ち間違いで全店を止めない。'' は付けない側 = 他店に流さない側） */
 export function shopsFromRows(rows) {
   return (rows || []).filter(r => isObj(r) && SHOP_ID.test(String(r.id)) && typeof r.name === 'string').map(r => ({
     id: String(r.id), name: r.name.slice(0, 60),
     members: list(r.members).map(m => m.toLowerCase()), sites: list(r.sites), inbox: String(r.inbox || '').trim().toLowerCase(),
-    senders: list(r.senders).map(m => m.toLowerCase())
+    senders: list(r.senders).map(m => m.toLowerCase()), replyTo: replyAddress(r.reply_to)
   }));
+}
+
+/* そのお店のお客さんへのメールの返信先。お店の行にあればそれ。無ければ、一覧が 1 店だけのときは fallback（secret の REPLY_TO。今までどおり）、
+   2 店以上のときは ''（付けない）。fallback に落とすと、2 店目以降のお客さんの返信（体調などを含む）が 1 店目に届く */
+export function replyToFor(shops, shop, fallback = '') {
+  const s = shops.find(x => x.id === shop);
+  if (s && s.replyTo) return s.replyTo;
+  return shops.length <= 1 ? fallback : '';
 }
 
 /* 一覧の食い違い。2 店が同じ受け口・メール・サイトを持つと、先に見つかった店に振り分けてしまう（別のお店の名簿に入る）ので、
@@ -42,7 +58,7 @@ export function shopsProblem(shops) {
 export function singleShop(id, { siteOrigins = '', mailSenders = '' } = {}) {
   const shopId = String(id || '').trim();
   if (!SHOP_ID.test(shopId)) return null;
-  return { id: shopId, name: '', members: [], sites: splitList(siteOrigins), inbox: '', senders: splitList(mailSenders), single: true };
+  return { id: shopId, name: '', members: [], sites: splitList(siteOrigins), inbox: '', senders: splitList(mailSenders), replyTo: '', single: true };
 }
 
 /* そのお店の予約メールを送ってきてよい送り主（「,」区切りの文字。auto-core.mjs の senderAllowed に渡す） */

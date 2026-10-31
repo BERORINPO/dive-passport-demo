@@ -48,7 +48,7 @@ async function scenario(db) {
   const out = [];
   const log = async (label, p) => { try { out.push([label, await p]); } catch (e) { out.push([label, 'throw']); } };
   await log('shops-empty', listShops(db));
-  db.addShop({ id: 'shop-a', name: 'A ダイブ', members: ['a@example.com'], sites: ['https://a.example.com'], inbox: '', senders: [] });
+  db.addShop({ id: 'shop-a', name: 'A ダイブ', members: ['a@example.com'], sites: ['https://a.example.com'], inbox: '', senders: [], replyTo: 'info@a.example.com' });
   await log('shops', listShops(db));
   await log('roster-none', getRoster(db, 'shop-a'));
   const c1 = checkPut({ base: 0, state: sample() }, { today: TODAY, at: AT });
@@ -195,6 +195,33 @@ test('migration 0006: 2 店が同じ受け口（大文字小文字・空白違�
   db.addShop({ id: 'shop-c', name: 'C', inbox: '  ' });
   assert.throws(() => db.addShop({ id: 'shop-d', name: 'D', inbox: ' A@Yoyaku.example' }), /UNIQUE/);
   assert.equal((await listShops(db, {})).length, 3);
+});
+
+test('migration 0010: 前からあるお店は返信先が空。tools/shop.mjs の 3 つの文（add・上書き・set-reply-to）を本物の SQLite で流し、Worker が読める', async () => {
+  const sqlite = await import('node:sqlite');
+  const raw = new sqlite.DatabaseSync(':memory:');
+  const dir = new URL('../worker/migrations/', import.meta.url);
+  const files = readdirSync(dir).filter(f => f.endsWith('.sql')).sort();
+  assert.ok(files.includes('0010_shops_reply_to.sql'));
+  files.filter(f => f < '0010').forEach(f => raw.exec(readFileSync(new URL(f, dir), 'utf8')));
+  raw.prepare("INSERT INTO shops (id, name) VALUES ('old-shop', '前からあるお店')").run();
+  raw.exec(readFileSync(new URL('0010_shops_reply_to.sql', dir), 'utf8'));
+  assert.equal(raw.prepare("SELECT reply_to FROM shops WHERE id = 'old-shop'").get().reply_to, '', '前からある行は空（1 店だけなら REPLY_TO、2 店以上なら付けない）');
+  /* 前の版の Worker が使う文は、欄を足したあとも動く（migration を先に流してよい） */
+  assert.equal(raw.prepare('SELECT id, name, members, sites, inbox, senders FROM shops').all().length, 1);
+  const { shopSql, parseArgs } = await import('../tools/shop.mjs');
+  const db = await sqliteD1();
+  const sql = (...argv) => db.raw.exec(shopSql(parseArgs(argv)));
+  sql('add', '--id', 'shop-a', '--name', "A's ダイブ", '--member', 'a@example.com', '--reply-to', 'Info@A.example.com');
+  sql('add', '--id', 'shop-b', '--name', 'B マリン', '--member', 'b@example.com');
+  assert.deepEqual((await listShops(db, {})).map(x => [x.id, x.replyTo]), [['shop-a', 'info@a.example.com'], ['shop-b', '']]);
+  sql('set-reply-to', '--id', 'shop-b', '--reply-to', 'info@b.example.com');
+  assert.deepEqual((await listShops(db, {})).map(x => [x.id, x.name, x.members, x.replyTo]),
+    [['shop-a', "A's ダイブ", ['a@example.com'], 'info@a.example.com'], ['shop-b', 'B マリン', ['b@example.com'], 'info@b.example.com']], 'set-reply-to は他の欄を変えない');
+  sql('add', '--id', 'shop-a', '--name', "A's ダイブ", '--member', 'a@example.com');
+  assert.equal((await listShops(db, {}))[0].replyTo, '', 'add は上書きなので、--reply-to を付けないと空に戻る');
+  db.raw.prepare("UPDATE shops SET reply_to = 'a@b.co, c@d.co' WHERE id = 'shop-b'").run();
+  assert.equal((await listShops(db, {}))[1].replyTo, '', 'D1 のコンソールで形の合わない値を入れても、読むときに空にする（行は捨てない）');
 });
 
 test('migration 0009: 前からある鍵は staff、前からある 1 人ずつの鍵（お客さんが予約のリンクから作った物）は booking。作った人の欄は staff か booking だけを返す', async () => {

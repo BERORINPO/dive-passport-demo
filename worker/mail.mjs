@@ -2,6 +2,8 @@
    送り元のアドレス（MAIL_FROM）はお店のドメインを Email Service に載せたあとで決める。設定がそろうまでは送らず、unsent にする。
    見本は worker/fakes.mjs の fakeMail */
 
+import { replyAddress } from './shop-core.mjs';
+
 /* リンクの先は https だけ（手元の確かめ tools/serve-dist.mjs の localhost だけは http も） */
 function linkOk(value) {
   try {
@@ -19,10 +21,10 @@ export function mailReady(env) {
 }
 
 /* お客さんが返信したときの行き先（Reply-To）。送り元 yoyaku@ は受け口が無いので、返信はお店のアドレスへ向ける（点検 2026-10-28 設計 20・運用 H5）。
-   今は 1 店なので secret の REPLY_TO（公開の repo に書かない）。形が合わなければ付けない。2 店目からはお店ごとに持つ */
+   secret の REPLY_TO（公開の repo に書かない）は、お店が 1 店だけのときの返信先。形が合わなければ付けない。
+   2 店以上のときはお店ごとの reply_to（shops の欄）を使う（auto.mjs が shop-core.mjs の replyToFor で選んでから sendOne に渡す） */
 export function replyToOf(env) {
-  const v = typeof env.REPLY_TO === 'string' ? env.REPLY_TO.trim() : '';
-  return /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(v) && v.length <= 254 ? v : '';
+  return replyAddress(env.REPLY_TO);
 }
 
 /* 1 通送る。返すのは { id, result: 'sent' | 'failed' | 'unsent', why }。why は短い名前だけ（宛先や本文はログに出さない）。

@@ -16,7 +16,7 @@ export async function listShops(db, env = {}) {
   let rows;
   let noTable = false;
   try {
-    const r = await db.prepare('SELECT id, name, members, sites, inbox, senders FROM shops').all();
+    const r = await db.prepare('SELECT id, name, members, sites, inbox, senders, reply_to FROM shops').all();
     rows = (r && r.results) || [];
   } catch (e) {
     if (!/no such table/i.test(String(e && e.message))) throw e;

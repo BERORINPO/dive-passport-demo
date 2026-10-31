@@ -1,12 +1,14 @@
 // お店の一覧（D1 の shops。worker/migrations/0003_shops.sql、plan/server.md「お店ごと」）を足す・直す・消す SQL を作る。
 // 入れた値を確かめてから、D1 のコンソール（Cloudflare の画面 → D1 → redux-rosters → Console）に貼る 1 文を出す。D1 には自分ではつながない。
 // 使い方:
-//   node tools/shop.mjs add --id shop-a --name "A ダイブ" --member staff@example.com [--member …] [--site https://shop-a.example.com] [--inbox a@reduxdive.com] [--sender fwd@shop-a.example.com]
+//   node tools/shop.mjs add --id shop-a --name "A ダイブ" --member staff@example.com [--member …] [--site https://shop-a.example.com] [--inbox a@reduxdive.com] [--sender fwd@shop-a.example.com] [--reply-to info@shop-a.example.com]
+//   node tools/shop.mjs set-reply-to --id shop-a --reply-to info@shop-a.example.com   返信先（お客さんへのメールの Reply-To）だけを直す。いまある行の他の欄は変えない
 //   node tools/shop.mjs remove --id shop-a
 //   node tools/shop.mjs keep-sample       見本の名簿（default）を、お店を足したあとも見えるようにする行（スタッフは --member で）
-// add は同じ id があれば上書きする。1 店目を足すと、見本（default）の名簿は一覧に無い限り誰からも見えなくなる
+// add は同じ id があれば上書きする（--reply-to を付けないと、返信先も空に戻る。返信先だけ直すなら set-reply-to）。1 店目を足すと、見本（default）の名簿は一覧に無い限り誰からも見えなくなる
+// 返信先が空のお店は、一覧が 1 店だけなら secret の REPLY_TO、2 店以上なら Reply-To を付けない。2 店目を足す前に、1 店目の返信先を入れておく
 import { fileURLToPath } from 'node:url';
-import { SHOP_ID } from '../worker/shop-core.mjs';
+import { SHOP_ID, replyAddress } from '../worker/shop-core.mjs';
 
 const EMAIL = /^[^\s@'"]+@[^\s@'"]+\.[^\s@'"]+$/;
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
@@ -24,10 +26,17 @@ const email = (text, what) => {
   return e;
 };
 
-/* 引数を { cmd, id, name, members, sites, inbox, senders } にする */
+/* 返信先。Worker が読める形（shop-core.mjs の replyAddress）でなければ止める（読めない値を D1 に入れて、黙って付かなくなるのを防ぐ） */
+const replyTo = (text) => {
+  const v = replyAddress(String(text || ''));
+  if (!v) throw new Error(`返信先のメールアドレスが読めない: ${text}`);
+  return v.toLowerCase();
+};
+
+/* 引数を { cmd, id, name, members, sites, inbox, senders, replyTo } にする */
 export function parseArgs(argv) {
   const [cmd, ...rest] = argv;
-  const out = { cmd, members: [], sites: [], senders: [], inbox: '' };
+  const out = { cmd, members: [], sites: [], senders: [], inbox: '', replyTo: '' };
   for (let i = 0; i < rest.length; i += 2) {
     const [k, v] = [rest[i], rest[i + 1]];
     if (v === undefined) throw new Error(`${k} の値が無い`);
@@ -37,6 +46,7 @@ export function parseArgs(argv) {
     else if (k === '--site') out.sites.push(v);
     else if (k === '--inbox') out.inbox = v;
     else if (k === '--sender') out.senders.push(v);
+    else if (k === '--reply-to') out.replyTo = v;
     else throw new Error(`知らない指定: ${k}`);
   }
   return out;
@@ -49,7 +59,11 @@ export function shopSql(a) {
     if (!SHOP_ID.test(a.id || '')) throw new Error('--id は英小文字・数字・- の 40 字まで');
     return `DELETE FROM shops WHERE id = ${q(a.id)};`;
   }
-  if (a.cmd !== 'add') throw new Error('使えるのは add・remove・keep-sample');
+  if (a.cmd === 'set-reply-to') {
+    if (!SHOP_ID.test(a.id || '')) throw new Error('--id は英小文字・数字・- の 40 字まで');
+    return `UPDATE shops SET reply_to = ${q(replyTo(a.replyTo))} WHERE id = ${q(a.id)};`;
+  }
+  if (a.cmd !== 'add') throw new Error('使えるのは add・set-reply-to・remove・keep-sample');
   if (!SHOP_ID.test(a.id || '')) throw new Error('--id は英小文字・数字・- の 40 字まで');
   const name = String(a.name || '').trim();
   if (!name || name.length > 60) throw new Error('--name（お店の名前、60 字まで）が要る');
@@ -58,9 +72,10 @@ export function shopSql(a) {
   const sites = [...new Set(a.sites.map(origin))];
   const inbox = a.inbox ? email(a.inbox, '受け口') : '';
   const senders = [...new Set(a.senders.map(m => email(m, '送り主')))];
-  const cols = [q(a.id), q(name), q(JSON.stringify(members)), q(JSON.stringify(sites)), q(inbox), q(JSON.stringify(senders))];
-  return `INSERT INTO shops (id, name, members, sites, inbox, senders) VALUES (${cols.join(', ')}) ` +
-    'ON CONFLICT(id) DO UPDATE SET name = excluded.name, members = excluded.members, sites = excluded.sites, inbox = excluded.inbox, senders = excluded.senders;';
+  const reply = a.replyTo ? replyTo(a.replyTo) : '';
+  const cols = [q(a.id), q(name), q(JSON.stringify(members)), q(JSON.stringify(sites)), q(inbox), q(JSON.stringify(senders)), q(reply)];
+  return `INSERT INTO shops (id, name, members, sites, inbox, senders, reply_to) VALUES (${cols.join(', ')}) ` +
+    'ON CONFLICT(id) DO UPDATE SET name = excluded.name, members = excluded.members, sites = excluded.sites, inbox = excluded.inbox, senders = excluded.senders, reply_to = excluded.reply_to;';
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

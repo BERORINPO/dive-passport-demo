@@ -11,7 +11,7 @@ import { addUnread } from './unread-db.mjs';
 import { dailyBackup } from './backup.mjs';
 import { missingMigrations } from './backup-core.mjs';
 import { listShops, rosterShops, shopsWhy } from './shop-db.mjs';
-import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName } from './shop-core.mjs';
+import { shopForRecipient, sendersOf, knownShop, nameOf, withShopName, replyToFor } from './shop-core.mjs';
 import { mailReady, sendOne, replyToOf } from './mail.mjs';
 import { askModel } from './ask.mjs';
 import { mintLink, dropExpired } from './ask-db.mjs';
@@ -70,8 +70,9 @@ export async function changeRoster(env, io, change, { fromOutside = false, shop 
 /* 時刻が来た予定を動かし、送る物を送って、結果を名簿に付ける。呼ぶのは Cron だけ（外からの入口では送らない。
    重なって走ると同じ連絡を 2 回送り、リンクも作り直されるため。ザクのレビュー 2026-10-27 M-1）。
    送る前に印を付けて書き（claimQueued）、書けた物だけを送る。送ったあとに結果を書けなかった物は、もう一度は送らず、30 分後に
-   「送れたか分からない」としてお店に見せる（auto-core.mjs の releaseStale。ジンのレビュー MEDIUM 10） */
-export async function runAutomation(env, io, note, shop = SHOP_DEFAULT) {
+   「送れたか分からない」としてお店に見せる（auto-core.mjs の releaseStale。ジンのレビュー MEDIUM 10）。
+   replyTo はそのお店の返信先（呼ぶ側が shop-core.mjs の replyToFor で選ぶ。'' なら Reply-To を付けない） */
+export async function runAutomation(env, io, note, shop = SHOP_DEFAULT, replyTo = '') {
   const { at, nowJst } = clockOf(io);
   const token = `${at.slice(0, 19)}Z#${newId().slice(-4)}`;
   const before = `${new Date(io.now() - SENDING_STALE_MS).toISOString().slice(0, 19)}Z`;
@@ -86,7 +87,7 @@ export async function runAutomation(env, io, note, shop = SHOP_DEFAULT) {
     /* 宛先と本文は、名簿に書いてある物でなく、今の予約から作り直す（ジンのレビュー 2026-10-28 H2。js/roster-auto.js の rebuildOut） */
     const fresh = R.rosterAuto.rebuildOut(moved.state, item);
     const linked = fresh ? await withLink(env, io, moved.state, fresh, shop) : null;
-    results.push(linked ? await sendOne(env, linked, moved.state.shop.name, replyToOf(env)) : { id: item.id, result: 'failed', why: 'gone' });
+    results.push(linked ? await sendOne(env, linked, moved.state.shop.name, replyTo) : { id: item.id, result: 'failed', why: 'gone' });
   }
   note.sent = results.filter(r => r.result === 'sent').length;
   const marked = await changeRoster(env, io, s => ({ state: markResults(s, { results, at }) }), { shop });
@@ -111,9 +112,10 @@ export async function scheduled(env, io) {
       note.shops = shops.length;
       note.queued = 0;
       note.sent = 0;
+      const fallbackReplyTo = replyToOf(env);
       for (const shop of shops) {
         const one = {};
-        try { await runAutomation(env, io, one, shop); } catch (e) { one.why = 'crash'; note.err = errName(e); }
+        try { await runAutomation(env, io, one, shop, replyToFor(directory, shop, fallbackReplyTo)); } catch (e) { one.why = 'crash'; note.err = errName(e); }
         if (one.why) note.failed = (note.failed || 0) + 1;
         note.queued += one.queued || 0;
         note.sent += one.sent || 0;
@@ -125,7 +127,8 @@ export async function scheduled(env, io) {
         const one = {};
         try { await dailyBackup(env, io, shop, one); } catch (e) { one.backup = 'crash'; note.err = errName(e); }
         if (one.alert) note.alerts = (note.alerts || 0) + 1;
-        if (one.backup === 'crash') note.backupFailed = (note.backupFailed || 0) + 1;
+        /* 控えの失敗: 落ちた回と、警報のメールが送れなかった回（警報が運営に届かない）。止めずに数えて、外の死活監視に伝える */
+        if (one.backup === 'crash' || one.alertMail === 'failed') note.backupFailed = (note.backupFailed || 0) + 1;
       }
       await dropExpired(env.DB, clockOf(io).today);
       await dropOldCounts(env.DB, clockOf(io).today);
@@ -146,14 +149,15 @@ export async function scheduled(env, io) {
 /* 例外の種類だけを残す（message には名前や本文が入りうるので残さない。点検 2026-10-28 運用 M15） */
 const errName = (e) => String((e && e.name) || 'Error').slice(0, 30);
 
-/* Cron が最後に動いた時刻（redux-ask の /api/health が見る）。数だけで、中身は書かない。書けなくても Cron は止めない。
-   落ちた回・全部のお店で失敗した回は書かない（時刻が古くなり、外の死活監視が鳴る） */
+/* Cron が最後に動いた時刻と、その回の失敗の数（redux-ask の /api/health が見る。backup-core.mjs の cronHealth）。数だけで、中身は書かない。書けなくても Cron は止めない。
+   落ちた回は書かない（時刻が古くなり、外の死活監視が鳴る）。お店ごとの失敗（failed）と控えの失敗（backupFailed）は 1 回ごとの値で、
+   0 でない間は health が 503 を返し、次の回が 0 で書き直せば 200 に戻る。全部のお店で失敗した回も、失敗の数を書く（45 分待たずに鳴る） */
 async function markCron(env, io, note) {
   if (!env.BUDGET || typeof env.BUDGET.put !== 'function' || note.why === 'config:DB') return;
-  if (note.down || (note.shops && note.failed === note.shops)) return;
+  if (note.down) return;
   try {
     const at = new Date(io.now()).toISOString();
-    await env.BUDGET.put('cron:last', JSON.stringify({ at, shops: note.shops || 0, failed: note.failed || 0 }), { expirationTtl: 7 * 86400 });
+    await env.BUDGET.put('cron:last', JSON.stringify({ at, shops: note.shops || 0, failed: note.failed || 0, backupFailed: note.backupFailed || 0 }), { expirationTtl: 7 * 86400 });
   } catch (e) {
     note.cronMark = 'kv';
   }

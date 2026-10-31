@@ -5,6 +5,7 @@
      DROP_MIN 人より多く、かつ DROP_SHARE の割合より多く減ったとき。名簿が無くなった・読めなくなった・0 人になったときは数に関係なく */
 
 import { MAX_ROSTER_BYTES } from './sync-core.mjs';
+import { cronFresh } from './auto-core.mjs';
 
 export const BACKUP_KEEP_DAYS = 366;
 export const LOOKBACK_DAYS = 7;
@@ -24,6 +25,20 @@ export const REQUIRED_TABLES = { rosters: '0001', ask_links: '0002', shops: '000
 export function missingMigrations(names) {
   const have = new Set(names);
   return [...new Set(Object.entries(REQUIRED_TABLES).filter(([t]) => !have.has(t)).map(([, m]) => m))].sort();
+}
+
+/* 外の死活監視（/api/health）に返す答え。text は Cron が残した印（KV の cron:last）、since は「これより新しければ動いている」時刻（ISO。時計はここでは読まない）。
+   503 にする理由は 3 つ: 印が無い・古い・壊れている（cron-stale）、その回にお店ごとの失敗があった（shop-failed）、その回に控えの失敗があった（backup-failed）。
+   失敗の数は Cron の 1 回ごとの値なので、次の回が 0 で書き直せば 200 に戻る（失敗が続く間だけ 503）。返すのは数と短い理由だけ（お店の名前・中身は入れない） */
+const failCount = (v) => (Number.isInteger(v) && v > 0 ? Math.min(v, 999) : 0);
+export function cronHealth(text, since) {
+  const fresh = cronFresh(text, since);
+  let last = null;
+  try { last = text ? JSON.parse(text) : null; } catch (e) { last = null; }
+  const failed = fresh.at && last ? failCount(last.failed) : 0;
+  const backupFailed = fresh.at && last ? failCount(last.backupFailed) : 0;
+  const why = !fresh.ok ? 'cron-stale' : failed ? 'shop-failed' : backupFailed ? 'backup-failed' : '';
+  return { ok: !why, at: fresh.at, failed, backupFailed, why };
 }
 
 export function snapshotOf(text, { shop, version, at }) {

@@ -35,9 +35,9 @@ export async function sqliteD1() {
       }
     },
     /* テストの手伝い: fakeD1 の addShop と同じ形でお店を 1 つ足す */
-    addShop({ id, name, members = [], sites = [], inbox = '', senders = [] }) {
-      raw.prepare('INSERT INTO shops (id, name, members, sites, inbox, senders) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
-        .run(id, name, JSON.stringify(members), JSON.stringify(sites), inbox, JSON.stringify(senders));
+    addShop({ id, name, members = [], sites = [], inbox = '', senders = [], replyTo = '' }) {
+      raw.prepare('INSERT INTO shops (id, name, members, sites, inbox, senders, reply_to) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)')
+        .run(id, name, JSON.stringify(members), JSON.stringify(sites), inbox, JSON.stringify(senders), replyTo);
     }
   };
 }
