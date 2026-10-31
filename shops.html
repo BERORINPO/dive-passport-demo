@@ -14,26 +14,65 @@
 <!-- お店向けの試用の案内（決定ログ 2026-10-31 shop-trial-page・shop-lp）。CM・PR から来たお店に、本物の画面を順に見せて、メールで申し込んでもらう。
      Hallmark · genre: modern-minimal（design.md が正本）· macrostructure: Workbench · enrichment: 本物の画面（端末の枠は描かない）· nav: N9 · footer: Ft2
      ここでは何も集めない（入力欄なし）。申し込みは trial@reduxdive.com へのメール（Email Routing で運営者に転送）。運営者の名前は出さない（Yosuke、2026-10-31）。
-     スクリプトは読まない。画面の絵と CM は assets/lp/、字体は fonts/ から。書いてある約束（無料・1 か月・先着 3 店・やめたら 30 日以内に消す）を変えたら、決定ログの行も直す -->
-<header class="bar"><div class="brand">
+     スクリプトは読まない。画面の絵と CM は assets/lp/、字体は fonts/ から。書いてある約束（無料・1 か月・先着 3 店・やめたら 30 日以内に消す）を変えたら、決定ログの行も直す
+     上の絵・数字の帯・困りごと 3 つは決定ログ 2026-11-01 shop-lp-look。申し込みのメールの件名は、押した所で変えてある（どこから来たか分かるように）:
+     「REDUX 試用の申し込み」= 一番上の絵の横 /「REDUX 試用を申し込みます」= 上の帯 /「REDUX の試用を希望します」= 下に付いてくる帯 -->
+<header class="bar lp-bar"><div class="brand">
   <span class="brand__logo" aria-hidden="true"></span>
   <span class="brand__name">REDUX<small>ダイビングショップの名簿</small></span>
-</div></header>
+</div>
+<nav class="lp-nav" aria-label="このページの中"><a href="#steps">使い方</a><a href="#cm">動画</a><a href="#terms">試用の条件</a><a href="#faq">よく聞かれること</a></nav>
+<div class="bar__end"><a class="lp-btn lp-btn--sm" href="mailto:trial@reduxdive.com?subject=REDUX%20%E8%A9%A6%E7%94%A8%E3%82%92%E7%94%B3%E3%81%97%E8%BE%BC%E3%81%BF%E3%81%BE%E3%81%99&amp;body=%E3%81%8A%E5%BA%97%E3%81%AE%E5%90%8D%E5%89%8D%EF%BC%9A%0D%0A%E4%BA%88%E7%B4%84%E3%83%A1%E3%83%BC%E3%83%AB%E3%81%8C%E5%B1%8A%E3%81%8F%E3%82%A2%E3%83%89%E3%83%AC%E3%82%B9%EF%BC%9A%0D%0A">申し込む</a></div>
+</header>
 
 <main>
 <div class="lp-wrap">
   <section class="lp-hero">
     <div>
-      <h1 class="lp-h1">予約メールが、そのまま名簿の 1 行になる。</h1>
-      <p class="lp-lede">転送された予約メールと紙の申込書を AI が読み、条例の 13 項目の名簿に入れます。沖縄のダイビングショップ向けです。</p>
-      <a class="lp-btn" href="mailto:trial@reduxdive.com?subject=REDUX%20%E8%A9%A6%E7%94%A8%E3%81%AE%E7%94%B3%E3%81%97%E8%BE%BC%E3%81%BF">メールで試用を申し込む</a>
+      <p class="lp-kicker">沖縄のダイビングショップ向け</p>
+      <h1 class="lp-h1">紙とメールの束が、朝には名簿になっている。</h1>
+      <p class="lp-lede">予約メールと紙の申込書を AI が読み、条例の 13 項目の名簿に入れます。書き写す所はありません。</p>
+      <div class="lp-ctas">
+        <a class="lp-btn" href="mailto:trial@reduxdive.com?subject=REDUX%20%E8%A9%A6%E7%94%A8%E3%81%AE%E7%94%B3%E3%81%97%E8%BE%BC%E3%81%BF&amp;body=%E3%81%8A%E5%BA%97%E3%81%AE%E5%90%8D%E5%89%8D%EF%BC%9A%0D%0A%E4%BA%88%E7%B4%84%E3%83%A1%E3%83%BC%E3%83%AB%E3%81%8C%E5%B1%8A%E3%81%8F%E3%82%A2%E3%83%89%E3%83%AC%E3%82%B9%EF%BC%9A%0D%0A">メールで試用を申し込む</a>
+        <a class="lp-btn lp-btn--ghost" href="#cm">30 秒の動画を見る</a>
+      </div>
+      <p class="lp-send">送るのは、お店の名前と予約メールが届くアドレスだけ。宛先は <span class="lp-addr">trial@reduxdive.com</span></p>
       <p class="lp-terms">試用は <b>0</b> 円・<b>1</b> か月・先着 <b>3</b> 店</p>
     </div>
-    <figure class="lp-shot"><img src="assets/lp/roster.webp" width="360" height="780" alt="今日の名簿の画面。便の時刻と、お客さんごとに足りない項目が並ぶ"><figcaption>今日の名簿（見本のお店）</figcaption></figure>
+    <figure class="lp-scene">
+      <div class="lp-scene__art">
+        <img class="lp-paper lp-paper--1" src="assets/lp/form-1.webp" width="360" height="509" alt="">
+        <img class="lp-paper lp-paper--2" src="assets/lp/form-4.webp" width="360" height="509" alt="">
+        <img class="lp-paper lp-paper--3" src="assets/lp/form-2.webp" width="360" height="509" alt="">
+        <p class="lp-mail" aria-hidden="true"><b>【予約確定】体験ダイビング</b>見本 花子 様・大人 2 名</p>
+        <p class="lp-arrow" aria-hidden="true"><span>→</span>AI が<br>読む</p>
+        <div class="lp-scene__screen"><img src="assets/lp/roster.webp" width="360" height="780" alt="今日の名簿の画面。便の時刻と、お客さんごとに足りない項目が並ぶ"></div>
+      </div>
+      <figcaption>左: 紙の申込書と予約メール　右: 今日の名簿（どれも見本）</figcaption>
+    </figure>
   </section>
 </div>
 
-<div class="lp-wrap lp-tour">
+<section class="lp-stats" aria-label="数字で見る">
+  <div class="lp-wrap lp-stats__in">
+    <div class="lp-stat"><p class="lp-stat__n">13<small>項目</small></p><p class="lp-stat__h">条例の名簿を、そのまま作る</p><p class="lp-stat__sub">名前・住所など、条例が求める項目すべて</p></div>
+    <div class="lp-stat"><p class="lp-stat__n">0<small>か所</small></p><p class="lp-stat__h">手で書き写す所はない</p><p class="lp-stat__sub">予約メールと申込書は AI が読んで入れる</p></div>
+    <div class="lp-stat"><p class="lp-stat__n">1<small>回</small></p><p class="lp-stat__h">お店が見るのは 1 回だけ</p><p class="lp-stat__sub">印の付いた所だけ、見て直す</p></div>
+  </div>
+</section>
+
+<div class="lp-wrap">
+  <section class="lp-pains">
+    <h2 class="lp-h2">こんな朝を、終わりにします</h2>
+    <ol>
+      <li><h3 class="lp-h3"><span class="lp-n">1</span>毎朝、申込書を名簿に書き写している</h3><p>予約サイトのメールと紙の申込書から、条例の名簿へ手で写す。</p><p class="lp-fix">→ AI が読んで、名簿に入れます</p></li>
+      <li><h3 class="lp-h3"><span class="lp-n">2</span>足りない項目を、当日の朝に聞き直している</h3><p>住所や生年月日が抜けた人に、港で聞き直す。</p><p class="lp-fix">→ 足りない人にだけ、お願いのメールが届きます</p></li>
+      <li><h3 class="lp-h3"><span class="lp-n">3</span>乗船者名簿を、また一から書いている</h3><p>同じ人の名前と住所を、船の書類にもう一度。</p><p class="lp-fix">→ 同じ名簿から出ます</p></li>
+    </ol>
+  </section>
+</div>
+
+<div class="lp-wrap lp-tour" id="steps">
   <section class="lp-step">
     <div><h2 class="lp-h2"><span class="lp-n">1</span>予約メールを転送する</h2><p>お店に届く予約メールを、REDUX のアドレスへ転送する設定をします。届いたメールは AI が読み、名簿の行に入れます。</p></div>
     <figure class="lp-shot"><img src="assets/lp/flow.webp" width="360" height="780" loading="lazy" alt="予約メールを AI が読み、便に入れたあとの流れの画面"><figcaption>読んで入れたあとの流れ</figcaption></figure>
@@ -62,12 +101,12 @@
     </div>
   </section>
 
-  <section class="lp-cm">
+  <section class="lp-cm" id="cm">
     <h2 class="lp-h3">30 秒で見る</h2>
     <video controls preload="none" playsinline width="1280" height="720" poster="assets/lp/cm-poster.jpg" src="assets/lp/cm.mp4"></video>
   </section>
 
-  <section class="lp-facts">
+  <section class="lp-facts" id="terms">
     <h2 class="lp-h3">試用の条件</h2>
     <dl>
       <div class="lp-row"><dt>料金</dt><dd>試用のあいだは <span class="lp-fig">0</span> 円。黙って料金が始まることはありません</dd></div>
@@ -78,7 +117,7 @@
     </dl>
   </section>
 
-  <section class="lp-faq">
+  <section class="lp-faq" id="faq">
     <h2 class="lp-h3">よく聞かれること</h2>
     <details><summary>始めるのに、どれくらい手間がかかりますか</summary><p>予約メールの転送の設定だけです。手順はこちらから送ります。約 10 分です。</p></details>
     <details><summary>お客さんの健康の答えは、AI に送られますか</summary><p>送りません。健康の答えは名簿に保存しますが、AI には送りません。申込書の写真も、健康の欄を塗ってから送ります。</p></details>
@@ -90,7 +129,7 @@
 
 <div class="lp-dock"><div class="lp-wrap">
   <span>試用は 0 円・先着 3 店</span>
-  <a class="lp-btn" href="mailto:trial@reduxdive.com?subject=REDUX%20%E8%A9%A6%E7%94%A8%E3%81%AE%E7%94%B3%E3%81%97%E8%BE%BC%E3%81%BF">メールで申し込む</a>
+  <a class="lp-btn" href="mailto:trial@reduxdive.com?subject=REDUX%20%E3%81%AE%E8%A9%A6%E7%94%A8%E3%82%92%E5%B8%8C%E6%9C%9B%E3%81%97%E3%81%BE%E3%81%99&amp;body=%E3%81%8A%E5%BA%97%E3%81%AE%E5%90%8D%E5%89%8D%EF%BC%9A%0D%0A%E4%BA%88%E7%B4%84%E3%83%A1%E3%83%BC%E3%83%AB%E3%81%8C%E5%B1%8A%E3%81%8F%E3%82%A2%E3%83%89%E3%83%AC%E3%82%B9%EF%BC%9A%0D%0A">メールで申し込む</a>
 </div></div>
 </div>
 </main>

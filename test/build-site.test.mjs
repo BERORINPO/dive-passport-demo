@@ -44,7 +44,7 @@ test('お店向けの試用の案内（shops.html）: お客さん用の Worker 
   assert.ok(siteFiles().includes('shops.html'));
   assert.ok(askFiles().includes('shops.html'));
   const lp = askLpFiles();
-  for (const f of ['assets/lp/roster.webp', 'assets/lp/cm.mp4', 'assets/lp/cm-poster.jpg']) assert.ok(lp.includes(f), f);
+  for (const f of ['assets/lp/roster.webp', 'assets/lp/cm.mp4', 'assets/lp/cm-poster.jpg', 'assets/lp/form-1.webp', 'assets/lp/form-2.webp', 'assets/lp/form-4.webp']) assert.ok(lp.includes(f), f);
   assert.ok(lp.some(f => /^fonts\/.+\.woff2$/.test(f)), '字体も置く');
   const ask = askHeaders().split(/\r?\n/);
   const at = ask.indexOf('/shops');
@@ -55,6 +55,12 @@ test('お店向けの試用の案内（shops.html）: お客さん用の Worker 
   assert.deepEqual([...new Set([...page.matchAll(/[\w.+-]+@[\w.-]+/g)].map(m => m[0]))], ['trial@reduxdive.com'], '書くアドレスは申し込み先だけ');
   for (const words of ['先着 <b>3</b> 店', 'AI には送りません', '<span class="lp-fig">30</span> 日以内', '控えも含めて消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
   for (const m of page.matchAll(/<img [^>]*>/g)) assert.match(m[0], /width="\d+" height="\d+"/, '絵は幅と高さを書く（読み込みで画面がずれない）');
+  /* 申し込みのボタンは 3 つ。どれも本文にひな形（お店の名前・予約メールのアドレス）を入れ、件名で押した所が分かる（決定ログ 2026-11-01 shop-lp-look） */
+  const mails = [...page.matchAll(/href="mailto:([^"]+)"/g)].map(m => new URL('mailto:' + m[1].replace(/&amp;/g, '&')));
+  assert.equal(mails.length, 3);
+  for (const u of mails) assert.ok(u.searchParams.get('body').includes('お店の名前') && u.searchParams.get('body').includes('予約メールが届くアドレス'), u.href);
+  assert.equal(new Set(mails.map(u => u.searchParams.get('subject'))).size, 3, '件名は押した所ごとに違う');
+  assert.ok(page.includes('<span class="lp-addr">trial@reduxdive.com</span>'), 'メールの道具が開かない人のために、宛先を字でも出す');
 });
 test('お店の画面の CSP: 音（media-src）は要らない（声をやめた）。画像は同じ場所と blob・data だけ', () => {
   const csp = indexCsp();

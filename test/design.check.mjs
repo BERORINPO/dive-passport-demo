@@ -83,6 +83,8 @@ const TEXT_7 = [['ink', 'bg'], ['ink', 'surface'], ['muted', 'bg'], ['muted', 's
   ['muted', 'accent-soft'], ['ink', 'accent-soft'], ['ink', 'warn-bg'], ['ink', 'ok-bg'], ['ink', 'info-bg'],
   ['accent-ink', 'warn'], ['ok', 'warn-bg']];   // 中止を知らせるボタン・中止の帯の「確かめた」
 const LINE_3 = [['control', 'surface'], ['control', 'bg']];
+/* お店向けの案内（shops.html）の数字の帯。深い海の地に明るい字（決定ログ 2026-11-01 shop-lp-look）。店員画面と同じ 7:1 */
+const DEEP_7 = [['deep-ink', 'deep-bg'], ['deep-num', 'deep-bg']];
 /* 見本の帯（js/demo-band.js）。店員画面は屋外なので 7:1。お客さん画面の暗い設定でも、取り違えが事故になるので 4.5:1 ではなく 7:1 */
 const DEMO_7 = [['demo-ink', 'demo-bg']];
 /* 紙（画面にも出す）の薄い字。印刷の紙なので 4.5:1 */
@@ -162,6 +164,7 @@ if (!hasDark) problems.push(`暗い画面設定が見つからない。店員画
 misuse.forEach(p => problems.push(`暗い画面設定の中に「${p}」がある（${DARK_ROOT} の変数だけにする）`));
 problems.push(...contrastProblems(light, TEXT_7, 7, '明るい・字', report));
 problems.push(...contrastProblems(light, LINE_3, 3, '明るい・枠', report));
+problems.push(...contrastProblems(light, DEEP_7, 7, '明るい・数字の帯', report));
 problems.push(...contrastProblems(light, DEMO_7, 7, '明るい・見本の帯', report));
 problems.push(...contrastProblems(dark, DEMO_7, 7, '暗い・見本の帯', report));
 problems.push(...contrastProblems(light, PAPER_45, 4.5, '紙・字', report));

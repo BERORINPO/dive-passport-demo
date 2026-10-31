@@ -16,6 +16,11 @@
   --accent: oklch(41.5% 0.065 200);
   --accent-ink: oklch(99% 0.004 85);
   --accent-soft: oklch(94% 0.022 200);
+  /* お店向けの案内（shops.html）の数字の帯だけ。深い海の地に明るい字（7:1 以上、test/design.check.mjs）。決定ログ 2026-11-01 shop-lp-look */
+  --deep-bg: oklch(30% 0.055 210);
+  --deep-ink: oklch(99% 0.004 85);
+  --deep-num: oklch(90% 0.035 195);
+  --deep-line: oklch(45% 0.050 205);
   --you-bg: oklch(41.5% 0.065 200);
   --you-ink: oklch(99% 0.004 85);
   --warn: oklch(43% 0.110 55);
@@ -680,7 +685,58 @@ html:has(body.lp) { overflow-x: clip; scroll-padding-bottom: 80px; }
   color: var(--accent-ink); font-weight: 700; text-decoration: none; white-space: nowrap; transition: background var(--dur) var(--ease-out); }
 .lp-btn:hover { background: color-mix(in oklch, var(--accent) 86%, var(--ink)); }
 .lp-btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
-.lp-hero .lp-btn { margin-top: 24px; }
+.lp-btn--ghost { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.lp-btn--ghost:hover { background: var(--accent-soft); }
+.lp-btn--sm { min-height: 44px; padding: 0 18px; font-size: 14px; }
+/* 上の帯: ページの中へのリンクと申し込み（幅 900 から。狭い時は申し込みだけ） */
+.lp-nav { display: none; }
+.lp-nav a { color: var(--ink); text-decoration: none; font-size: 15px; }
+.lp-nav a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.lp-kicker { margin: 0 0 12px; font-size: 14px; font-weight: 700; color: var(--accent); }
+.lp-ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.lp-send { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+.lp-addr { font-family: var(--font-figure); color: var(--ink); user-select: all; }
+/* 一番上の絵: 紙の申込書（見本）を傾けて重ね、予約メールの札と、今日の名簿の画面を並べる。動かさない */
+.lp-scene { margin: 0; width: 100%; max-width: 520px; justify-self: center; }
+.lp-scene__art { position: relative; aspect-ratio: 1.15; }
+.lp-paper { position: absolute; width: 31%; height: auto; border: 1px solid var(--line-2); background: var(--surface); }
+.lp-paper--1 { left: 0; top: 9%; rotate: -7deg; }
+.lp-paper--2 { left: 13%; top: 24%; rotate: 5deg; }
+.lp-paper--3 { left: 3%; top: 40%; rotate: -2deg; }
+.lp-mail { position: absolute; left: 9%; top: 0; width: 38%; margin: 0; padding: 6px 10px; rotate: 3deg; background: var(--surface); border: 1px solid var(--line-2);
+  font-size: 14px; line-height: 1.45; }
+.lp-mail b { display: block; }
+.lp-arrow { position: absolute; left: 43%; top: 44%; width: 12%; margin: 0; z-index: 1; text-align: center; font-size: 14px; font-weight: 700; line-height: 1.3; color: var(--accent); }
+.lp-arrow span { display: block; font-size: 32px; line-height: 1; }
+.lp-scene__screen { position: absolute; right: 0; top: 0; width: 45%; height: 100%; overflow: hidden; border: 2px solid var(--ink); border-radius: var(--radius); background: var(--surface); }
+.lp-scene__screen img { display: block; width: 100%; height: auto; }
+.lp-scene figcaption { margin-top: 12px; font-size: 14px; color: var(--muted); }
+/* 数字の帯: ページに 1 本だけの深い海の帯。上の絵と下の困りごとの区切り */
+.lp-stats { background: var(--deep-bg); color: var(--deep-ink); }
+.lp-stats__in { display: grid; padding-top: 8px; padding-bottom: 8px; }
+.lp-stat { display: grid; grid-template-columns: 112px minmax(0, 1fr); column-gap: 12px; align-items: center; padding: 16px 0; }
+.lp-stat + .lp-stat { border-top: 1px solid var(--deep-line); }
+.lp-stat p { margin: 0; }
+.lp-stat__n { grid-row: span 2; font-family: var(--font-figure); font-size: 44px; line-height: 1; font-weight: 700; color: var(--deep-num); }
+.lp-stat__n small { margin-left: 4px; font-family: var(--font-body); font-size: 16px; color: var(--deep-ink); }
+.lp-stat__h { font-weight: 700; }
+.lp-stat__sub { font-size: 14px; color: var(--deep-num); }
+/* 困りごと 3 つ: 罫線と余白だけ（箱にしない） */
+.lp-pains { padding: 56px 0 24px; }
+.lp-pains ol { list-style: none; margin: 16px 0 0; padding: 0; border-top: 2px solid var(--ink); }
+.lp-pains li { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.lp-pains .lp-h3 { margin: 0 0 4px; }
+.lp-pains p { margin: 0; color: var(--muted); }
+.lp-pains .lp-fix { margin-top: 8px; color: var(--accent); font-weight: 700; }
+@media (max-width: 479px) {
+  .lp .brand__name small { display: none; }
+  .lp-ctas .lp-btn { flex: 1 1 100%; }
+  .lp-mail { left: 3%; width: 46%; padding: 4px 8px; }
+}
+@media (min-width: 900px) {
+  .lp-bar { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 28px; }
+  .lp-nav { display: flex; gap: 24px; grid-column: 2; grid-row: 1; justify-self: end; }
+}
 .lp-shot { margin: 0; justify-self: center; width: min(100%, 340px); }
 .lp-shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--surface); }
 .lp-shot figcaption { margin-top: 8px; font-size: 14px; color: var(--muted); }
@@ -715,7 +771,20 @@ html:has(body.lp) { overflow-x: clip; scroll-padding-bottom: 80px; }
 .lp .foot { display: grid; gap: 4px; justify-items: start; }
 @media (min-width: 768px) {
   .lp-h1 { font-size: 42px; }
-  .lp-hero { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); padding-top: 64px; }
+}
+@media (min-width: 900px) {
+  .lp-stats__in { grid-template-columns: repeat(3, minmax(0, 1fr)); padding-top: 36px; padding-bottom: 36px; }
+  .lp-stat { display: block; padding: 0 32px; }
+  .lp-stat:first-child { padding-left: 0; }
+  .lp-stat + .lp-stat { border-top: 0; border-left: 1px solid var(--deep-line); }
+  .lp-stat__n { font-size: 64px; }
+  .lp-stat__n small { margin-left: 6px; font-size: 20px; }
+  .lp-stat .lp-stat__h { margin-top: 14px; font-size: 18px; }
+  .lp-stat__sub { font-size: 15px; }
+  .lp-pains ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 32px; }
+  .lp-pains li { border-bottom: 0; }
+  .lp-hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); padding-top: 64px; }
+  .lp-scene { max-width: none; }
   .lp-step { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 64px; }
   .lp-step:nth-child(even) > .lp-shot, .lp-step:nth-child(even) > .lp-pair { order: -1; }
 }
