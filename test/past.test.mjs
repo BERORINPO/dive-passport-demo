@@ -14,6 +14,7 @@ import { changeRoster } from '../worker/auto.mjs';
 import { fakeKv, fakeAccess, fakeD1, checkRedirect } from '../worker/fakes.mjs';
 
 vm.runInThisContext(readFileSync(new URL('../js/data-big-sample.js', import.meta.url), 'utf8'));
+vm.runInThisContext(readFileSync(new URL('../js/data-samples.js', import.meta.url), 'utf8'));
 const R = globalThis.REDUX;
 const { roster: S, rosterCore: C, rosterShare: X, rosterAuto: A } = R;
 
@@ -117,6 +118,31 @@ test('core: 予定と送った連絡も、便と一緒に分ける', () => {
   const { state: live, parts } = splitPast(st, { today: TODAY });
   assert.equal((live.jobs || []).length, 0);
   assert.equal(JSON.parse(parts[0].body).jobs.length, st.jobs.length);
+});
+
+test('取り消した予約の記録は、どの便にも付かなくなっても 1 年で消える。サーバーは書くときも読むときも消す（今ある予約の記録は残る）', async () => {
+  const s = setup();
+  const at = '2026-06-01T01:00:00.000Z';
+  const trip = { ...S.blankTrip(), id: 'tfar', date: '2028-01-01', start: '08:30', kind: 'dive', site: '北の根', guides: ['見本 ガイド'], createdAt: at };
+  const add = (st, key) => C.addBooking(st, { trip, booking: { source: 'mail', site: R.SAMPLE_READINGS[key].booking.site, people: R.SAMPLE_READINGS[key].booking.people },
+    reading: R.SAMPLE_READINGS[key], src: 'mail', at, newId });
+  const both = add(add({ ...S.blankState(OWN), trips: [trip] }, 'e1'), 'e2');
+  const [gone, stay] = both.bookings.map(b => b.id);
+  const st = C.cancelBooking(both, { bookingId: gone, reason: C.BOOKING_CANCEL_REASONS[0], at });
+  const orphans = (list) => list.filter(e => e.kind === 'booking' && e.id === gone).length;
+  assert.ok(orphans(st.log) > 0);
+  const first = await put(s, 0, st);
+  assert.equal(first.status, 200);
+  assert.ok(orphans(first.body.state.log) > 0, '1 年たつまでは残す');
+  s.clock.now = Date.parse('2027-06-03T01:00:00Z');   // 記録の日（2026-06-01）の次の日から 1 年を過ぎた
+  const g = await call(s, req('GET'));
+  assert.equal(orphans(g.body.state.log), 0, '読むときに消す');
+  assert.ok(g.body.state.log.some(e => e.id === stay), '今ある予約の記録は残す');
+  assert.equal(g.body.state.bookings.length, 1);
+  const checked = checkPut({ base: 1, state: st }, { today: '2027-06-03', at: '2027-06-03T01:00:00.000Z' });
+  assert.ok(checked.ok);
+  assert.equal(orphans(checked.state.log), 0, '書くときも、届いた名簿に残っていれば消す');
+  assert.ok(!checked.text.includes(st.log.find(e => e.kind === 'booking' && e.id === gone).before.leadName), '消した行の名前は、置く文字に入らない');
 });
 
 test('PUT: 済んだ便は本体から外れて roster_past に移り、GET /api/roster/past で読める。本体の GET には出ない', async () => {

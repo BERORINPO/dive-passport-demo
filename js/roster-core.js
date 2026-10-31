@@ -742,7 +742,9 @@
   const expired = (trip, today) => trip.date !== '' && today > keepUntil(trip.date);
 
   /* 保存期間を過ぎた便を、予約・人・その記録ごと消す。消した件数だけを記録に残す。
-     どの便にも付かない記録（AI に送った量など）は、記録した日から 1 年で消す。
+     今ある便・予約・人に付かない記録は、記録した日から 1 年で消す（AI に送った量など id が空の物と、取り消した予約・消した人の記録。
+     取り消しても記録は残り、代表者の名前や直した住所の前後が入っているので、便の期限を待たずに 1 年を超えて残さない）。
+     今ある便・予約・人に付いた記録は今までどおり、その便と一緒に消す。
      記録の日時は UTC なので、1 日の余裕を見る（早く消しすぎない） */
   function purgeExpired(state, { today, at }) {
     const trips = new Set(state.trips.filter(t => expired(t, today)).map(t => t.id));
@@ -750,7 +752,9 @@
     const people = new Set(state.people.filter(p => bookings.has(p.bookingId)).map(p => p.id));
     const gone = { trip: trips, booking: bookings, person: people };
     const ofGone = (e) => has(gone, e.kind) && gone[e.kind].has(e.id);
-    const tooOld = (e) => e.id === '' && today > keepUntil(S().nextDay(e.at.slice(0, 10)));
+    const exists = { trip: new Set(state.trips.map(t => t.id)), booking: new Set(state.bookings.map(b => b.id)), person: new Set(state.people.map(p => p.id)) };
+    const attached = (e) => e.id !== '' && has(exists, e.kind) && exists[e.kind].has(e.id);
+    const tooOld = (e) => !attached(e) && today > keepUntil(S().nextDay(e.at.slice(0, 10)));
     const log = state.log.filter(e => !ofGone(e) && !tooOld(e));
     const removed = state.log.length - log.length;
     if (!trips.size && !removed) return state;

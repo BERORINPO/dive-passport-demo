@@ -345,7 +345,7 @@ test('消すときは種類と id の組で照合する。どの便にも付か�
   const kept = { ...S.blankTrip(), id: 't2', date: '2027-09-01', start: '08:30', createdAt: AT };
   const s = { ...base, trips: [trip, kept], log: [
     { at: AT, who: 'staff', act: 'add', kind: 'trip', id: 't1', fields: [], before: {}, after: {}, sent: null },
-    { at: AT, who: 'staff', act: 'edit', kind: 'person', id: 't1', fields: [], before: {}, after: {}, sent: null },
+    { at: '2027-09-01T00:00:00.000Z', who: 'staff', act: 'edit', kind: 'person', id: 't1', fields: [], before: {}, after: {}, sent: null },
     { at: '2026-10-24T20:00:00.000Z', who: 'ai', act: 'ai', kind: 'state', id: '', fields: [], before: {}, after: {}, sent: null }
   ] };
   const after = C.purgeExpired(s, { today: '2027-10-25', at: AT });
@@ -353,6 +353,34 @@ test('消すときは種類と id の組で照合する。どの便にも付か�
   assert.equal(C.purgeExpired(s, { today: '2027-10-26', at: AT }).log.filter(e => e.act === 'ai').length, 0);
   assert.equal(S.nextDay('2028-02-28'), '2028-02-29');
   assert.equal(S.nextDay('2026-12-31'), '2027-01-01');
+});
+
+test('取り消した予約の記録（代表者の名前・直した住所の前後）は、予約が無くなっても残り続けない。記録自体の日付から 1 年（余裕 1 日）で消え、今ある予約・人の記録は便と一緒', () => {
+  const far = freeze({ ...trip, id: 't9', date: '2029-01-01' });   // 便はずっと先（この間は消えない）
+  const add = (st, id) => C.addBooking(st, { trip: far, booking: { source: 'mail', site: SAMPLES[id].booking.site, people: SAMPLES[id].booking.people },
+    reading: SAMPLES[id], src: 'mail', at: AT, newId });
+  const both = add(add(freeze({ ...base, trips: [far] }), 'e1'), 'e2');
+  const [gone, stay] = both.bookings.map(b => b.id);
+  const goneIds = new Set(both.people.filter(p => p.bookingId === gone).map(p => p.id));
+  const s = freeze(C.editBooking(both, { bookingId: gone, patch: { leadName: '消える 代表者' }, at: AT }));
+  const cancelled = freeze(C.cancelBooking(s, { bookingId: gone, reason: C.BOOKING_CANCEL_REASONS[0], at: AT }));
+  const orphan = (e) => (e.kind === 'booking' && e.id === gone) || (e.kind === 'person' && goneIds.has(e.id));
+  const attached = (e) => (e.kind === 'booking' && e.id === stay) || e.kind === 'person' || e.kind === 'trip';
+  assert.ok(cancelled.log.filter(orphan).length > 0 && cancelled.log.some(e => e.id === stay), '取り消しても記録は残る（ここまでは今までどおり）');
+  assert.equal(cancelled.bookings.length, 1);
+  assert.equal(C.purgeExpired(cancelled, { today: '2027-10-22', at: AT }), cancelled, '記録の日（10/21）の次の日から 1 年はまだ消さない');
+  const after = C.purgeExpired(cancelled, { today: '2027-10-23', at: AT });
+  assert.equal(after.log.filter(orphan).length, 0, '取り消した予約と人の記録は消える');
+  assert.ok(!JSON.stringify(after).includes('消える 代表者'), '代表者の名前も残らない');
+  assert.deepEqual(after.log.filter(e => e.act !== 'remove').map(e => `${e.kind}:${e.id}`),
+    cancelled.log.filter(e => !orphan(e)).map(e => `${e.kind}:${e.id}`), '今ある予約・人・便の記録は便と一緒に残す（日付が古くても）');
+  assert.ok(after.log.some(attached));
+  assert.deepEqual(after.log.filter(e => e.act === 'remove').map(e => e.after.log), [cancelled.log.filter(orphan).length], '消した件数だけ残す');
+  /* 2 年後の日付で回しても、予約が無い記録は 1 行も残らない（便は先の日付なので、今ある予約の記録は残る） */
+  const later = C.purgeExpired(cancelled, { today: '2028-10-21', at: AT });
+  assert.equal(later.log.filter(orphan).length, 0);
+  assert.equal(later.bookings.length, 1);
+  assert.ok(S.validateState(after).ok);
 });
 
 test('健康の行を外しても、予約の項目の行は残す（名前・住所・ツアー名・連絡先）', () => {

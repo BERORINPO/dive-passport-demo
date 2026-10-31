@@ -397,11 +397,23 @@
   }
   const runEntry = (entry, s) => (entry.op ? R.rosterCore.ops.run(s, entry).state : entry.fn(s));
 
+  /* 名簿まるごとの置き換え（残した名簿に戻す）は、押した時のサーバーの版（entry.from）から進んでいたら当てない。
+     今のサーバーの名簿には、押したあとに入った予約・お客さんの答え・別の端末の直しがあり、置き換えるとそれを黙って消すため。
+     押した時にまだサーバーの版を知らなければ、最後につないだ時の版（無ければ null で、必ず当てない）。from の無い置き換え（前の版が貯めた物）は今までどおり */
+  const knownVersion = () => (sync.connected ? sync.version : (readSyncMeta() || {}).version ?? null);
+  const staleReplace = (entry) => entry.op === 'roster.replace' && entry.from !== undefined && entry.from !== sync.version;
+  /* 当てない置き換えは、戻そうとした名簿を別の場所に残して知らせる（replaceWith と同じ）。外した直しなので、貯めからも外れる */
+  function keepStale(entry) {
+    keepLocal(entry.args.state);
+    rosterNote = 'sync-kept';
+  }
+
   /* confirmed に queue を順に当てる。今の名簿に当てられなくなった直し（別の端末が便を消した、など）は外し、外した数を返す */
   function rebase() {
     let s = sync.confirmed || R.roster.blankState(ROSTER_SHOP);
     const kept = [];
     sync.queue.forEach(entry => {
+      if (staleReplace(entry)) { keepStale(entry); return; }
       try {
         const next = runEntry(entry, s);
         if (R.roster.validateState(next).ok) { noteConflicts(entry, s, next); s = next; kept.push(entry); }
@@ -468,6 +480,7 @@
         const { state } = rebase();
         const sent = sync.queue.length;
         const allowShrink = sync.queue.some(e => e.shrink);   // わざとの全消し・残した名簿に戻す、だけが通る
+        const pushedAt = sync.version;
         const r = await R.rosterSync.push(sync.version, state, { allowShrink, shop: sync.shop });
         if ((r.ok || r.conflict || r.shrink) && r.shop !== sync.shop) r.why = 'shop';   // 答えの名簿が別のお店の物（念のため）
         if (r.why === 'shop') {
@@ -488,7 +501,11 @@
           sync.offline = false;
           sync.tries = 0;
           sync.timer = null;
-          if (r.ok) sync.queue = sync.queue.slice(sent);   // 送ったあとに足された直しは残す
+          if (r.ok) {
+            sync.queue = sync.queue.slice(sent);   // 送ったあとに足された直しは残す
+            /* 送っている間に決めた置き換えの「押した時の版」は、今送った自分の直しで進んだ分だけ進める（他の端末が進めた版とは違う） */
+            sync.queue.forEach(e => { if (e.from === pushedAt) e.from = r.version; });
+          }
           if (['sync-offline', 'sync-login'].includes(rosterNote)) rosterNote = null;
           adopt();
           continue;
@@ -531,6 +548,7 @@
     const touched = R.rosterCore.ops.touches(cur, out.state);
     if (touched.length) entry.base = touched;
     if (shrink) entry.shrink = true;
+    if (sync && op === 'roster.replace') entry.from = knownVersion();   // 当て直すとき、版が進んでいたら当てない（rebase の staleReplace）
     let saved = saveRoster(out.state);   // 先に画面と端末に出す（形の検査もここで）
     if (sync) {
       sync.queue.push(entry);
