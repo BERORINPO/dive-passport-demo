@@ -170,17 +170,90 @@ test('予約のリンクで入れる: 健康以外だけを受け、Worker が�
   assert.ok(!JSON.stringify(ok.view).includes('那覇市'), '入れた中身は返さない');
 });
 
-test('診断書の知らせ: 1 人ずつのリンクで「はい」と答えたら出る。予約のリンクには出さない', async () => {
-  const { s, key, people } = await booked();
+/* お店（Access の内）が、予約の 1 人ずつのリンクを作る。鍵は staff 作 */
+async function staffPersonKey(s, booking, personId) {
+  const made = await call(s, '/api/ask-link', { bookingId: booking.id, personId }, { staff: true });
+  assert.equal(made.status, 200);
+  return keyOf((await made.json()).url);
+}
+/* 名簿の人の健康を直接書き換える（お店が一部だけ入れた状態などを作る） */
+function setHealth(s, personId, health) {
+  const row = s.db.rows.get('default');
+  const st = JSON.parse(row.state);
+  const p = st.people.find(x => x.id === personId);
+  p.health = { ...p.health, ...health };
+  row.state = JSON.stringify(st);
+}
+const sendHealth = (s, k, personId, answers) => call(s, '/api/ask', { k, action: 'send', personId, input: { answers, consent: true } }).then(r => r.json());
+
+test('診断書の知らせ: お店が作った 1 人ずつのリンクだけに出る。予約のリンクと、予約のリンクから作った 1 人ずつのリンクには出さない', async () => {
+  const { s, booking, key, people } = await booked();
+  const id = people[1].id;
+  const staffKey = await staffPersonKey(s, booking, id);
+  const bookingMade = keyOf((await (await call(s, '/api/ask', { k: key, action: 'person-link', personId: id })).json()).url);
+  const before = await (await call(s, '/api/ask', { k: staffKey, action: 'view' })).json();
+  assert.equal(before.people[0].medical, null, '答える前は決められないので出さない');
+  const sent = await sendHealth(s, staffKey, id, ['no', 'yes', 'no', 'no', 'no']);
+  assert.deepEqual(sent.problems, []);
+  assert.deepEqual(sent.view.people[0].medical, { status: 'missing', why: ['yes'], ageFrom: '', days: 365, until: '' }, 'お店が作った鍵には出す');
+  const viaBooking = await (await call(s, '/api/ask', { k: bookingMade, action: 'view' })).json();
+  assert.equal(viaBooking.people[0].medical, null, '予約のリンクから作った 1 人ずつのリンクには、既往症があると分かる知らせを出さない');
+  assert.ok(!JSON.stringify(viaBooking).includes('missing'), '知らせの中身がどこにも漏れない');
+  const booking1 = await (await call(s, '/api/ask', { k: key, action: 'view' })).json();
+  assert.ok(booking1.people.every(p => p.medical === null), '予約のリンク（転送されうる）には健康にかかわる知らせを出さない');
+});
+
+test('予約のリンクから作った 1 人ずつのリンク: 空の人の健康の答えは入れられるが、答え済み・一部だけ入っている人の答えは書き換えない。値も見えない', async () => {
+  const { s, booking, key, people } = await booked();
+  const [a, b] = [people[0].id, people[1].id];
+  const link = async (id) => keyOf((await (await call(s, '/api/ask', { k: key, action: 'person-link', personId: id })).json()).url);
+  const [ka, kb] = [await link(a), await link(b)];
+  /* 空の人: 1 回だけ入る */
+  assert.deepEqual((await sendHealth(s, ka, a, Array(5).fill('no'))).problems, []);
+  const second = await sendHealth(s, ka, a, Array(5).fill('yes'));
+  assert.deepEqual(second.problems, ['nothing'], '答え済みの答えは書き換えられない');
+  assert.deepEqual(stored(s).people.find(x => x.id === a).health.answers, Array(5).fill('no'));
+  assert.deepEqual(second.view.people[0].ask, []);
+  assert.ok(!JSON.stringify(second.view).includes('"yes"') && second.view.people[0].medical === null, '答えの値も知らせも見せない');
+  /* お店が一部だけ入れた人: この鍵では書き換えず、聞きもしない */
+  setHealth(s, b, { answers: ['yes', null, null, null, null] });
+  const view = await (await call(s, '/api/ask', { k: kb, action: 'view' })).json();
+  assert.deepEqual(view.people[0].ask, [], '一部だけ入っている人の健康は聞かない');
+  assert.deepEqual((await sendHealth(s, kb, b, Array(5).fill('no'))).problems, ['nothing']);
+  assert.deepEqual(stored(s).people.find(x => x.id === b).health.answers, ['yes', null, null, null, null], '一部だけ入っていた答えを書き換えない');
+  /* お店が作った鍵は今までどおり、足りない所を入れられる */
+  const staffKey = await staffPersonKey(s, booking, b);
+  assert.deepEqual((await call(s, '/api/ask', { k: staffKey, action: 'view' }).then(r => r.json())).people[0].ask, ['history']);
+  assert.deepEqual((await sendHealth(s, staffKey, b, Array(5).fill('no'))).problems, []);
+  assert.deepEqual(stored(s).people.find(x => x.id === b).health.answers, Array(5).fill('no'));
+});
+
+test('予約のリンクから作った 1 人ずつのリンク: 当日の体調は今の決まりのまま（答えたあとは「少し調子が悪い」への変更だけ）', async () => {
+  const { s, key, people } = await booked('2026-10-28');
   const id = people[1].id;
   const pkey = keyOf((await (await call(s, '/api/ask', { k: key, action: 'person-link', personId: id })).json()).url);
-  const before = await (await call(s, '/api/ask', { k: pkey, action: 'view' })).json();
-  assert.equal(before.people[0].medical, null, '答える前は決められないので出さない');
-  const sent = await (await call(s, '/api/ask', { k: pkey, action: 'send', personId: id, input: { answers: ['no', 'yes', 'no', 'no', 'no'], consent: true } })).json();
-  assert.deepEqual(sent.problems, []);
-  assert.deepEqual(sent.view.people[0].medical, { status: 'missing', why: ['yes'], ageFrom: '', days: 365, until: '' });
-  const booking = await (await call(s, '/api/ask', { k: key, action: 'view' })).json();
-  assert.ok(booking.people.every(p => p.medical === null), '予約のリンク（転送されうる）には健康にかかわる知らせを出さない');
+  s.io.clock = Date.parse('2026-10-27T22:00:00Z');   // 日本で 10/28 の 7:00（便の日）
+  const today = (answer) => call(s, '/api/ask', { k: pkey, action: 'today', personId: id, answer, consent: true }).then(r => r.json());
+  assert.deepEqual((await today('ok')).problems, []);
+  assert.deepEqual((await today('ok')).problems, ['answered']);
+  assert.deepEqual((await today('unwell')).problems, []);
+  assert.deepEqual((await today('ok')).problems, ['answered'], '軽い方へは戻せない');
+  assert.equal(stored(s).people.find(x => x.id === id).health.today, 'unwell');
+});
+
+test('鍵の作り手が読めない・知らない値の行は、予約のリンクから作った物と同じ扱い（閉じる側）', async () => {
+  const { s, booking, people } = await booked();
+  const id = people[1].id;
+  const staffKey = await staffPersonKey(s, booking, id);
+  await sendHealth(s, staffKey, id, ['no', 'yes', 'no', 'no', 'no']);
+  const shown = await (await call(s, '/api/ask', { k: staffKey, action: 'view' })).json();
+  assert.ok(shown.people[0].medical, '作り手が staff なら出る');
+  const row = s.db.links.get(await keyHash(staffKey));
+  for (const odd of ['', 'STAFF', 'admin', null]) {
+    row.minted_by = odd;
+    const v = await (await call(s, '/api/ask', { k: staffKey, action: 'view' })).json();
+    assert.equal(v.people[0].medical, null, `minted_by=${JSON.stringify(odd)} には知らせを出さない`);
+  }
 });
 
 test('1 人ずつのリンク: 予約のリンクから作れる。その人の健康だけを受け、当日の体調は便の日だけ', async () => {
