@@ -88,7 +88,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
    ```bash
    npx wrangler@4.151.0 d1 create redux-rosters
    ```
-3. 表を作る（worker/migrations/ の 0001〜0009。0008（予約の受け口 API の鍵と、同じ予約の 2 回目の記録）も足すだけなので先に流せる。0009（お客さんのリンクを作った人の欄 minted_by）も欄を足すだけなので先に流す。**0009 を流す前にお店の Worker を置くと、お客さんのリンクが開けなくなる**。**流す前にお店の Worker を置くと、Cron が表の不足（0008）で止まる**ので、必ず先に流す。表は、それを使う Worker を置く前に作る。0004（済んだ便）が無いと便が済んで 7 日を過ぎた日の書き込みが 503 になり、0005（読めなかった予約メール）が無いと、読めなかったことを残せない（ログには残る）。0006（1 日の件数）が無いと、サイトの予約が 503 になる（件数を D1 で数えるため）。0006 は足すだけなので、前の版の Worker が動いたままでも先に流せる。0007（店頭の QR の鍵と、店頭で入れた人）も足すだけで先に流せる。無いと、Cron が表の不足で止まる）
+3. 表を作る（worker/migrations/ の 0001〜0009。0008（予約の受け口 API の鍵と、同じ予約の 2 回目の記録）も足すだけなので先に流せる。0009（お客さんのリンクを作った人の欄 minted_by）も欄を足すだけなので先に流す。**0009 を流す前にお店の Worker を置くと、お客さんのリンクが開けなくなる**。**流す前にお店の Worker を置くと、Cron が表の不足（0008）で止まる**ので、必ず先に流す。0010（店ごとの返信先 shops.reply_to）も欄を足すだけで、前の版の Worker が動いたままでも先に流せる。**0010 を流す前に新しい Worker を置くと、お店の一覧を読めず全部の道が 503 になる**ので、必ず先に流す。表は、それを使う Worker を置く前に作る。0004（済んだ便）が無いと便が済んで 7 日を過ぎた日の書き込みが 503 になり、0005（読めなかった予約メール）が無いと、読めなかったことを残せない（ログには残る）。0006（1 日の件数）が無いと、サイトの予約が 503 になる（件数を D1 で数えるため）。0006 は足すだけなので、前の版の Worker が動いたままでも先に流せる。0007（店頭の QR の鍵と、店頭で入れた人）も足すだけで先に流せる。無いと、Cron が表の不足で止まる）
    ```bash
    npx wrangler@4.151.0 d1 migrations apply redux-rosters --remote
    ```
@@ -171,10 +171,10 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 | 送信 | Email Sending を reduxdive.com で有効（送り元 `yoyaku@reduxdive.com`、Return-Path は `cf-bounce.reduxdive.com`。DKIM・SPF・DMARC p=reject は自動） | API `/zones/{zone}/email/sending/subdomains`（wrangler の `email sending enable` は 4.151.0 で認証の誤りになった） |
 | お客さんのリンク | `ask.reduxdive.com`（redux-ask の custom domain）。お店の Worker の secret `ASK_ORIGIN` もこの住所 | wrangler.ask.jsonc |
 | 警報の宛先 | secret `ALERT_TO` | `wrangler secret put ALERT_TO` |
-| お客さんの返信の行き先（Reply-To） | secret `REPLY_TO` | `wrangler secret put REPLY_TO`（無ければ Reply-To を付けない。返信は受け口の無い yoyaku@ に行く） |
+| お客さんの返信の行き先（Reply-To） | secret `REPLY_TO` | `wrangler secret put REPLY_TO`（無ければ Reply-To を付けない。返信は受け口の無い yoyaku@ に行く）。お店が 1 店だけのときの返信先。2 店以上になったら使わず、お店ごとの shops.reply_to（`node tools/shop.mjs set-reply-to --id <店> --reply-to <アドレス>` が出す 1 文を D1 コンソールに貼る）を使う。空のお店には Reply-To を付けない。**2 店目を足す前に、1 店目の返信先を入れる**（`add` は全部の列を上書きするので、入れ直すときも --reply-to を付ける） |
 | Cron | `* * * * *`（1 分ごと。書類の自動化と毎日の控え。2026-10-29 に 15 分から変えた） | wrangler.jsonc |
 | DMARC の報告 | Cloudflare の DMARC Management を有効（2026-10-28。`_dmarc` の TXT に Cloudflare の rua が足された。p=reject はそのまま） | Email → DMARC Management |
-| 外の死活監視 | UptimeRobot（Yosuke のアカウント、無料）が `https://ask.reduxdive.com/api/health` を 5 分ごとに見る。Cron が 45 分動かないと 503 になり、Yosuke の Gmail に知らせが来る（Cloudflare と別の系統） | uptimerobot.com |
+| 外の死活監視 | UptimeRobot（Yosuke のアカウント、無料）が `https://ask.reduxdive.com/api/health` を 5 分ごとに見る。Cron が 45 分動かないとき（why: cron-stale）、その回にお店ごとの失敗があったとき（shop-failed）、控えか警報メールが失敗したとき（backup-failed）は 503 になり、Yosuke の Gmail に知らせが来る（Cloudflare と別の系統） | uptimerobot.com |
 
 - 名前の変更（2026-10-28、REDUX に統一）: サイトは https://reduxdive.com（Worker redux-site。team-pivot の prototype/leisure-site-motion）、お店の画面は https://app.reduxdive.com（この Worker の Custom Domain。wrangler.jsonc の routes と vars の APP_URL）、お客さんのリンクは ask.reduxdive.com のまま。`www.reduxdive.com` → `https://reduxdive.com` の 301 は、ダッシュボードの Redirect Rules で付ける（静的サイトの Worker の `_redirects` は host を指定できない）
 - 古いサイトの Worker（aquagate-demo）は 2026-10-29 に消した。住所は reduxdive.com・app.reduxdive.com・ask.reduxdive.com だけで、3 つの Worker の workers.dev は閉じた
