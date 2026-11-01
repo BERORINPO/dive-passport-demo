@@ -22,7 +22,7 @@ Node 18 or later. No npm packages.
 node tools/build-site.mjs && node tools/serve-dist.mjs
 ```
 
-Then open http://127.0.0.1:8106. This serves `dist/` with the same headers (CSP) as the Worker and answers `/api` with a fake Access login and fake AI answers. It never calls Cloudflare or the Claude API.
+Then open http://127.0.0.1:8106. This serves `dist/` with the same headers (CSP) as the Worker and answers `/api` with a fake Access login and fake AI answers. It never calls Cloudflare or the Claude API. With `--real-ai` (key in `CLAUDE_WORKER_API_KEY`), photo readings alone go to the real Claude API; this is for making a roster sample from a shop's form (`docs/sample-roster.md`).
 
 ## Pages
 

@@ -92,6 +92,14 @@ test('名簿の紙: 健康の 2 欄は「紙の申込書」と出し、そろっ
   assert.ok(table.rows.every(r => r.cells.history === C.PAPER_TEXT && r.cells.today === C.PAPER_TEXT));
 });
 
+test('名簿の取り込みの画面: 紙のお店では「本人が答える」と書かず、紙で聞くと書く（文はお店の聞き方で出し分ける）', () => {
+  const src = readFileSync(new URL('../js/intake-photo.js', import.meta.url), 'utf8');
+  assert.equal((src.match(/お客さん本人が答えます/g) || []).length, 2, '本人が答える文は、アプリで聞くお店の 2 か所（HEALTH_NOTE.app・HEALTH_LOCKED.app）だけ');
+  assert.match(src, /paper: '申込書の健康の欄は[^']*紙の申込書で聞きます/);
+  assert.match(src, /paper: '紙の申込書で聞きます/);
+  assert.match(src, /C\(\)\.paperOf\(s\) \? 'paper' : 'app'/);
+});
+
 test('血中酸素: 紙のお店では名簿に入れない（健康の数値を預からない。決定ログ 2026-11-01 trial-health-paper）。アプリで聞くお店は今まで通り', () => {
   ['../js/data-sipe.js', '../js/roster-day.js'].forEach(load);
   const D = globalThis.REDUX.rosterDay;

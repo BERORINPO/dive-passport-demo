@@ -2,6 +2,8 @@
 // /api/* は Worker（worker/handler.mjs）に渡し、外との境目は見本（worker/fakes.mjs）にする: Access の JWT はこの道具が付け、
 // Claude API は見本の答え（予約メールは見本の読み取りと同じ答え、写真は空の答え）を返す。本物の Cloudflare と Claude API は呼ばない。
 // 実行: node tools/build-site.mjs && node tools/serve-dist.mjs [port]   → http://127.0.0.1:8106
+// --real-ai を付けると、写真（申込書・C カード・予約の一覧）の読み取りだけ本物の Claude API を呼ぶ。お店に返す名簿の見本を作るとき用（docs/sample-roster.md）。
+//   鍵は環境変数 CLAUDE_WORKER_API_KEY（ANTHROPIC_API_KEY にはしない）。予約メールとお客さんの画面は見本の答えのまま。お店の名前は SHOP_NAME で替えられる
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, extname, normalize, relative, isAbsolute } from 'node:path';
@@ -12,7 +14,14 @@ import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, fakeTurnstile, fakeRateLimit
 import '../js/data-samples.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-const port = Number(process.argv[2]) || 8106;
+const args = process.argv.slice(2);
+const REAL_AI = args.includes('--real-ai');
+const port = Number(args.find(a => /^\d+$/.test(a))) || 8106;
+const REAL_KEY = process.env.CLAUDE_WORKER_API_KEY || '';
+if (REAL_AI && !REAL_KEY) {
+  console.error('--real-ai には環境変数 CLAUDE_WORKER_API_KEY が要ります（ANTHROPIC_API_KEY ではなく）。');
+  process.exit(1);
+}
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.woff2': 'font/woff2', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml',
   '': 'text/plain; charset=utf-8' };
@@ -32,7 +41,7 @@ const EMAIL = 'local@example.com';
 const access = await fakeAccess(TEAM);
 const api = fakeAnthropic();
 const kv = fakeKv();
-const env = { ANTHROPIC_API_KEY: 'local-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
+const env = { ANTHROPIC_API_KEY: REAL_AI ? REAL_KEY : 'local-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD, ALLOWED_EMAILS: EMAIL,
   DAILY_LIMIT: '200', MONTHLY_USD: '5', BUDGET: kv, DB: fakeD1(), SINGLE_SHOP: 'default',   // お店の名簿は、この道具が動いている間だけ覚える（止めると消える）
   /* 書類の自動化（plan/auto.md）。サイトの予約フォームは SITE_ORIGINS に書いた origin から（例: SITE_ORIGINS=http://localhost:5173）。
      Turnstile はどの答えも通す見本、メールは送らずにこの画面（端末）に出すだけの見本 */
@@ -40,7 +49,7 @@ const env = { ANTHROPIC_API_KEY: 'local-not-real', ACCESS_TEAM_DOMAIN: TEAM, ACC
   EMAIL: { send: async (m) => { console.log(`[メールの見本・送っていない] 宛先 ${m.to} / 件名 ${m.subject}
 ${m.text}
 `); return { messageId: 'local' }; } },
-  MAIL_FROM: 'yoyaku@local.example', APP_URL: `http://localhost:${port}`, SHOP_NAME: 'B マリン（見本）' };
+  MAIL_FROM: 'yoyaku@local.example', APP_URL: `http://localhost:${port}`, SHOP_NAME: process.env.SHOP_NAME || 'B マリン（見本）' };
 const turnstile = fakeTurnstile();
 turnstile.hostname = 'localhost';   // 手元のサイト（SITE_ORIGINS の http://localhost:…）で解いた答えとして返す
 /* 見本の答え: 予約メールは見本の読み取り（data-samples.js）を、モデルの形（snake_case）に戻して返す */
@@ -61,6 +70,8 @@ const io = {
     if (String(url).endsWith('/turnstile/v0/siteverify')) return turnstile.respond(init);
     if (url === access.certsUrl) return new Response(JSON.stringify({ keys: access.keys }));
     const body = JSON.parse(init.body);
+    /* 写真だけ本物に送る（画像の付いた要求）。送る中身は Worker が組み立てた物のまま */
+    if (REAL_AI && body.messages[0].content.some(c => c.type === 'image')) return fetch(url, init);
     const text = body.messages[0].content.map(c => c.text || '').join('');
     const hit = Object.keys(MAILS).find(id => text.includes(MAILS[id].text.split('\n').find(l => l.trim().length > 8)));
     api.answer = JSON.stringify(hit ? toModel(SAMPLES[hit]) : { participants: [], health_info_visible: false });
@@ -105,6 +116,6 @@ async function serve(req, res) {
 createServer((req, res) => serve(req, res).catch(() => {
   if (!res.headersSent) res.writeHead(400);
   res.end('Bad request');
-})).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています`));
+})).listen(port, '127.0.0.1', () => console.log(`dist/ を http://127.0.0.1:${port} で配っています${REAL_AI ? '（写真の読み取りは本物の Claude API）' : ''}`));
 /* Cron の代わり。1 分ごとに時刻が来た予定を動かす（置いた Worker も 1 分ごと） */
 setInterval(() => { scheduled(env, io).catch(() => {}); }, 60 * 1000);
