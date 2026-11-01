@@ -22,6 +22,13 @@
     bad: 'AI の答えが形に合わなかったので、使いませんでした。もう一度試してください'
   };
   const SAMPLES = { paper: ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'], ccard: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] };
+  /* 健康の質問の聞き方の文。紙で聞くお店（試用）では「本人が答える」と書かない（決定ログ 2026-11-01 trial-health-paper） */
+  const HEALTH_NOTE = {
+    paper: '申込書の健康の欄は、この端末の中で塗りつぶしてから AI に送ります。健康の質問は、今まで通り紙の申込書で聞きます（REDUX には入れません）。',
+    app: '申込書の健康の欄は、この端末の中で塗りつぶしてから AI に送ります。健康の質問は、お客さん本人が答えます。'
+  };
+  const HEALTH_LOCKED = { paper: '紙の申込書で聞きます（REDUX には入れません）', app: 'お客さん本人が答えます（お店は直せません）' };
+  const healthWay = (s) => (C().paperOf(s) ? 'paper' : 'app');
   const HEALTH_SEEN = 'AI が「健康の情報が見えた」と答えたので、この読み取りは使いません。撮った書類と、塗った所を確かめてください。';
   const now = () => new Date().toISOString();
 
@@ -252,7 +259,7 @@
       el('div', { class: 'actions actions--two' },
         el('button', { class: `btn ${shot.doc === 'paper' ? '' : 'btn--ghost'}`, type: 'button', 'aria-pressed': String(shot.doc === 'paper'), text: '申込書を撮る', onclick: chooseDoc('paper') }),
         el('button', { class: `btn ${shot.doc === 'ccard' ? '' : 'btn--ghost'}`, type: 'button', 'aria-pressed': String(shot.doc === 'ccard'), text: 'C カードを撮る', onclick: chooseDoc('ccard') })),
-      el('p', { class: 'note', text: '申込書の健康の欄は、この端末の中で塗りつぶしてから AI に送ります。健康の質問は、お客さん本人が答えます。' }),
+      el('p', { class: 'note', text: HEALTH_NOTE[healthWay(s)] }),
       shot.doc ? el('div', { class: 'card' }, docStep(ui), photoStep(ui), shot.img ? null : shotErr()) : null,
       checks.length ? el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, `読み取りを確かめる（${checks.length} 人）`),
@@ -406,7 +413,7 @@
         : el('button', { class: 'cf__more', type: 'button', onclick: toggle(true) },
           el('span', { text: `ほかの項目も直す（${others.length} 項目）` }), el('span', { text: '開く' })),
       el('div', { class: 'cf' }, el('p', { class: 'cf__head', text: '既往症・当日の体調' }),
-        el('p', { class: 'cf__locked', text: 'お客さん本人が答えます（お店は直せません）' })),
+        el('p', { class: 'cf__locked', text: HEALTH_LOCKED[healthWay(s)] })),
       ui.dock(
         el('p', { class: 'errors', role: 'alert', text: review.error }),
         el('p', { class: 'note cf__count', text: fixed || accepted ? `直した ${fixed} 項目・そのまま認める ${accepted} 項目` : '直した項目はありません' }),
