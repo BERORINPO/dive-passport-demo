@@ -53,7 +53,7 @@ test('お店向けの試用の案内（shops.html）: お客さん用の Worker 
   const page = readFileSync(new URL('../shops.html', import.meta.url), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
   assert.ok(!/<script|<form|<input|<textarea/.test(page), 'ここでは何も集めない');
   assert.deepEqual([...new Set([...page.matchAll(/[\w.+-]+@[\w.-]+/g)].map(m => m[0]))], ['trial@reduxdive.com'], '書くアドレスは申し込み先だけ');
-  for (const words of ['先着 <b>3</b> 店', 'AI には送りません', '<span class="lp-fig">30</span> 日以内', '控えも含めて消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
+  for (const words of ['先着 <b>3</b> 店', 'その答えは REDUX に入れません', '外し損ねると AI に届くことがあります', 'お店が送る前に見る画面がなく', '<span class="lp-fig">30</span> 日以内', '控えも含めて消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
   for (const m of page.matchAll(/<img [^>]*>/g)) assert.match(m[0], /width="\d+" height="\d+"/, '絵は幅と高さを書く（読み込みで画面がずれない）');
   /* 申し込みのボタンは 3 つ。どれも本文にひな形（お店の名前・予約メールのアドレス）を入れ、件名で押した所が分かる（決定ログ 2026-11-01 shop-lp-look） */
   const mails = [...page.matchAll(/href="mailto:([^"]+)"/g)].map(m => new URL('mailto:' + m[1].replace(/&amp;/g, '&')));
@@ -62,7 +62,7 @@ test('お店向けの試用の案内（shops.html）: お客さん用の Worker 
   assert.equal(new Set(mails.map(u => u.searchParams.get('subject'))).size, 3, '件名は押した所ごとに違う');
   assert.ok(page.includes('<span class="lp-addr">trial@reduxdive.com</span>'), 'メールの道具が開かない人のために、宛先を字でも出す');
   /* 実際の動きと食い違う言い切りを書かない（お店は印の所を直す・お客さんが返事をしないと名簿はそろわない。健康の欄の塗りはずれうる・試用の健康は紙。メイ FAIL 2026-11-01 ×2） */
-  for (const words of ['書き写す所はありません', '書き写す所はない', '1 回だけ', '朝には名簿', '項目すべて', '外してから送ります', '塗ってから送ります', 'お客さん本人が答えます', '名簿に保存しますが']) assert.ok(!page.includes(words), words);
+  for (const words of ['書き写す所はありません', '書き写す所はない', '1 回だけ', '朝には名簿', '項目すべて', '外してから送ります', '塗ってから送ります', 'お客さん本人が答えます', '名簿に保存しますが', '外したり隠したりしてから送りますが', 'AI には送りません']) assert.ok(!page.includes(words), words);
 });
 test('お店の画面の CSP: 音（media-src）は要らない（声をやめた）。画像は同じ場所と blob・data だけ', () => {
   const csp = indexCsp();
