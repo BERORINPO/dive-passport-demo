@@ -117,6 +117,9 @@ export function askHeaders() {
   return `${out.join('\n')}\n`;
 }
 
+/* ask.reduxdive.com の入口（/）には置くページが無く 404 だった。お店向けの試用の案内へ回す（302: 入口に別のページを置く日が来ても戻せる） */
+export const askRedirects = () => '/ /shops 302\n';
+
 function buildAsk() {
   rmSync(outAsk, { recursive: true, force: true });
   const files = [...new Set([...askFiles(), ...ASK_ASSETS, ...askLpFiles()])];
@@ -125,7 +128,8 @@ function buildAsk() {
     cpSync(join(root, f), join(outAsk, f));
   }
   writeFileSync(join(outAsk, '_headers'), askHeaders());
-  console.log(`dist-ask/: ${files.length} files + _headers`);
+  writeFileSync(join(outAsk, '_redirects'), askRedirects());
+  console.log(`dist-ask/: ${files.length} files + _headers + _redirects`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
