@@ -9,7 +9,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join, extname, normalize, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handle } from '../worker/handler.mjs';
-import { scheduled } from '../worker/auto.mjs';
+import { scheduled, changeRoster } from '../worker/auto.mjs';
 import { fakeKv, fakeAccess, fakeAnthropic, fakeD1, fakeTurnstile, fakeRateLimit, checkRedirect } from '../worker/fakes.mjs';
 import '../js/data-samples.js';
 
@@ -78,6 +78,9 @@ const io = {
     return api.respond(init);
   }
 };
+
+/* SHOP_NAME を渡したときは、その名前の空の名簿を先に置く（画面は空の名簿を自分の見本の名前で作るため。名簿の見本にお店の名前を出す） */
+if (process.env.SHOP_NAME) await changeRoster(env, io, (st) => ({ state: { ...st } }), { name: process.env.SHOP_NAME });
 
 /* dist/ の中のファイルだけ。%2f などで ../ を作っても、dist で始まる別のフォルダ（dist-old など）でも外に出ない */
 function fileFor(pathname) {

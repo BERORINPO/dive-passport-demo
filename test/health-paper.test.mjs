@@ -98,6 +98,8 @@ test('名簿の取り込みの画面: 紙のお店では「本人が答える」
   assert.match(src, /paper: '申込書の健康の欄は[^']*紙の申込書で聞きます/);
   assert.match(src, /paper: '紙の申込書で聞きます/);
   assert.match(src, /C\(\)\.paperOf\(s\) \? 'paper' : 'app'/);
+  const add = readFileSync(new URL('../js/booking-add.js', import.meta.url), 'utf8');
+  assert.match(add, /C\(\)\.paperOf\(R\.rosterStore\.get\(\)\) \? '健康のことは書かないでください。健康の質問は、紙の申込書で聞きます。'/, '電話の予約のメモの説明も、紙のお店では紙で聞くと書く');
 });
 
 test('血中酸素: 紙のお店では名簿に入れない（健康の数値を預からない。決定ログ 2026-11-01 trial-health-paper）。アプリで聞くお店は今まで通り', () => {
