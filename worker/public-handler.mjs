@@ -24,9 +24,11 @@ import { verifyTurnstile, underLimit } from './site-guard.mjs';
 import { MAX_BOOKING_BODY, CRON_STALE_MS } from './auto-core.mjs';
 import { cronHealth } from './backup-core.mjs';
 import { checkTrial, MAX_TRIAL_BODY } from './trial-core.mjs';
+import { checkApply, applyMail, MAX_APPLY_BODY, APPLY_DONE, APPLY_FAILED } from './apply-core.mjs';
+import { applyReady, sendApply } from './apply-mail.mjs';
 
 const PUBLIC_ROUTES = { '/api/ask': ['POST'], '/api/walkin': ['POST'], '/api/bookings': ['POST', 'OPTIONS'], '/api/v1/bookings': ['POST'], '/api/health': ['GET'],
-  '/api/trial': ['POST'] };
+  '/api/trial': ['POST'], '/api/trial-apply': ['POST'] };
 const BOOKING_NEEDS = ['TURNSTILE_SECRET'];
 
 const hasLimiter = (l) => Boolean(l && typeof l.limit === 'function');
@@ -157,6 +159,22 @@ export async function trial(request, env, io, note) {
   return json(got.status, got.body);
 }
 
+/* 案内ページ（shops.html）の申し込みフォーム。スクリプトの無いふつうの送信（form の POST）を受け、運営者にメールで届けて、ページの #sent か #apply-error へ戻す。
+   保存はしない。罠の欄が埋まった送信は届けずに #sent へ戻す（機械に気付かせない）。決定ログ 2026-11-02 shop-lp-form */
+export async function trialApply(request, env, io, note) {
+  const back = (path) => new Response(null, { status: 303, headers: { location: new URL(path, request.url).href, 'cache-control': 'no-store' } });
+  if (!applyReady(env) || !hasLimiter(env.APPLY_LIMIT)) { note.why = 'config:apply'; return back(APPLY_FAILED); }
+  if (!/^application\/x-www-form-urlencoded\b/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
+  if (!(await underLimit(env.APPLY_LIMIT, request.headers.get('cf-connecting-ip') || ''))) { note.why = 'rate'; return back(APPLY_FAILED); }
+  const raw = await readCapped(request, MAX_APPLY_BODY);
+  if (raw === null) { note.why = 'size'; return back(APPLY_FAILED); }
+  const checked = checkApply(new URLSearchParams(raw));
+  if (!checked.ok) { note.why = `input-${checked.error}`; return back(checked.error === 'trap' ? APPLY_DONE : APPLY_FAILED); }
+  const sent = await sendApply(env, applyMail(checked, new Date(io.now()).toISOString()));
+  if (!sent) note.why = 'send';
+  return back(sent ? APPLY_DONE : APPLY_FAILED);
+}
+
 export async function handlePublic(request, env, io) {
   const started = io.now();
   const url = new URL(request.url);
@@ -176,6 +194,7 @@ export async function handlePublic(request, env, io) {
     else if (request.headers.get('sec-fetch-site') !== 'same-origin') { note.why = 'site'; res = json(403, { error: 'site' }); }
     else if (url.pathname === '/api/walkin') res = await walkin(request, env, io, note);
     else if (url.pathname === '/api/trial') res = await trial(request, env, io, note);
+    else if (url.pathname === '/api/trial-apply') res = await trialApply(request, env, io, note);
     else res = await ask(request, env, io, url, note);
   } catch (e) {
     note.why = 'crash';

@@ -21,7 +21,7 @@
 <main class="wrap wrap--narrow">
 <article lang="ja">
 <h1 class="page__h1">データの扱いと外部送信について</h1>
-<p class="note">2026 年 10 月 29 日。REDUX（ダイビングのお店の受付と名簿の試作）のページで、どの情報をどこへ送るかを書いています。</p>
+<p class="note">2026 年 10 月 29 日（11 月 2 日に「試用の申し込み」を足しました）。REDUX（ダイビングのお店の受付と名簿の試作）のページで、どの情報をどこへ送るかを書いています。</p>
 
 <h2 class="h2">見られ方と速さの計測（Cloudflare Web Analytics）</h2>
 <dl class="facts">
@@ -32,6 +32,13 @@
   <div class="rd"><dt class="rd__k">送るページ</dt><dd class="rd__v">お客さまの画面（予約の前に）と、お店の試し版のページだけ。お店から届いたリンクで名簿の項目を入れるページと、店頭の QR から入れるページでは送りません。EU・EEA・英国・スイスからの訪問は計測しません（国が分からないときも計測しません）</dd></div>
 </dl>
 
+<h2 class="h2">試用の申し込み（お店向けの案内ページのフォームと、trial@reduxdive.com へのメール）</h2>
+<dl class="facts">
+  <div class="rd"><dt class="rd__k">送る先</dt><dd class="rd__v">Cloudflare, Inc.（メールの送信）を通り、Google LLC（Gmail）にある運営者の受信箱に届きます。どちらも米国の事業者です</dd></div>
+  <div class="rd"><dt class="rd__k">送る情報</dt><dd class="rd__v">お店の名前と、返事を受け取るアドレス。送る回数を制限するため、IP アドレスを Cloudflare が一時的に使います</dd></div>
+  <div class="rd"><dt class="rd__k">目的</dt><dd class="rd__v">試用の案内の連絡だけ。REDUX のサーバーには保存せず、記録（ログ）にも名前とアドレスは残しません</dd></div>
+  <div class="rd"><dt class="rd__k">消すとき</dt><dd class="rd__v">届いたメールは、試用をしないと決まったとき（お返事がないまま 30 日たったときを含む）、または試用が終わってから 30 日以内に消します。消してほしいとき・問い合わせは trial@reduxdive.com へ</dd></div>
+</dl>
 <h2 class="h2">AI に送る文（Anthropic の Claude）</h2>
 <dl class="facts">
   <div class="rd"><dt class="rd__k">送る先</dt><dd class="rd__v">Anthropic, PBC（AI の Claude）。REDUX のサーバー（Cloudflare Workers）から送ります</dd></div>
@@ -43,7 +50,7 @@
 
 <article lang="en">
 <h1 class="page__h1">How your data is handled and sent</h1>
-<p class="note">29 October 2026. This page lists what the REDUX pages (a prototype check-in and diver list for dive shops) send, and where.</p>
+<p class="note">29 October 2026 ("Trial applications" added on 2 November). This page lists what the REDUX pages (a prototype check-in and diver list for dive shops) send, and where.</p>
 
 <h2 class="h2">Visit and speed measurement (Cloudflare Web Analytics)</h2>
 <dl class="facts">
@@ -54,6 +61,13 @@
   <div class="rd"><dt class="rd__k">Pages</dt><dd class="rd__v">Only the booking page for guests and the shops' trial pages. Nothing is sent from the page you open from the shop's link to fill in the diver list, or from the in-shop QR page. Visits from the EU, the EEA, the UK and Switzerland are not measured (nor when the country cannot be told)</dd></div>
 </dl>
 
+<h2 class="h2">Trial applications (the form on the shops' page, and email to trial@reduxdive.com)</h2>
+<dl class="facts">
+  <div class="rd"><dt class="rd__k">Sent to</dt><dd class="rd__v">Through Cloudflare, Inc. (email sending) to the operator's inbox at Google LLC (Gmail). Both are US companies</dd></div>
+  <div class="rd"><dt class="rd__k">What</dt><dd class="rd__v">The shop name and the address for our reply. Cloudflare briefly uses your IP address to limit how often the form can be sent</dd></div>
+  <div class="rd"><dt class="rd__k">Why</dt><dd class="rd__v">Only to reply about the trial. Nothing is stored on the REDUX server, and logs do not keep the name or the address</dd></div>
+  <div class="rd"><dt class="rd__k">Deletion</dt><dd class="rd__v">The email is deleted when it is decided not to try REDUX (including 30 days with no reply), or within 30 days after the trial ends. To ask for deletion or anything else, write to trial@reduxdive.com</dd></div>
+</dl>
 <h2 class="h2">Text sent to an AI (Anthropic's Claude)</h2>
 <dl class="facts">
   <div class="rd"><dt class="rd__k">Sent to</dt><dd class="rd__v">Anthropic, PBC (the Claude AI), from the REDUX server (Cloudflare Workers)</dd></div>

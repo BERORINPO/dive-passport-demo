@@ -35,8 +35,13 @@
     // サイトの予約フォームの、1 つの IP の回数（1 分に 5 回）
     { "name": "BOOKING_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
     // 予約の受け口 API（/api/v1/bookings）の、1 つの IP の回数（1 分に 60 回。Zapier など共有の出口からも来るので、サイトの予約フォームより広く）。鍵ごとの 1 日の件数はお店の Worker が D1 で数える
-    { "name": "INTAKE_LIMIT", "namespace_id": "1005", "simple": { "limit": 60, "period": 60 } }
+    { "name": "INTAKE_LIMIT", "namespace_id": "1005", "simple": { "limit": 60, "period": 60 } },
+    // 案内ページの申し込みフォーム（/api/trial-apply）の、1 つの IP の回数（1 分に 3 回）
+    { "name": "APPLY_LIMIT", "namespace_id": "1006", "simple": { "limit": 3, "period": 60 } }
   ],
+  // 案内ページの申し込みを運営者に届ける（worker/apply-mail.mjs）。宛先は secret の APPLY_TO（wrangler secret put APPLY_TO -c wrangler.ask.jsonc）
+  "send_email": [{ "name": "APPLY_MAIL", "allowed_sender_addresses": ["yoyaku@reduxdive.com"] }],
+  "vars": { "APPLY_FROM": "yoyaku@reduxdive.com" },
   "kv_namespaces": [
     // 1 日の件数（サイトの予約）はお店の Worker が D1 の daily_counts で数える（migration 0006）。KV は Cron が最後に動いた時刻（cron:last）を
     // /api/health が読むためだけに残す（お店の Worker と同じ KV。id は鍵ではない）

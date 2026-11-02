@@ -482,8 +482,8 @@ test('Service Binding の口: 6 つは今まで通りで、足したのは intak
   const jsonc = (path) => JSON.parse(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, ''));
   const ask = jsonc('wrangler.ask.jsonc');
   assert.equal(ask.d1_databases, undefined);
-  assert.deepEqual(ask.ratelimits.map(r => r.name).sort(), ['ASK_LIMIT', 'BOOKING_LIMIT', 'INTAKE_LIMIT']);
-  assert.equal(new Set(ask.ratelimits.map(r => r.namespace_id)).size, 3, 'namespace_id は重ならない');
+  assert.deepEqual(ask.ratelimits.map(r => r.name).sort(), ['APPLY_LIMIT', 'ASK_LIMIT', 'BOOKING_LIMIT', 'INTAKE_LIMIT']);
+  assert.equal(new Set(ask.ratelimits.map(r => r.namespace_id)).size, ask.ratelimits.length, 'namespace_id は重ならない');
   /* 呼び手はお店の判定に使う値を渡さない: 口の引数は鍵の SHA-256・本文・Idempotency-Key だけ */
   assert.equal(new ShopService(s.env, s.io).intakeBooking.length, 3);
   /* 向こうの答えが壊れていたら 500（crash） */

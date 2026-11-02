@@ -128,6 +128,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 
 - 控えの置き場所: Workers KV の `redux-roster-backup`（binding は BACKUP。wrangler.jsonc に入れてある）。Cron が 1 日 1 回、お店ごとに名簿の本体を `day:<お店>:<日付>` に置く（1 年）。済んだ便の行は `past:<お店>:<part>`、警報は `alert:<お店>:<日付>`
 - 警報の宛先（運営）: `npx wrangler@4.151.0 secret put ALERT_TO`（メールの設定 MAIL_FROM・APP_URL と Email Service がそろうまでは、KV とログだけに残る）
+- 案内ページの申し込みフォームの届け先（運営）: `npx wrangler@4.151.0 secret put APPLY_TO -c wrangler.ask.jsonc`。送り元は vars の APPLY_FROM（yoyaku@reduxdive.com）。入れるまでフォームは #apply-error に戻り、メールの道（mailto・Gmail）だけが使える
 - Cron（`"triggers": { "crons": ["* * * * *"] }`）は wrangler.jsonc に入れてある。Workers Paid が要る（9 節）
 
 控えから戻す（名簿が消えた・壊れたとき。約 15 分）:
@@ -171,6 +172,7 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 | 送信 | Email Sending を reduxdive.com で有効（送り元 `yoyaku@reduxdive.com`、Return-Path は `cf-bounce.reduxdive.com`。DKIM・SPF・DMARC p=reject は自動） | API `/zones/{zone}/email/sending/subdomains`（wrangler の `email sending enable` は 4.151.0 で認証の誤りになった） |
 | お客さんのリンク | `ask.reduxdive.com`（redux-ask の custom domain）。お店の Worker の secret `ASK_ORIGIN` もこの住所 | wrangler.ask.jsonc |
 | 警報の宛先 | secret `ALERT_TO` | `wrangler secret put ALERT_TO` |
+| 申し込みフォームの届け先 | secret `APPLY_TO`（redux-ask） | `wrangler secret put APPLY_TO -c wrangler.ask.jsonc` |
 | お客さんの返信の行き先（Reply-To） | secret `REPLY_TO` | `wrangler secret put REPLY_TO`（無ければ Reply-To を付けない。返信は受け口の無い yoyaku@ に行く）。お店が 1 店だけのときの返信先。2 店以上になったら使わず、お店ごとの shops.reply_to（`node tools/shop.mjs set-reply-to --id <店> --reply-to <アドレス>` が出す 1 文を D1 コンソールに貼る）を使う。空のお店には Reply-To を付けない。**2 店目を足す前に、1 店目の返信先を入れる**（`add` は全部の列を上書きするので、入れ直すときも --reply-to を付ける） |
 | Cron | `* * * * *`（1 分ごと。書類の自動化と毎日の控え。2026-10-29 に 15 分から変えた） | wrangler.jsonc |
 | DMARC の報告 | Cloudflare の DMARC Management を有効（2026-10-28。`_dmarc` の TXT に Cloudflare の rua が足された。p=reject はそのまま） | Email → DMARC Management |
