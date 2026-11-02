@@ -195,8 +195,10 @@ npx wrangler@4.151.0 secret put ACCESS_AUD
 試用のお店は、健康の質問を今まで通り紙の申込書で聞く（shops.html の約束、決定ログ 2026-11-01 trial-health-paper）。名簿を作る前に紙の印を付けておくので、順番を守る。
 1. **2 店目からは先に**、いまあるお店の返信先を入れる: `node tools/shop.mjs set-reply-to --id <店> --reply-to <アドレス>`（入れないと、2 店になった時点で Reply-To が外れる）
 2. お店を足す: `node tools/shop.mjs add --id <店> --name <名前> --member <スタッフのメール> --inbox <店>@reduxdive.com --sender <転送してくるお店のアドレス> --sender @<予約サイトのドメイン> --reply-to <お店のアドレス>`。`--sender` が無いと転送されたメールは断られる（auto.mjs の senderAllowed）。Gmail・Microsoft 365 の自動転送は封筒の送り主がお店のアドレスになり、予約サイトの通知は見出しの From のドメインと DKIM で確かめるので、両方入れる。11/9 のデモを続けるなら `keep-sample` の行も足す（1 店目を足すと見本は誰からも見えなくなる）。そのとき、今 vars・secret で動いている受け口（`--inbox`）・サイト（`--site`）・送り主（`--sender`）・返信先（`--reply-to`）も keep-sample に渡す（行ができると、見本の店も vars ではなく行の値で動く）
-3. 紙の名簿で始める: `node tools/shop.mjs paper --id <店> --name <名前>`。名簿がまだ無いときだけ効く（もうあるお店は、予約の一覧の「健康の質問（お店ごと）」で切り替える）
-4. 1〜3 の文を D1 のコンソール（redux-rosters）に 1 文ずつ貼って Execute。`SELECT shop, json_extract(state, '$.shop.health') FROM rosters;` でそのお店が paper か確かめる
+3. 紙の名簿で始める: `node tools/shop.mjs paper --id <店> --name <名前> --read-area <左,上,右,下>`。名簿がまだ無いときだけ効く（もうあるお店は、予約の一覧の「健康の質問（お店ごと）」で切り替える）。
+   `--read-area` は、申込書の写真で AI に読ませる範囲（写真の幅と高さに対する割合）。見本づくりで届いたそのお店の申込書の写真で、名前・住所などの所を囲み、健康の欄から写真の高さの 5% 以上離す（斜めに撮られても入らないように）。付けたお店は、申込書をこの範囲だけ切り出して送り、お店は黒い四角を確かめなくてよい。付けないと、見本の書式の位置で塗るやり方になる（本物の書式では健康の欄がずれる）ので、試用のお店には必ず付ける（決定ログ 2026-11-02 trial-read-area）
+   試用のお店（paper）では、予約メールの文（/api/read の mail と転送の受け口）とお客さまの画面の AI（/api/guest-ai）を Worker が 409 で断る
+4. 1〜3 の文を D1 のコンソール（redux-rosters）に 1 文ずつ貼って Execute。`SELECT shop, json_extract(state, '$.shop.health'), json_extract(state, '$.shop.readArea') FROM rosters;` でそのお店が paper で、読む範囲が入っているか確かめる
 5. ★ Access の Policy と secret `ALLOWED_EMAILS` にスタッフを足す（ALLOWED_EMAILS は丸ごと上書きなので、今の値に足した全体を入れる。権限の付与なので Yosuke が画面で）
 6. ★ Email Routing に `<店>@reduxdive.com` → お店の Worker の規則を足し、お店に予約メールの転送の手順を送る
 

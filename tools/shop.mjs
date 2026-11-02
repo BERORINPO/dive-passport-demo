@@ -3,7 +3,9 @@
 // 使い方:
 //   node tools/shop.mjs add --id shop-a --name "A ダイブ" --member staff@example.com [--member …] [--site https://shop-a.example.com] [--inbox a@reduxdive.com] [--sender fwd@shop-a.example.com] [--sender @yoyaku.example.com] [--reply-to info@shop-a.example.com]
 //   node tools/shop.mjs set-reply-to --id shop-a --reply-to info@shop-a.example.com   返信先（お客さんへのメールの Reply-To）だけを直す。いまある行の他の欄は変えない
-//   node tools/shop.mjs paper --id shop-a --name "A ダイブ"   健康の質問を紙で聞く名簿で始める（試用の形。名簿がまだ無いお店だけ。もうあるお店は画面の「健康の質問（お店ごと）」で切り替える）
+//   node tools/shop.mjs paper --id shop-a --name "A ダイブ" [--read-area 0.04,0.08,0.96,0.5]   健康の質問を紙で聞く名簿で始める（試用の形。名簿がまだ無いお店だけ。もうあるお店は画面の「健康の質問（お店ごと）」で切り替える）
+//     --read-area は申込書の写真で AI に読ませる範囲（左,上,右,下。写真の幅と高さに対する割合）。そのお店の申込書の名前・住所などの所を囲み、健康の欄から離す。
+//     見本づくりで届いた写真で決める（docs/deploy.md 9b）。付けたお店は、申込書をこの範囲だけ切り出して送る（決定ログ 2026-11-02 trial-read-area）
 //   node tools/shop.mjs remove --id shop-a
 //   node tools/shop.mjs keep-sample       見本の名簿（default）を、お店を足したあとも見えるようにする行（スタッフは --member で）
 // add は同じ id があれば上書きする（--reply-to を付けないと、返信先も空に戻る。返信先だけ直すなら set-reply-to）。1 店目を足すと、見本（default）の名簿は一覧に無い限り誰からも見えなくなる
@@ -43,9 +45,17 @@ const replyTo = (text) => {
 };
 
 /* 引数を { cmd, id, name, members, sites, inbox, senders, replyTo } にする */
+/* --read-area の「左,上,右,下」（0〜1 の割合 4 つ）を読む。形は名簿の検査（js/roster-schema.js の areaOk）と同じ */
+function readAreaArg(text) {
+  const v = String(text).split(',').map(x => Number(x.trim()));
+  const area = { x0: v[0], y0: v[1], x1: v[2], y1: v[3] };
+  if (v.length !== 4 || !globalThis.REDUX.roster.areaOk(area)) throw new Error(`--read-area は「左,上,右,下」の 0〜1 の割合 4 つ（幅 0.2・高さ 0.1 以上）: ${text}`);
+  return area;
+}
+
 export function parseArgs(argv) {
   const [cmd, ...rest] = argv;
-  const out = { cmd, members: [], sites: [], senders: [], inbox: '', replyTo: '' };
+  const out = { cmd, members: [], sites: [], senders: [], inbox: '', replyTo: '', readArea: null };
   for (let i = 0; i < rest.length; i += 2) {
     const [k, v] = [rest[i], rest[i + 1]];
     if (v === undefined) throw new Error(`${k} の値が無い`);
@@ -56,6 +66,7 @@ export function parseArgs(argv) {
     else if (k === '--inbox') out.inbox = v;
     else if (k === '--sender') out.senders.push(v);
     else if (k === '--reply-to') out.replyTo = v;
+    else if (k === '--read-area') out.readArea = readAreaArg(v);
     else throw new Error(`知らない指定: ${k}`);
   }
   return out;
@@ -96,7 +107,8 @@ export function paperSql(a, at = new Date().toISOString()) {
   const name = String(a.name || '').trim();
   if (!name || name.length > 60) throw new Error('--name（お店の名前、60 字まで）が要る');
   const R = globalThis.REDUX;
-  const state = R.rosterCore.setHealthPaper(R.roster.blankState(name), { paper: true, at });
+  const paper = R.rosterCore.setHealthPaper(R.roster.blankState(name), { paper: true, at });
+  const state = a.readArea ? R.rosterCore.setReadArea(paper, { area: a.readArea, at }) : paper;
   if (!R.roster.validateState(state).ok) throw new Error('名簿の形が合わない');
   return `INSERT INTO rosters (shop, version, state, updated_at) VALUES (${q(a.id)}, 1, ${q(JSON.stringify(state))}, ${q(at)}) ON CONFLICT(shop) DO NOTHING;`;
 }

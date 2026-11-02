@@ -1,6 +1,9 @@
 /* 名簿の取り込み（お店、日本語のみ）: ① 申込書・C カードの写真を読む / ② 読み取りを確かめる。予約の画面（booking.js）から開く。
    写真は photo-prep.js が描き直して（申込書は健康の欄を塗って）作った物だけを AI に送る。塗る四角はお店が写真の上で確かめ、
-   隠れていない所があれば足す（健康の欄が離れて 2 か所あることもある）。申込書も C カードも、送る前に確認の印が要る。
+   お店の読む範囲（roster-core.js の readAreaOf。試用のお店に運営者が入れる）がある申込書は、その範囲だけを切り出して送り、塗る四角は使わない
+   （お店は撮って「読む」を押すだけ。決定ログ 2026-11-02 trial-read-area）。
+   隠れていない所があれば足す（健康の欄が離れて 2 か所あることもある）。申込書も C カードも、送る前に確認の印が要る（読む範囲で切り出すお店は印が無く、
+   切り出した写真を見て、健康の欄が写っていたら撮り直す）。
    AI が「健康の情報が見えた」と答えたら、その読み取りは使わない（送った記録には印が残る）。
    名簿の組み立てと判断は roster-core.js、保存は booking.js から受け取る ui.save を通す。
    AI やお客さんの文字は el() の text で出す。img の src は、見本の写真の場所か、この画面で作った写真だけ */
@@ -29,12 +32,16 @@
   };
   const HEALTH_LOCKED = { paper: '紙の申込書で聞きます（REDUX には入れません）', app: 'お客さん本人が答えます（お店は直せません）' };
   const healthWay = (s) => (C().paperOf(s) ? 'paper' : 'app');
+  /* 申込書を切り出して送るお店の文（健康の欄は送らない作り。写っていたら撮り直す） */
+  const AREA_NOTE = '申込書は、お店の書式の名前・住所などの所だけを切り出して AI に送ります。健康の欄が写っていたら、読まずに撮り直してください。健康の質問は、今まで通り紙の申込書で聞きます（REDUX には入れません）。';
+  const areaOf = () => C().readAreaOf(R.rosterStore.get());
   const HEALTH_SEEN = 'AI が「健康の情報が見えた」と答えたので、この読み取りは使いません。撮った書類と、塗った所を確かめてください。';
+  const HEALTH_SEEN_AREA = 'AI が「健康の情報が見えた」と答えたので、この読み取りは使いません。申込書を枠いっぱいに撮り直してください。';
   const now = () => new Date().toISOString();
 
   let shot = blankShot('');
   function blankShot(tripId) {
-    return { tripId, doc: '', src: null, sampleId: null, img: null, done: null, rects: [], confirmed: false,
+    return { tripId, doc: '', src: null, sampleId: null, img: null, done: null, rects: [], area: null, confirmed: false,
       prepared: null, reading: null, personId: '', otherName: false, loading: false, making: false, busy: false, error: '' };
   }
   function reset(tripId, doc) {
@@ -80,7 +87,8 @@
     const job = shot;
     job.src = src;
     job.sampleId = sampleId;
-    job.rects = job.doc === 'paper' ? [{ ...M().SAMPLE_FORM_HEALTH }] : [];
+    job.area = job.doc === 'paper' ? areaOf() : null;
+    job.rects = job.doc === 'paper' && !job.area ? [{ ...M().SAMPLE_FORM_HEALTH }] : [];
     job.loading = true;
     ui.rerender();
     try {
@@ -94,6 +102,7 @@
       job.loading = false;
       if (shot === job) ui.rerender();
     }
+    if (shot === job && job.img && job.area) await makePhoto(ui);   // 切り出すお店は、確かめる四角が無いので、すぐ作って見せる
   }
 
   /* 送る写真を作る。作っている間は写真も四角も変えられない */
@@ -103,9 +112,9 @@
     job.making = true;
     ui.rerender();
     try {
-      job.prepared = await R.photoPrep.prepare({ doc: job.doc, src: job.src, rects: job.rects, sampleId: job.sampleId });
+      job.prepared = await R.photoPrep.prepare({ doc: job.doc, src: job.src, rects: job.rects, sampleId: job.sampleId, area: job.area });
     } catch (e) {
-      job.error = '送る写真を作れませんでした。四角を引き直して、もう一度試してください';
+      job.error = job.area ? '送る写真を作れませんでした。写真を選び直してください' : '送る写真を作れませんでした。四角を引き直して、もう一度試してください';
     } finally {
       job.making = false;
       if (shot === job) ui.rerender();
@@ -123,7 +132,7 @@
       if (reading.healthSeen) {   // 塗り残しか、撮る書類の間違い。読み取りは使わず、塗る画面に戻す（同じ写真をもう一度送らせない）
         job.prepared = null;
         job.confirmed = false;
-        job.error = HEALTH_SEEN;
+        job.error = job.area ? HEALTH_SEEN_AREA : HEALTH_SEEN;
         return;
       }
       job.reading = reading;
@@ -136,7 +145,7 @@
       if (e.sent && e.sent.healthSeen) {   // 答えは壊れていても、健康が見えたと言っていたら、成功のときと同じく塗る画面に戻す
         job.prepared = null;
         job.confirmed = false;
-        job.error = HEALTH_SEEN;
+        job.error = job.area ? HEALTH_SEEN_AREA : HEALTH_SEEN;
       }
     } finally {
       job.busy = false;
@@ -204,7 +213,8 @@
       return [
         el('div', { class: 'facts' },
           el('p', { class: 'band__title', text: 'AI に送る写真' }),
-          el('p', { class: 'note', text: shot.doc === 'paper' ? '黒い所は送りません。描き直したので、撮った場所などの情報も入っていません。' : '描き直したので、撮った場所などの情報は入っていません。' }),
+          el('p', { class: 'note', text: shot.area ? '送るのは、この範囲（名前・住所などの所）だけです。健康の欄が写っていたら、読まずに「写真を選び直す」で撮り直してください。描き直したので、撮った場所などの情報も入っていません。'
+            : shot.doc === 'paper' ? '黒い所は送りません。描き直したので、撮った場所などの情報も入っていません。' : '描き直したので、撮った場所などの情報は入っていません。' }),
           el('img', { class: 'photo__sent', src: shot.prepared.dataUrl, alt: 'AI に送る写真' })),
         el('p', { class: 'note', text: !sampleMode ? 'この写真を Anthropic の AI に送ります。' : cannotRead
           ? 'いまは見本の読み取りです。読めるのは見本の写真だけです。'
@@ -212,9 +222,14 @@
         shot.reading ? readResult(ui) : ui.dock(
           shotErr(),
           el('button', { class: 'btn', type: 'button', disabled: cannotRead || shot.busy, text: shot.busy ? '読んでいます…' : 'この写真を AI で読む', onclick: () => readPhoto(ui) }),
-          el('button', { class: 'btn btn--ghost', type: 'button', disabled: shot.busy, text: '塗り直す', onclick: () => { shot.prepared = null; shot.confirmed = false; ui.rerender(); } }))
+          shot.area
+            ? el('button', { class: 'btn btn--ghost', type: 'button', disabled: shot.busy, text: '写真を選び直す',
+              onclick: () => { reset(shot.tripId, shot.doc); ui.rerender(); } })
+            : el('button', { class: 'btn btn--ghost', type: 'button', disabled: shot.busy, text: '塗り直す',
+              onclick: () => { shot.prepared = null; shot.confirmed = false; ui.rerender(); } }))
       ];
     }
+    if (shot.area) return shot.making ? el('p', { class: 'note', text: '送る範囲を切り出しています…' }) : null;   // 作れなかったときは、下の誤りの文だけ
     const paper = shot.doc === 'paper';
     const edit = (rects) => { shot.rects = rects; shot.confirmed = false; ui.rerender(); };
     return [
@@ -259,8 +274,8 @@
       el('div', { class: 'actions actions--two' },
         el('button', { class: `btn ${shot.doc === 'paper' ? '' : 'btn--ghost'}`, type: 'button', 'aria-pressed': String(shot.doc === 'paper'), text: '申込書を撮る', onclick: chooseDoc('paper') }),
         el('button', { class: `btn ${shot.doc === 'ccard' ? '' : 'btn--ghost'}`, type: 'button', 'aria-pressed': String(shot.doc === 'ccard'), text: 'C カードを撮る', onclick: chooseDoc('ccard') })),
-      el('p', { class: 'note', text: HEALTH_NOTE[healthWay(s)] }),
-      shot.doc ? el('div', { class: 'card' }, docStep(ui), photoStep(ui), shot.img ? null : shotErr()) : null,
+      el('p', { class: 'note', text: C().readAreaOf(s) ? AREA_NOTE : HEALTH_NOTE[healthWay(s)] }),
+      shot.doc ? el('div', { class: 'card' }, docStep(ui), photoStep(ui), shot.img && !(shot.area && !shot.prepared) ? null : shotErr()) : null,
       checks.length ? el('div', { class: 'sheet' },
         el('p', { class: 'sheet__title' }, `読み取りを確かめる（${checks.length} 人）`),
         el('ul', { class: 'checks' }, checks.map(p => el('li', {},

@@ -206,6 +206,11 @@
   const medicalOk = (m) => onlyKeys(m, MEDICAL_KEYS) && MEDICAL_KEYS.every(k => has(m, k)) &&
     isAge(m.age) && isAge(m.olderAge) && isDays(m.days) && isDays(m.olderDays) && isAge(m.trialMax);
 
+  /* 申込書の写真で AI に読ませる範囲（お店の書式の名前・住所などの所。写真の幅と高さに対する割合 0〜1）。切り出した外は送らない。
+     小さすぎる範囲は押しまちがいとして受けない（決定ログ 2026-11-02 trial-read-area） */
+  const areaOk = (a) => onlyKeys(a, ['x0', 'y0', 'x1', 'y1']) && ['x0', 'y0', 'x1', 'y1'].every(k => typeof a[k] === 'number' && Number.isFinite(a[k]) && a[k] >= 0 && a[k] <= 1) &&
+    a.x1 - a.x0 >= 0.2 && a.y1 - a.y0 >= 0.1;
+
   /* 便の中止。いつ・理由・中止を確かめた相乗りのお店（乗り合いの便だけ）。中止していない便には欄ごと無い */
   function cancelOk(c) {
     return onlyKeys(c, ['at', 'reason', 'acked']) && isStr(c.at, 40) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(c.at) && CANCEL_REASONS.includes(c.reason) &&
@@ -347,7 +352,8 @@
     const all = (list, fn) => Array.isArray(list) && list.every(x => fn(x).ok);
     return result([
       !(isObj(s.shop) && isStr(s.shop.name, 60) && (s.shop.health === undefined || s.shop.health === 'paper') &&   // health: 'paper' は健康の質問を紙で聞く
-        (s.shop.medical === undefined || medicalOk(s.shop.medical))) && 'shop',   // medical: 診断書の決まり（入れた店だけ）
+        (s.shop.medical === undefined || medicalOk(s.shop.medical)) &&   // medical: 診断書の決まり（入れた店だけ）
+        (s.shop.readArea === undefined || areaOk(s.shop.readArea))) && 'shop',   // readArea: 申込書の写真で AI に読ませる範囲（入れた店だけ）
       !all(s.trips, validateTrip) && 'trips', !all(s.bookings, validateBooking) && 'bookings',
       !all(s.people, validatePerson) && 'people', !(Array.isArray(s.log) && s.log.every(logOk)) && 'log',
       !(s.jobs === undefined || isList(s.jobs, MAX_JOBS, jobOk)) && 'jobs', !(s.outbox === undefined || isList(s.outbox, MAX_OUTBOX, outOk)) && 'outbox'
@@ -459,6 +465,7 @@
   }
 
   R.roster = {
+    areaOk,
     VERSION, KINDS, SOURCES, FIELD_SRC, LOG_WHO, COURSES, TODAY, DOCS, CHECK_STAGES, MAX_DIVES, CANCEL_REASONS, CANCEL_TEXT, HEALTH_QUESTIONS, SPO2_DIVES, SPO2_MIN, SPO2_MAX, MAX_TEXT, MAX_IMAGE, MAX_PEOPLE,
     ITEMS, AI_FIELDS, SUB, realDate, nextDay, blankTrip, blankBooking, blankPerson, blankState,
     SEXES, MAX_TANK_KINDS, blankPlan, planOk, MEDICAL_DEFAULT, MEDICAL_KEYS, medicalOk,

@@ -127,6 +127,16 @@
     return withLog({ ...state, shop }, entry(at, 'staff', 'edit', 'state', '', { fields: ['health'], before: { health: mode(!paper) }, after: { health: mode(paper) } }));
   }
 
+  /* 申込書の写真で AI に読ませる範囲（お店の書式ごと。無ければ null で、見本の書式の健康の欄を塗る今までのやり方）。
+     入れるのは運営者（tools/shop.mjs paper --read-area）。変えたら記録に残す（決定ログ 2026-11-02 trial-read-area） */
+  const readAreaOf = (state) => (state && state.shop && state.shop.readArea ? { ...state.shop.readArea } : null);
+  function setReadArea(state, { area, at }) {
+    if (area !== null && !R.roster.areaOk(area)) throw new Error('rosterCore: 読む範囲の形が合わない');
+    const { readArea, ...rest } = state.shop;
+    const shop = area ? { ...rest, readArea: { x0: area.x0, y0: area.y0, x1: area.x1, y1: area.y1 } } : rest;
+    return withLog({ ...state, shop }, entry(at, 'staff', 'edit', 'state', '', { fields: ['readArea'] }));
+  }
+
   /* 診断書のお店の決まり（js/roster-medical.js が当てはめる）。渡した欄だけ今の決まりに重ねる。形が違えば例外。変えたら記録に残す */
   const medicalOf = (state) => ({ ...S().MEDICAL_DEFAULT, ...((state.shop && state.shop.medical) || {}) });
   function setMedicalRules(state, { rules, at }) {
@@ -819,7 +829,7 @@
   }
 
   R.rosterCore = {
-    COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, medicalOf, setMedicalRules,
+    COURSE_JA, isPartnerBooking, isHeld, paperOf, PAPER_TEXT, setHealthPaper, readAreaOf, setReadArea, medicalOf, setMedicalRules,
     peopleOf, bookingsOf, tripOf, sameName, findByName, filled, status, askGuest, tripSummary,
     kindOf, tripList, suggestTrip, addTrip, addBookingToTrip, bookingFromIntake, addFromIntake, bookingFromReading, missingForReading, bookingProblems, bookingRows,
     reviewRows, reviewFields, confirmReview, toCheck, scrubLog,
