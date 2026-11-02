@@ -76,11 +76,32 @@ test('お客さんの Worker の /trial: 日本から入れ、フランスから
   for (const p of ['/ask', '/walkin']) assert.equal((await quiet(() => handlePublic(req(`https://ask.example.test${p}`, 'JP'), env, io))).status, 404);
 });
 
+test('案内ページの動画: Range に 206 と Content-Range で応える（iPhone の Safari が再生できる）。Range が無ければ 200 で全体、外れた範囲は 416', async () => {
+  const bytes = new Uint8Array(1000).map((_, i) => i % 256);
+  const env = { ASSETS: { fetch: async () => new Response(bytes, { status: 200, headers: { etag: '"v1"' } }) } };
+  const get = (range, method = 'GET') => quiet(() => handlePublic(req('https://ask.example.test/assets/lp/cm.mp4', 'JP', { method, headers: range ? { range } : {} }), env, io));
+  const first = await get('bytes=0-1');
+  assert.equal(first.status, 206);
+  assert.equal(first.headers.get('content-range'), 'bytes 0-1/1000');
+  assert.equal(first.headers.get('content-type'), 'video/mp4');
+  assert.equal(first.headers.get('accept-ranges'), 'bytes');
+  assert.deepEqual([...new Uint8Array(await first.arrayBuffer())], [0, 1]);
+  const tail = await get('bytes=-10');
+  assert.equal(tail.headers.get('content-range'), 'bytes 990-999/1000');
+  const open = await get('bytes=995-');
+  assert.equal((await open.arrayBuffer()).byteLength, 5);
+  const whole = await get(null);
+  assert.equal(whole.status, 200);
+  assert.equal(whole.headers.get('content-length'), '1000');
+  assert.equal((await get('bytes=2000-')).status, 416);
+  assert.equal((await get(null, 'POST')).status, 405);
+});
+
 test('置き方: Worker を通すのは /api と、出し分けるページだけ。HTML のファイルには計測のスクリプトを書かない', () => {
   const shop = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
   const ask = readFileSync(new URL('../wrangler.ask.jsonc', import.meta.url), 'utf8');
   assert.match(shop, /"run_worker_first": \["\/api\/\*", "\/", "\/index\.html"\]/);
-  assert.match(ask, /"run_worker_first": \["\/api\/\*", "\/trial", "\/trial\.html"\]/);
+  assert.match(ask, /"run_worker_first": \["\/api\/\*", "\/trial", "\/trial\.html", "\/assets\/lp\/cm\.mp4"\]/);
   for (const f of ['index.html', 'trial.html', 'ask.html', 'walkin.html', 'pass.html', 'data.html']) {
     assert.ok(!/<script[^>]*cloudflareinsights/.test(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')), f);
   }

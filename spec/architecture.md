@@ -65,7 +65,7 @@
 | walkin.html | なし | なし | 読まない |
 | trial.html | `https://static.cloudflareinsights.com/beacon.min.js/` | なし | 読まない |
 | data.html | なし | なし | 読まない |
-| shops.html | `https://berorinpo.github.io/dive-passport-demo/` | なし | 読む |
+| shops.html | `https://berorinpo.github.io/dive-passport-demo/` `https://mail.google.com/mail/` | なし | 読む |
 | css/app.css | なし | なし | — |
 | css/fonts.css | なし | なし | — |
 
@@ -184,3 +184,4 @@
 | 2026-11-01 trial-consent | 試用の店は、申込書に 1 行足してお客さんから米国（Anthropic・Cloudflare）に送る同意をもらい、受付に掲示（国・米国の制度・相手の守り）を貼る。同意の文には転送された予約メールとお店の端末で打った文も含め、メールの経路に送る前の画面は足さない。覚書はメールの「同意します」で交わし、損の扱いは「正本は紙、REDUX は補助」とだけ書く | 個人情報保護法 第 28 条と施行規則 第 17 条 2 項（同意の前に 3 つを見せる）。Yosuke が 4 つとも推奨の案を選んだ。却下: 相手の体制で満たす（専門家の確認なしに選べない）、メールにも送る前の画面（自動でなくなる）、試用中はメールを止める、紙の署名。法の読みは専門家に確かめていない | 無（文書だけ。お店に渡す紙なので page のテストは無い） |
 | 2026-11-02 sample-roster | お店に返す名簿の見本は、手元の tools/serve-dist.mjs に --real-ai を付けて作る。写真（画像の付いた要求）だけ本物の Claude API に送り、鍵は CLAUDE_WORKER_API_KEY。予約メール・お客さんの画面・Access・D1・KV は見本のまま。手順は docs/sample-roster.md | 協会への回覧（2026-11-01）で「架空の人の申込書 1 枚 → 見本を 3 日以内」を約束した。本番の Worker に見本用のお店を作ると Access と D1 に見本が混ざり、権限の付与も要る。手元なら店の画面そのもの（塗り・▲未確認・紙の名簿）で作れる。却下: 本番に見本のお店を足す・見本を手で表に書く（REDUX が作った物でなくなる） | 無（手元の道具。鍵が無ければ起動しない所だけ） |
 | 2026-11-02 trial-no-forwarding | 試用では予約メールを転送しない。読むのは、お客さんが申込書の同意の 1 行に署名したあとに撮る申込書と C カードの写真（とお店の端末でお客さんが打った文）だけ。shops.html・覚書（docs/trial-memo.md）・同意の文・掲示から試用の予約メールを外し、申し込みのひな形は「返事を受け取るアドレス」にした | 試用の一式を作る中で、予約メールはお客さんが申込書に署名する前に届き、同意の前に米国の AI へ送ることになると分かった（個人情報保護法 28 条は事前の同意）。Yosuke が A 案を選んだ。却下: B お店自身の予約フォームに同じ同意を入れた店だけ転送（大手の予約サイトでは入れられず、店ごとの設定が要る）・C 覚書のまま転送（法の隙間が残ったまま始まる、専門家未確認） | 有: test/build-site.test.mjs（「予約メールの転送は、試用ではしません」と申し込みのひな形） |
+| 2026-11-02 shop-lp-apply | 案内ページの申し込みは上の 1 か所（#apply）にまとめ、メールの道具（mailto）と Gmail の作成画面の 2 つの道を置く。上の帯・下の帯の「申し込む」はそこへ飛ぶだけ。案内ページの動画（cm.mp4）は Worker が返し、Range に 206 で応える | Gmail をブラウザだけで使うパソコンでは mailto を押しても何も起きない（Yosuke の指摘）。Static Assets は Range に 200 で全体を返し、iPhone の Safari は再生しない（実測）。shop-lp-look の「件名で押した所が分かる」はやめた。却下: スクリプトで宛先を写すボタン（ページはスクリプトを読まない）・動画を外の配信に置く（外へつなぐ所が増える）・3 つのボタンに Gmail を足す（ボタンが 6 つに増える） | 有: test/build-site.test.mjs（mailto 1・Gmail 1・#apply 2）・test/analytics.test.mjs（206・416・run_worker_first） |
