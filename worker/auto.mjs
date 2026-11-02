@@ -1,7 +1,7 @@
 /* 書類の自動化の入口（entry）。Cron（scheduled）・届いた予約メール（email()）・サイトの予約フォーム（POST /api/bookings の中身）を、
    名簿の正本（D1）につなぐだけ。決まりは auto-core.mjs と js/roster-auto.js、外との境目は roster-db・mail・site-guard・ask。計画は plan/auto.md。
    ログは 1 回 1 行で、道の名前・数・止まった理由だけ（宛先・名前・本文は出さない） */
-import { getRoster, putRoster, listTables } from './roster-db.mjs';
+import { getRoster, putRoster, listTables, paperShop } from './roster-db.mjs';
 import { checkPut, readStored, SHOP_DEFAULT } from './sync-core.mjs';
 import { checkRequest, periods } from './read-core.mjs';
 import { checkBooking, addSiteBooking, mailText, senderAllowed, forwarderOf, senderVerdict, markResults, runDue, roomForPublic, claimQueued, claimedBy, releaseStale,
@@ -235,6 +235,8 @@ async function takeMail(message, env, io, note) {
   const verdict = senderVerdict({ raw, envelope: message.from, senders, authservId: env.MAIL_AUTHSERV_ID });
   if (!verdict.ok) { note.why = 'auth'; note.authWhy = verdict.why; message.setReject('Sender not authenticated'); return; }
   note.via = verdict.via;
+  /* 試用のお店（健康を紙で聞く）は、届いた予約メールを AI に送らない（試用では転送しない決まり。転送されても読まない。決定ログ 2026-11-02 trial-read-area） */
+  if (await paperShop(env.DB, shop)) { note.why = 'paper'; return; }
   /* メールからの予約の 1 日の上限（全店あわせてと、お店ごと）。AI を呼ぶ前に数える（お店の読み取り /api/read の上限を食い尽くさせない） */
   const day = clockOf(io).today;
   if (!(await takeDailyAll(env.DB, { scope: 'mail', shop, day, max: MAIL_DAILY_MAX, maxAll: MAIL_DAILY_MAX_ALL }))) {

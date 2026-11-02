@@ -38,26 +38,29 @@
     return ctx.getImageData(0, 0, width, height).data;
   }
 
-  /* 描き直した写真に、四角（割合）を黒く塗り、送る形にする。sampleId は見本の読み取りだけが使う */
-  async function prepare({ doc, src, rects, sampleId }) {
+  /* 描き直した写真に、四角（割合）を黒く塗り、送る形にする。sampleId は見本の読み取りだけが使う。
+     area（お店の読む範囲）を渡した申込書は、その中だけを切り出して送る（塗る四角は要らない。外の健康の欄は写真に入らない） */
+  async function prepare({ doc, src, rects, sampleId, area = null }) {
     if (!['paper', 'ccard', 'list'].includes(doc)) throw new Error(`photo-prep: 写真の種類が違う (${doc})`);
     const boxes = (rects || []).filter(M().usable);
     if (boxes.length !== (rects || []).length) throw new Error('photo-prep: 使えない四角がある（写真の外か、小さすぎる）');
-    if (doc === 'paper' && !boxes.length) throw new Error('photo-prep: 申込書は健康の欄を塗ってから送る');
+    if (area && (doc !== 'paper' || boxes.length)) throw new Error('photo-prep: 切り出すのは申込書だけで、塗る四角とは一緒に使わない');
+    if (doc === 'paper' && !boxes.length && !area) throw new Error('photo-prep: 申込書は健康の欄を塗るか、読む範囲を切り出してから送る');
     const { img, done } = await loadImage(src);
     try {
-      const { width, height } = M().fitSize(img.naturalWidth, img.naturalHeight);
+      const cut = area ? M().cropPixels(area, img.naturalWidth, img.naturalHeight) : { x0: 0, y0: 0, x1: img.naturalWidth, y1: img.naturalHeight };
+      const { width, height } = M().fitSize(cut.x1 - cut.x0, cut.y1 - cut.y0);
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
+      ctx.drawImage(img, cut.x0, cut.y0, cut.x1 - cut.x0, cut.y1 - cut.y0, 0, 0, width, height);
       const masked = M().maskRGBA(ctx.getImageData(0, 0, width, height).data, width, height, boxes);
       ctx.putImageData(new ImageData(masked, width, height), 0, 0);
       const dataUrl = canvas.toDataURL('image/jpeg', QUALITY);
       const after = await pixelsOf(dataUrl, width, height);
       if (!boxes.every(b => M().darkInside(after, width, height, b))) throw new Error('photo-prep: 写真にした後、塗った所が暗くない');
-      const req = Object.freeze({ doc, image: dataUrl.slice(dataUrl.indexOf(',') + 1), masked: boxes.length > 0, ...(sampleId ? { sampleId } : {}) });
+      const req = Object.freeze({ doc, image: dataUrl.slice(dataUrl.indexOf(',') + 1), masked: boxes.length > 0 || !!area, ...(sampleId ? { sampleId } : {}) });
       prepared.add(req);
       return { req, dataUrl, width, height };
     } finally {

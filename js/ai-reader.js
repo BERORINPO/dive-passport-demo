@@ -10,7 +10,7 @@
   const PROBE_MS = 5000;
   const SAMPLE_MS = 700;               // 見本でも「読んでいる」間が分かるように少し待つ
 
-  /* kind: input（送る物が形に合わない）/ auth（Access のログインが切れた・通らない）/ limit（今日か今月の上限）/ offline（届かない）/ bad（答えが形に合わない）。
+  /* kind: input（送る物が形に合わない）/ auth（Access のログインが切れた・通らない）/ paper（試用のお店はメールの文を送らない）/ limit（今日か今月の上限）/ offline（届かない）/ bad（答えが形に合わない）。
      送ったあとの失敗には、送った量（sent）を付ける */
   class ReadError extends Error {
     constructor(kind, detail) {
@@ -70,6 +70,7 @@
       }
       // Access の期限切れは、別の場所のログイン画面への移動として返る
       if (res.type === 'opaqueredirect' || res.status === 401 || res.status === 403) throw new ReadError('auth', String(res.status));
+      if (res.status === 409) throw new ReadError('paper');   // 試用のお店は、メールの文を AI に送らない（写真だけ読む）
       if (res.status === 429) throw new ReadError('limit');
       if (res.status === 400 || res.status === 413) throw new ReadError('input', String(res.status));
       if (res.status === 502) {

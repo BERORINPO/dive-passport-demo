@@ -12,6 +12,19 @@ export async function listTables(db) {
   return (got.results || []).map(r => r.name);
 }
 
+/* 健康の質問を紙で聞くお店（試用の形。名簿の shop.health が 'paper'）か。名簿が無ければ false（見本の default など）。
+   名簿が読めないときは true（AI に送らない側に倒す。決定ログ 2026-11-02 trial-read-area） */
+export async function paperShop(db, shop) {
+  const got = await getRoster(db, shop);
+  if (got.text === null) return false;
+  try {
+    const s = JSON.parse(got.text);
+    return !!(s && s.shop && s.shop.health === 'paper');
+  } catch (e) {
+    return true;
+  }
+}
+
 export async function getRoster(db, shop) {
   const row = await db.prepare('SELECT version, state FROM rosters WHERE shop = ?1').bind(shop).first();
   return row ? { version: Number(row.version), text: String(row.state) } : { version: 0, text: null };

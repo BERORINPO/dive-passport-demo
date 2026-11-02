@@ -74,6 +74,16 @@
     return r.x1 - r.x0 >= 0.05 && r.y1 - r.y0 >= 0.03;
   }
 
+  /* 読む範囲（お店の書式の名前・住所の所）を画素の四角に直す。塗りと逆で、内側へ丸める（範囲の外を 1 画素も含めない）。
+     申込書はこの中だけを切り出して送り、外（健康の欄を含む）は送らない（決定ログ 2026-11-02 trial-read-area） */
+  function cropPixels(area, width, height) {
+    if (!isRect(area)) throw new Error('photo-mask: 範囲の形が合わない');
+    const x0 = Math.ceil(clamp01(area.x0) * width), y0 = Math.ceil(clamp01(area.y0) * height);
+    const x1 = Math.floor(clamp01(area.x1) * width), y1 = Math.floor(clamp01(area.y1) * height);
+    if (x1 - x0 < 1 || y1 - y0 < 1) throw new Error('photo-mask: 範囲が小さすぎる');
+    return { x0, y0, x1, y1 };
+  }
+
   /* 写真にした後（JPEG）でも、四角の中が塗られているか。明るさ（Y）で見る（JPEG は色をにじませるので、色ごとには見ない）。
      縁は JPEG でにじむので inset 画素だけ内側を見る。いちばん明るい所が max 以下で、平均が mean 以下（暗い写真と塗った写真を見分ける） */
   function darkInside(data, width, height, rect, { max = 48, mean = 8, inset = 2 } = {}) {
@@ -92,5 +102,5 @@
     return seen > 0 && sum / seen <= mean;
   }
 
-  R.photoMask = { SAMPLE_FORM_HEALTH, MAX_SIDE, rectFrom, toPixels, fitSize, maskRGBA, covered, usable, darkInside };
+  R.photoMask = { SAMPLE_FORM_HEALTH, MAX_SIDE, rectFrom, toPixels, cropPixels, fitSize, maskRGBA, covered, usable, darkInside };
 })();

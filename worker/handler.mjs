@@ -20,7 +20,7 @@ import { liveOf, checkPastRange, readPast, MAX_PAST_ROWS } from './past-core.mjs
 import { verifyAccess } from './access.mjs';
 import { remaining } from './budget.mjs';
 import { askModel } from './ask.mjs';
-import { getRoster, putRoster, getPast } from './roster-db.mjs';
+import { getRoster, putRoster, getPast, paperShop } from './roster-db.mjs';
 import { listUnread, dropUnread } from './unread-db.mjs';
 import { UNREAD_KEEP_DAYS, UNREAD_SHOW_MAX } from './auto-core.mjs';
 import { makeAskLink } from './ask-route.mjs';
@@ -74,6 +74,15 @@ async function healthz(env, io, shop) {
   }
 }
 
+/* 試用のお店なら 409（error: paper）を返す。名簿が読めなければ 503。どちらでもなければ null */
+async function paperRefusal(env, shop, note) {
+  let paper;
+  try { paper = await paperShop(env.DB, shop); } catch (e) { note.why = 'db'; return json(503, { error: 'db' }); }
+  if (!paper) return null;
+  note.why = 'paper';
+  return json(409, { error: 'paper' });
+}
+
 async function read(request, env, io, note, shop) {
   if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
   const raw = await readCapped(request, MAX_BODY);
@@ -85,6 +94,11 @@ async function read(request, env, io, note, shop) {
   if (!checked.ok) { note.why = checked.error.slice(0, 40); return json(400, { error: 'input' }); }
   const ask = checked.ask;
   Object.assign(note, { doc: ask.doc, size: ask.size, redacted: ask.redacted });
+  /* 試用のお店（健康を紙で聞く）は、メールの文を AI に送らない。読むのは写真だけ（決定ログ 2026-11-02 trial-read-area） */
+  if (ask.doc === 'mail') {
+    const refused = await paperRefusal(env, shop, note);
+    if (refused) return refused;
+  }
 
   const got = await askModel(ask, env, io, note, shop);
   if (got.ok) return json(200, got.reading);
@@ -96,6 +110,9 @@ async function read(request, env, io, note, shop) {
    （キーのお店は「<お店>~guest」。お客さんの質問で、メールの読み取りの上限を使い切らない）。体のことに触れた質問は AI を呼ばずに返す */
 async function guestAi(request, env, io, note, shop) {
   if (!/^application\/json(\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'type' });
+  /* 試用のお店（健康を紙で聞く）は、お客さんが打った文を AI に送らない（画面は決まった計算か、手で入れる形に戻る） */
+  const refused = await paperRefusal(env, shop, note);
+  if (refused) return refused;
   const raw = await readCapped(request, MAX_GUEST_BODY);
   if (raw === null) return json(413, { error: 'size' });
   let given;
