@@ -15,14 +15,14 @@
      Hallmark · genre: modern-minimal（design.md が正本）· macrostructure: Workbench · enrichment: 本物の画面（端末の枠は描かない）· nav: N9 · footer: Ft2
      ここでは何も集めない（入力欄なし）。申し込みは trial@reduxdive.com へのメール（Email Routing で運営者に転送）。運営者の名前は出さない（Yosuke、2026-10-31）。
      スクリプトは読まない。画面の絵と CM は assets/lp/、字体は fonts/ から。書いてある約束（無料・1 か月・先着 3 店・やめたら 30 日以内に消す）を変えたら、決定ログの行も直す
-     上の絵・数字の帯・困りごと 3 つは決定ログ 2026-11-01 shop-lp-look。申し込みのメールの件名は、押した所で変えてある（どこから来たか分かるように）:
-     「REDUX 試用の申し込み」= 一番上の絵の横 /「REDUX 試用を申し込みます」= 上の帯 /「REDUX の試用を希望します」= 下に付いてくる帯 -->
+     上の絵・数字の帯・困りごと 3 つは決定ログ 2026-11-01 shop-lp-look。申し込みは一番上の絵の横（#apply）の 1 か所で、メールの道具（mailto）と Gmail の 2 つの道を置く。
+     上の帯と下に付いてくる帯の「申し込む」は #apply へ飛ぶだけ（mailto は Gmail をブラウザだけで使うパソコンでは開かない。決定ログ 2026-11-02 shop-lp-apply） -->
 <header class="bar lp-bar"><div class="brand">
   <span class="brand__logo" aria-hidden="true"></span>
   <span class="brand__name">REDUX<small>ダイビングショップの名簿</small></span>
 </div>
 <nav class="lp-nav" aria-label="このページの中"><a href="#steps">使い方</a><a href="#cm">動画</a><a href="#terms">試用の条件</a><a href="#faq">よく聞かれること</a></nav>
-<div class="bar__end"><a class="lp-btn lp-btn--sm" href="mailto:trial@reduxdive.com?subject=REDUX%20%E8%A9%A6%E7%94%A8%E3%82%92%E7%94%B3%E3%81%97%E8%BE%BC%E3%81%BF%E3%81%BE%E3%81%99&amp;body=%E3%81%8A%E5%BA%97%E3%81%AE%E5%90%8D%E5%89%8D%EF%BC%9A%0D%0A%E8%BF%94%E4%BA%8B%E3%82%92%E5%8F%97%E3%81%91%E5%8F%96%E3%82%8B%E3%82%A2%E3%83%89%E3%83%AC%E3%82%B9%EF%BC%9A%0D%0A">申し込む</a></div>
+<div class="bar__end"><a class="lp-btn lp-btn--sm" href="#apply">申し込む</a></div>
 </header>
 
 <main>
@@ -32,11 +32,12 @@
       <p class="lp-kicker">沖縄のダイビングショップ向け</p>
       <h1 class="lp-h1">紙とメールの束から、<br>AI が名簿をつくる。</h1>
       <p class="lp-lede">予約メールと紙の申込書を AI が読み、条例の 13 項目の名簿に入れます。お店がするのは、印の付いた所を確かめることです。</p>
-      <div class="lp-ctas">
+      <div class="lp-ctas" id="apply">
         <a class="lp-btn" href="mailto:trial@reduxdive.com?subject=REDUX%20%E8%A9%A6%E7%94%A8%E3%81%AE%E7%94%B3%E3%81%97%E8%BE%BC%E3%81%BF&amp;body=%E3%81%8A%E5%BA%97%E3%81%AE%E5%90%8D%E5%89%8D%EF%BC%9A%0D%0A%E8%BF%94%E4%BA%8B%E3%82%92%E5%8F%97%E3%81%91%E5%8F%96%E3%82%8B%E3%82%A2%E3%83%89%E3%83%AC%E3%82%B9%EF%BC%9A%0D%0A">メールで試用を申し込む</a>
+        <a class="lp-btn lp-btn--ghost" href="https://mail.google.com/mail/?view=cm&amp;fs=1&amp;to=trial@reduxdive.com&amp;su=REDUX%20%E8%A9%A6%E7%94%A8%E3%81%AE%E7%94%B3%E3%81%97%E8%BE%BC%E3%81%BF&amp;body=%E3%81%8A%E5%BA%97%E3%81%AE%E5%90%8D%E5%89%8D%EF%BC%9A%0D%0A%E8%BF%94%E4%BA%8B%E3%82%92%E5%8F%97%E3%81%91%E5%8F%96%E3%82%8B%E3%82%A2%E3%83%89%E3%83%AC%E3%82%B9%EF%BC%9A%0D%0A">Gmail で申し込む</a>
         <a class="lp-btn lp-btn--ghost" href="#cm">30 秒の動画を見る</a>
       </div>
-      <p class="lp-send">送るのは、お店の名前と返事を受け取るアドレスだけ。宛先は <span class="lp-addr">trial@reduxdive.com</span></p>
+      <p class="lp-send">送るのは、お店の名前と返事を受け取るアドレスだけ。宛先は <span class="lp-addr">trial@reduxdive.com</span>（ボタンでメールが開かないときは、この宛先に送ってください）</p>
       <p class="lp-terms">試用は <b>0</b> 円・<b>1</b> か月・先着 <b>3</b> 店。試用で読むのは申込書と C カードの写真です（予約メールは使いません）</p>
     </div>
     <figure class="lp-scene">
@@ -130,7 +131,7 @@
 
 <div class="lp-dock"><div class="lp-wrap">
   <span>試用は 0 円・先着 3 店</span>
-  <a class="lp-btn" href="mailto:trial@reduxdive.com?subject=REDUX%20%E3%81%AE%E8%A9%A6%E7%94%A8%E3%82%92%E5%B8%8C%E6%9C%9B%E3%81%97%E3%81%BE%E3%81%99&amp;body=%E3%81%8A%E5%BA%97%E3%81%AE%E5%90%8D%E5%89%8D%EF%BC%9A%0D%0A%E8%BF%94%E4%BA%8B%E3%82%92%E5%8F%97%E3%81%91%E5%8F%96%E3%82%8B%E3%82%A2%E3%83%89%E3%83%AC%E3%82%B9%EF%BC%9A%0D%0A">メールで申し込む</a>
+  <a class="lp-btn" href="#apply">申し込む</a>
 </div></div>
 </div>
 </main>

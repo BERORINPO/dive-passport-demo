@@ -20,9 +20,9 @@
   "preview_urls": false,
   "assets": {
     "directory": "./dist-ask",
-    // /trial は計測を国で出し分けて Worker が返す（worker/page-serve.mjs。決定ログ 2026-10-29 analytics-country）
+    // /trial は計測を国で出し分けて Worker が返す（worker/page-serve.mjs。決定ログ 2026-10-29 analytics-country）。案内ページの動画は Range に 206 で応えるため Worker が返す
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*", "/trial", "/trial.html"],
+    "run_worker_first": ["/api/*", "/trial", "/trial.html", "/assets/lp/cm.mp4"],
     "not_found_handling": "none"
   },
   "services": [

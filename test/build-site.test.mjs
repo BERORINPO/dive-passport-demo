@@ -55,11 +55,18 @@ test('お店向けの試用の案内（shops.html）: お客さん用の Worker 
   assert.deepEqual([...new Set([...page.matchAll(/[\w.+-]+@[\w.-]+/g)].map(m => m[0]))], ['trial@reduxdive.com'], '書くアドレスは申し込み先だけ');
   for (const words of ['予約メールの転送は、試用ではしません', '先着 <b>3</b> 店', 'その答えは REDUX に入れません', '外し損ねると AI に届くことがあります', 'お店が送る前に見る画面がなく', '<span class="lp-fig">30</span> 日以内', '控えも含めて消します', 'Anthropic', 'href="data.html"']) assert.ok(page.includes(words), words);
   for (const m of page.matchAll(/<img [^>]*>/g)) assert.match(m[0], /width="\d+" height="\d+"/, '絵は幅と高さを書く（読み込みで画面がずれない）');
-  /* 申し込みのボタンは 3 つ。どれも本文にひな形（お店の名前・返事を受け取るアドレス。試用は予約メールを転送しない: 決定ログ 2026-11-02 trial-no-forwarding）を入れ、件名で押した所が分かる（決定ログ 2026-11-01 shop-lp-look） */
+  /* 申し込みは上の 1 か所（#apply）にまとめ、メールの道具（mailto）と Gmail の 2 つの道を置く。上の帯と下の帯のボタンはそこへ飛ぶだけ
+     （Gmail をブラウザだけで使うパソコンでは mailto を押しても何も起きない。2026-11-02 Yosuke の指摘。決定ログ 2026-11-02 shop-lp-apply）。
+     本文のひな形は、お店の名前・返事を受け取るアドレス（試用は予約メールを転送しない: 決定ログ 2026-11-02 trial-no-forwarding） */
   const mails = [...page.matchAll(/href="mailto:([^"]+)"/g)].map(m => new URL('mailto:' + m[1].replace(/&amp;/g, '&')));
-  assert.equal(mails.length, 3);
-  for (const u of mails) assert.ok(u.searchParams.get('body').includes('お店の名前') && u.searchParams.get('body').includes('返事を受け取るアドレス'), u.href);
-  assert.equal(new Set(mails.map(u => u.searchParams.get('subject'))).size, 3, '件名は押した所ごとに違う');
+  assert.equal(mails.length, 1);
+  const gmail = [...page.matchAll(/href="(https:\/\/mail\.google\.com\/mail\/[^"]+)"/g)].map(m => new URL(m[1].replace(/&amp;/g, '&')));
+  assert.equal(gmail.length, 1);
+  assert.equal(gmail[0].searchParams.get('to'), 'trial@reduxdive.com');
+  assert.equal(gmail[0].searchParams.get('su'), mails[0].searchParams.get('subject'));
+  for (const body of [mails[0].searchParams.get('body'), gmail[0].searchParams.get('body')]) assert.ok(body.includes('お店の名前') && body.includes('返事を受け取るアドレス'), body);
+  assert.ok(page.includes('<div class="lp-ctas" id="apply">'));
+  assert.equal([...page.matchAll(/href="#apply"/g)].length, 2, '上の帯と下の帯の申し込むは #apply へ');
   assert.ok(page.includes('<span class="lp-addr">trial@reduxdive.com</span>'), 'メールの道具が開かない人のために、宛先を字でも出す');
   /* 実際の動きと食い違う言い切りを書かない（お店は印の所を直す・お客さんが返事をしないと名簿はそろわない。健康の欄の塗りはずれうる・試用の健康は紙。メイ FAIL 2026-11-01 ×2） */
   for (const words of ['書き写す所はありません', '書き写す所はない', '1 回だけ', '朝には名簿', '項目すべて', '外してから送ります', '塗ってから送ります', 'お客さん本人が答えます', '名簿に保存しますが', '外したり隠したりしてから送りますが', 'AI には送りません']) assert.ok(!page.includes(words), words);
