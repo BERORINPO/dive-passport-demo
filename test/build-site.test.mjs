@@ -57,6 +57,7 @@ test('お店向けの試用の案内（shops.html）: お客さん用の Worker 
   assert.deepEqual([...page.matchAll(/<form [^>]*>/g)].map(m => m[0]), ['<form class="lp-apply" id="apply" action="/api/trial-apply" method="post">']);
   assert.deepEqual([...page.matchAll(/<input [^>]*name="([^"]+)"/g)].map(m => m[1]), ['shop', 'email', 'website']);
   assert.ok(page.includes('<label class="lp-trap" aria-hidden="true">') && page.includes('id="sent"') && page.includes('id="apply-error"'));
+  assert.ok(page.includes('運営：皆川 陽介（個人。沖縄の専門学校の学生）／連絡先：'), '運営者の名前を出す（決定ログ 2026-11-02 shop-lp-operator）');
   assert.ok(page.includes('試用の案内の連絡にだけ使います') && page.includes('href="data.html">データの扱い</a>'));
   assert.ok(/<meta http-equiv="Content-Security-Policy" content="[^"]*form-action 'self'"/.test(page), 'ページの中の CSP もフォームの送信を止めない（ブラウザは見出しと meta の両方を守る。メイ 2026-11-02）');
   assert.deepEqual([...new Set([...page.matchAll(/[\w.+-]+@[\w.-]+/g)].map(m => m[0]))], ['trial@reduxdive.com'], '書くアドレスは申し込み先だけ');

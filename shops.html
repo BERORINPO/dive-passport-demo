@@ -13,7 +13,7 @@
 <body class="lp">
 <!-- お店向けの試用の案内（決定ログ 2026-10-31 shop-trial-page・shop-lp）。CM・PR から来たお店に、本物の画面を順に見せて、メールで申し込んでもらう。
      Hallmark · genre: modern-minimal（design.md が正本）· macrostructure: Workbench · enrichment: 本物の画面（端末の枠は描かない）· nav: N9 · footer: Ft2
-     集めるのは申し込みのフォームの 2 つ（お店の名前・返事を受け取るアドレス）だけで、保存せず運営者のメールに届ける（redux-ask の /api/trial-apply。決定ログ 2026-11-02 shop-lp-form）。メールの道は trial@reduxdive.com（Email Routing で運営者に転送）。運営者の名前は出さない（Yosuke、2026-10-31）。
+     集めるのは申し込みのフォームの 2 つ（お店の名前・返事を受け取るアドレス）だけで、保存せず運営者のメールに届ける（redux-ask の /api/trial-apply。決定ログ 2026-11-02 shop-lp-form）。メールの道は trial@reduxdive.com（Email Routing で運営者に転送）。運営者の名前（皆川 陽介、個人）は下の注記に出す（2026-11-02 Yosuke「やっぱ名前書こう」。10/31 の「出さない」を変えた。決定ログ 2026-11-02 shop-lp-operator）。電話番号と住所は出さない。
      スクリプトは読まない。画面の絵と CM は assets/lp/、字体は fonts/ から。書いてある約束（無料・1 か月・先着 3 店・やめたら 30 日以内に消す）を変えたら、決定ログの行も直す
      上の絵・数字の帯・困りごと 3 つは決定ログ 2026-11-01 shop-lp-look。申し込みは一番上の絵の横（#apply）の 1 か所で、メールの道具（mailto）と Gmail の 2 つの道を置く。
      上の帯と下に付いてくる帯の「申し込む」は #apply へ飛ぶだけ（mailto は Gmail をブラウザだけで使うパソコンでは開かない。決定ログ 2026-11-02 shop-lp-apply） -->
@@ -143,7 +143,8 @@
 </main>
 
 <footer class="foot lp-wrap">
-  <p class="note">画面の名前と数字は、すべて見本です。沖縄の専門学校の学生が作っています。運営者の名前と連絡先は、申し込みへの返信でお知らせします。</p>
+  <p class="note">画面に出てくる名前と数字は、すべて見本です。</p>
+  <p class="note">運営：皆川 陽介（個人。沖縄の専門学校の学生）／連絡先：<span class="lp-addr">trial@reduxdive.com</span></p>
   <a class="linkbtn linkbtn--muted" href="data.html">データの扱いと外部送信について / How data is handled</a>
   <a class="linkbtn linkbtn--muted" href="https://berorinpo.github.io/dive-passport-demo/">見本の画面を触ってみる</a>
 </footer>
