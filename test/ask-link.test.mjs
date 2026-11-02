@@ -597,7 +597,7 @@ test('向こうの答えは信用しない: 形が合わない答えは 500（cr
 
 test('redux-ask の束: D1 の binding も、名簿・お店の一覧・鍵の行・お店の道を読むファイルも入らない。口は 9 つの RPC だけ', () => {
   const files = reachable('worker/ask-index.mjs').filter(f => f.startsWith('worker/')).sort();
-  assert.deepEqual(files, ['worker/analytics-core.mjs', 'worker/api-http.mjs', 'worker/ask-index.mjs', 'worker/ask-input.mjs', 'worker/ask-key.mjs', 'worker/auto-core.mjs', 'worker/backup-core.mjs',
+  assert.deepEqual(files, ['worker/analytics-core.mjs', 'worker/api-http.mjs', 'worker/apply-core.mjs', 'worker/apply-mail.mjs', 'worker/ask-index.mjs', 'worker/ask-input.mjs', 'worker/ask-key.mjs', 'worker/auto-core.mjs', 'worker/backup-core.mjs',
     'worker/page-headers.mjs', 'worker/page-serve.mjs', 'worker/past-core.mjs', 'worker/public-handler.mjs', 'worker/shop-client.mjs', 'worker/site-guard.mjs', 'worker/sync-core.mjs',
     'worker/trial-core.mjs'], '足すときは、ここに増えるファイルが D1・名簿・お店の道に触れないことを確かめてから');
   for (const f of files) {
@@ -609,7 +609,9 @@ test('redux-ask の束: D1 の binding も、名簿・お店の一覧・鍵の�
   assert.equal(ask.d1_databases, undefined, 'redux-ask は D1 の binding を持たない');
   assert.deepEqual(ask.services, [{ binding: 'SHOP', service: jsonc('wrangler.jsonc').name, entrypoint: 'ShopRpc' }]);
   assert.deepEqual(ask.kv_namespaces.map(k => k.binding), ['BUDGET'], 'KV は /api/health の cron:last を読む BUDGET だけ');
-  assert.deepEqual(ask.ratelimits.map(r => r.name).sort(), ['ASK_LIMIT', 'BOOKING_LIMIT', 'INTAKE_LIMIT']);
+  assert.deepEqual(ask.ratelimits.map(r => r.name).sort(), ['APPLY_LIMIT', 'ASK_LIMIT', 'BOOKING_LIMIT', 'INTAKE_LIMIT']);
+  /* 送れるメールは申し込みフォームの 1 本だけ（送り元は yoyaku@、宛先は secret の APPLY_TO） */
+  assert.deepEqual(ask.send_email, [{ name: 'APPLY_MAIL', allowed_sender_addresses: ['yoyaku@reduxdive.com'] }]);
   assert.equal(jsonc('wrangler.jsonc').d1_databases[0].binding, 'DB', 'D1 を持つのはお店の Worker だけ');
 });
 

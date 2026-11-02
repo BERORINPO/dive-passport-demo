@@ -32,7 +32,9 @@ const trial = ask.replace(`img-src 'none'`, `img-src 'self'`).replace(`script-sr
 const data = join([`default-src 'none'`, `script-src 'none'`, `style-src 'self'`, `img-src 'none'`, `connect-src 'none'`, ...TAIL]);
 
 /* shops.html（お店向けの試用の案内。決定ログ 2026-10-31 shop-lp）はスクリプトを読まず、同じ場所の字体・画面の絵・CM の動画だけを読む */
-const shops = join([`default-src 'none'`, `script-src 'none'`, `style-src 'self'`, `font-src 'self'`, `img-src 'self'`, `media-src 'self'`, `connect-src 'none'`, ...TAIL]);
+/* 申し込みのフォーム（スクリプトなしの POST /api/trial-apply）だけ、送り先を同じ場所に許す（決定ログ 2026-11-02 shop-lp-form） */
+const shops = join([`default-src 'none'`, `script-src 'none'`, `style-src 'self'`, `font-src 'self'`, `img-src 'self'`, `media-src 'self'`, `connect-src 'none'`,
+  ...TAIL.map(d => (d.startsWith('form-action') ? `form-action 'self'` : d))]);
 
 export const CSP = { index, pass, ask, trial, data, shops };
 

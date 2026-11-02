@@ -695,6 +695,14 @@ html:has(body.lp) { overflow-x: clip; scroll-padding-bottom: 80px; }
 .lp-kicker { margin: 0 0 12px; font-size: 14px; font-weight: 700; color: var(--accent); }
 .lp-ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .lp-send { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+.lp-send a { color: var(--accent); font-weight: 700; text-underline-offset: 3px; }
+/* 申し込みのフォーム（スクリプトなし）。送ったあとの文は、Worker が戻す #sent・#apply-error のときだけ出す（:target） */
+.lp-apply { display: grid; gap: 12px; margin-top: 24px; max-width: 30em; }
+.lp-apply .lp-ctas { margin-top: 4px; }
+.lp-trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.lp-note { display: none; margin: 0; padding: 12px 0; border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); font-weight: 700; }
+.lp-note:target { display: block; }
+.lp-note--ng { border-color: var(--warn-line); color: var(--warn); }
 .lp-addr { font-family: var(--font-figure); color: var(--ink); user-select: all; }
 /* 一番上の絵: 紙の申込書（見本）を傾けて重ね、予約メールの札と、今日の名簿の画面を並べる。動かさない */
 .lp-scene { margin: 0; width: 100%; max-width: 520px; justify-self: center; }
