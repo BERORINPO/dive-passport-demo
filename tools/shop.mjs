@@ -1,7 +1,7 @@
 // お店の一覧（D1 の shops。worker/migrations/0003_shops.sql、plan/server.md「お店ごと」）を足す・直す・消す SQL を作る。
 // 入れた値を確かめてから、D1 のコンソール（Cloudflare の画面 → D1 → redux-rosters → Console）に貼る 1 文を出す。D1 には自分ではつながない。
 // 使い方:
-//   node tools/shop.mjs add --id shop-a --name "A ダイブ" --member staff@example.com [--member …] [--site https://shop-a.example.com] [--inbox a@reduxdive.com] [--sender fwd@shop-a.example.com] [--reply-to info@shop-a.example.com]
+//   node tools/shop.mjs add --id shop-a --name "A ダイブ" --member staff@example.com [--member …] [--site https://shop-a.example.com] [--inbox a@reduxdive.com] [--sender fwd@shop-a.example.com] [--sender @yoyaku.example.com] [--reply-to info@shop-a.example.com]
 //   node tools/shop.mjs set-reply-to --id shop-a --reply-to info@shop-a.example.com   返信先（お客さんへのメールの Reply-To）だけを直す。いまある行の他の欄は変えない
 //   node tools/shop.mjs paper --id shop-a --name "A ダイブ"   健康の質問を紙で聞く名簿で始める（試用の形。名簿がまだ無いお店だけ。もうあるお店は画面の「健康の質問（お店ごと）」で切り替える）
 //   node tools/shop.mjs remove --id shop-a
@@ -26,6 +26,13 @@ const email = (text, what) => {
   const e = String(text || '').trim().toLowerCase();
   if (!EMAIL.test(e)) throw new Error(`${what}のメールアドレスが読めない: ${text}`);
   return e;
+};
+
+/* 送り主。転送してくる人のアドレスか、転送された予約サイトの通知の「@ドメイン」（auto-core.mjs の senderVerdict の b） */
+const SENDER_DOMAIN = /^@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+const sender = (text) => {
+  const e = String(text || '').trim().toLowerCase();
+  return SENDER_DOMAIN.test(e) ? e : email(e, '送り主');
 };
 
 /* 返信先。Worker が読める形（shop-core.mjs の replyAddress）でなければ止める（読めない値を D1 に入れて、黙って付かなくなるのを防ぐ） */
@@ -74,7 +81,7 @@ export function shopSql(a) {
   const members = [...new Set(a.members.map(m => email(m, 'スタッフ')))];
   const sites = [...new Set(a.sites.map(origin))];
   const inbox = a.inbox ? email(a.inbox, '受け口') : '';
-  const senders = [...new Set(a.senders.map(m => email(m, '送り主')))];
+  const senders = [...new Set(a.senders.map(sender))];
   const reply = a.replyTo ? replyTo(a.replyTo) : '';
   const cols = [q(a.id), q(name), q(JSON.stringify(members)), q(JSON.stringify(sites)), q(inbox), q(JSON.stringify(senders)), q(reply)];
   return `INSERT INTO shops (id, name, members, sites, inbox, senders, reply_to) VALUES (${cols.join(', ')}) ` +

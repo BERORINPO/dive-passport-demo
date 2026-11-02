@@ -344,6 +344,12 @@ test('お店を足す道具（tools/shop.mjs）: 作る値を Worker がその�
     assert.throws(() => shopSql(parseArgs(bad)), undefined, bad.join(' '));
   }
   assert.match(shopSql(parseArgs(['keep-sample', '--member', 'a@b.co'])), /VALUES \('default'/);
+  /* 送り主は「@ドメイン」も入れられる（転送された予約サイトの通知。Worker は封筒の送り主とは比べず、見出しの From と DKIM で見る） */
+  const dom = shopSql(parseArgs(['add', '--id', 'x', '--name', 'x', '--member', 'a@b.co', '--sender', 'Fwd@Shop.example.com', '--sender', '@Yoyaku.Example.com']));
+  assert.ok(dom.includes(`'${JSON.stringify(['fwd@shop.example.com', '@yoyaku.example.com'])}'`), dom);
+  for (const bad of ['@', '@example', '@-bad.example.com', '@exa mple.com', "@ex'ample.com", 'example.com']) {
+    assert.throws(() => shopSql(parseArgs(['add', '--id', 'x', '--name', 'x', '--member', 'a@b.co', '--sender', bad])), undefined, bad);
+  }
   /* 返信先だけを直す 1 文（いまある行の他の欄は変えない）。入れた値を Worker がそのまま読める */
   const upd = shopSql(parseArgs(['set-reply-to', '--id', 'shop-a', '--reply-to', ' Info@Shop-A.example.com ']));
   assert.equal(upd, "UPDATE shops SET reply_to = 'info@shop-a.example.com' WHERE id = 'shop-a';");
