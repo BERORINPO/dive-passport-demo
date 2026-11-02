@@ -240,7 +240,8 @@
           field('どこから', el('select', { class: 'input', onchange: set('source') },
             ['phone', 'form'].map(k => el('option', { value: k, selected: k === phone.source, text: SOURCE_JA[k] }))))),
         field('メモ', el('textarea', { class: 'input', rows: 3, maxlength: 400, text: phone.note, oninput: set('note') }),
-          '健康のことは書かないでください。名簿の健康の欄は、お客さんが自分で選びます。')),
+          C().paperOf(R.rosterStore.get()) ? '健康のことは書かないでください。健康の質問は、紙の申込書で聞きます。'
+            : '健康のことは書かないでください。名簿の健康の欄は、お客さんが自分で選びます。')),
       back(),
       dock(errorsNode, el('button', { class: 'btn', type: 'button', text: '予約を入れる', onclick: () => commitPhone(errorsNode) }))
     ];
