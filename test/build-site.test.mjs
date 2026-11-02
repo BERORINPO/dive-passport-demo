@@ -2,7 +2,7 @@
 // 実行: node test/build-site.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { headers, siteFiles, askHeaders, askFiles, askLpFiles } from '../tools/build-site.mjs';
+import { headers, siteFiles, askHeaders, askFiles, askLpFiles, askRedirects } from '../tools/build-site.mjs';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -81,6 +81,11 @@ test('置く物: 案内役の絵は置き、3D の亀（glb）と声（mp3）は
   const files = siteFiles();
   assert.ok(files.includes('assets/chara.png'));
   assert.deepEqual(files.filter(f => /\.(glb|mp3)$/.test(f) || /turtle/.test(f)), []);
+});
+
+test('ask.reduxdive.com の入口（/）: お店向けの試用の案内（/shops）へ回す。ほかの道は回さない', () => {
+  assert.equal(askRedirects(), '/ /shops 302\n');
+  assert.ok(askFiles().includes('shops.html'));
 });
 
 let failed = 0;
