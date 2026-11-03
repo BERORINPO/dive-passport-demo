@@ -51,7 +51,7 @@
   function accept(x) {
     const v = R.roster.validateReading(x);
     if (!v.ok) throw new ReadError('bad', v.errors.join(','));
-    return x;
+    return R.readCheck && R.today ? R.readCheck.flag(x, R.today()) : x;   // ありえない値は「確かめる」に回す（Worker でもかける）
   }
 
   async function readReal(body) {

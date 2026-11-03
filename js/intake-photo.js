@@ -351,10 +351,16 @@
     ui.rerender();
   }
 
+  /* 印の理由。値の見直し（js/read-check.js）で引っかかった項目はその理由、ほかは AI の自信が低い所 */
+  function whyUnsure(row, p) {
+    if (['guest', 'passport'].includes(row.src)) return `${SRC_JA[row.src]}が片方だけ入れました。同じカードの物か確かめてください`;
+    const found = R.readCheck && R.today ? R.readCheck.problems(p, R.today())[row.field] : '';
+    return found ? `${found}。書類と見比べてください` : 'AI の自信が低い所です。書類と見比べてください';
+  }
+
   /* 1 項目分: 名前と印、入力欄、印の理由か前の値 */
   function fieldBlock(row, p, patch, ui) {
     const changed = Object.prototype.hasOwnProperty.call(patch, row.field);
-    const byGuest = ['guest', 'passport'].includes(row.src);
     const mark = changed ? ['cf__mark--fixed', '直した'] : row.unsure ? ['cf__mark--check', '! 確かめる'] : null;
     const undo = () => { Object.keys(review.edits).filter(k => k.split('.')[0] === row.field).forEach(k => delete review.edits[k]); ui.rerender(); };
     return el('div', { class: 'cf' },
@@ -362,7 +368,7 @@
       editor(row, p, ui),
       changed ? el('p', { class: 'cf__was' }, `前の値: ${valueText(row.field, p[row.field])}　`,
         el('button', { class: 'linkbtn', type: 'button', text: '元に戻す', onclick: undo }))
-        : row.unsure ? el('p', { class: 'cf__why', text: byGuest ? `${SRC_JA[row.src]}が片方だけ入れました。同じカードの物か確かめてください` : 'AI の自信が低い所です。書類と見比べてください' }) : null);
+        : row.unsure ? el('p', { class: 'cf__why', text: whyUnsure(row, p) }) : null);
   }
 
   /* 名簿に入れたあと: この人の記録（新しい順） */

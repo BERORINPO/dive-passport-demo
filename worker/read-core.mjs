@@ -3,6 +3,7 @@
    プロンプト・model・max_tokens は Worker が決める。画面から来た指定は使わない */
 import '../js/roster-schema.js';
 import '../js/health-redact.js';
+import '../js/read-check.js';
 
 const R = globalThis.REDUX;
 
@@ -144,9 +145,10 @@ export function jsonObjects(text) {
 /* AI の答えの文から JSON を取り出し、答えの形に直して検査する。予約は予約メールのときだけ受け取る。
    参加者の塊と予約の塊が分かれて返ったときは、参加者の塊に予約の項目が無いときだけ足す。
    参加者の塊・予約の塊が 2 つ以上あれば断る（書類に仕込まれた JSON を AI が書き写したとき、どちらが本当か決められない。ザクのレビュー）。
+   today（YYYY-MM-DD）を渡すと、ありえない値に「確かめる」の印を足す（js/read-check.js）。
    健康の情報が見えた印は安全な側に倒す: 答えの文のどこかで true と言っていれば true（壊れた答えでも、healthSeen で返す） */
 const SAID_HEALTH = /"health_info_visible"\s*:\s*"?true\b/i;   // 文字の "true" でも見えた側に倒す
-export function readingFrom(text, doc) {
+export function readingFrom(text, doc, today = '') {
   if (typeof text !== 'string') return { ok: false, error: 'no-json', healthSeen: false };
   const healthSeen = SAID_HEALTH.test(text);
   const fail = (error) => ({ ok: false, error, healthSeen });
@@ -161,7 +163,7 @@ export function readingFrom(text, doc) {
   if (healthSeen) raw.health_info_visible = true;
   const reading = R.roster.fromModel(doc === 'mail' ? raw : { ...raw, booking: undefined });
   const v = R.roster.validateReading(reading);
-  return v.ok ? { ok: true, reading } : fail(v.errors.join(','));
+  return v.ok ? { ok: true, reading: R.readCheck.flag(reading, today) } : fail(v.errors.join(','));
 }
 
 /* 上限の判定（数えるのは呼ぶ前）。{ day: 今日呼んだ回数, month: 今月使った額 } と上限から、超えるなら 'day' か 'month' */
