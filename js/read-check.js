@@ -66,5 +66,56 @@
     return { ...reading, people };
   }
 
-  R.readCheck = { problems, flag, phoneOk };
+  /* ---------- 2 つの AI の答えの突き合わせ（決定ログ 2026-11-03 second-reader） ----------
+     同じ書類を別の AI（確かめ役）にも読ませ、答えが割れた項目を「確かめる」に回す。名簿に入れるのは 1 つ目の答えの値だけ（混ぜない）。
+     書き方の違い（空白・ハイフン・全角半角）は割れたと数えない。片方だけ空なら割れたと数える */
+  const norm = (v) => String(v == null ? '' : v).normalize('NFKC').replace(/[\s‐-―−ー\-]/g, '').toLowerCase();
+  const SAME = {
+    name: (a, b) => norm(a.name) === norm(b.name),
+    birthDate: (a, b) => a.birthDate === b.birthDate,
+    phone: (a, b) => digitsOf(a.phone) === digitsOf(b.phone),
+    address: (a, b) => norm(a.address) === norm(b.address),
+    emergency: (a, b) => norm(a.emergency.name) === norm(b.emergency.name) && norm(a.emergency.relation) === norm(b.emergency.relation) &&
+      digitsOf(a.emergency.phone) === digitsOf(b.emergency.phone),
+    cert: (a, b) => a.cert.course === b.cert.course && a.cert.date === b.cert.date,
+    dives: (a, b) => a.dives === b.dives,
+    lastDive: (a, b) => a.lastDive === b.lastDive,
+    sizes: (a, b) => ['height', 'weight', 'foot'].every(k => a.sizes[k] === b.sizes[k])
+  };
+  const FIELDS = Object.keys(SAME);
+  const BOOKING_KEYS = ['site', 'ref', 'date', 'start', 'tour', 'people', 'leadName', 'leadPhone', 'leadEmail'];
+  const sameBooking = (k, a, b) => (k === 'leadPhone' ? digitsOf(a[k]) === digitsOf(b[k]) : norm(a[k]) === norm(b[k]));
+  const blankOf = (p, f) => (f === 'emergency' || f === 'cert' || f === 'sizes' ? Object.values(p[f]).every(v => v === '') : p[f] === '');
+  const addUnsure = (x, more) => {
+    const add = more.filter(f => !x.unsure.includes(f));
+    return add.length ? { ...x, unsure: [...x.unsure, ...add] } : x;
+  };
+
+  /* 確かめ役の答えが無い（呼べなかった・形が合わない）ときは、値のある項目を全部「確かめる」にする（黙って 1 つの答えで入れない） */
+  function markAll(reading) {
+    const people = reading.people.map(p => addUnsure(p, FIELDS.filter(f => !blankOf(p, f))));
+    const b = reading.booking;
+    const booking = b ? addUnsure(b, BOOKING_KEYS.filter(k => b[k] !== '')) : b;
+    return { ...reading, people, booking };
+  }
+
+  /* first: 名簿に入れる答え。second: 確かめ役の答え（無ければ null）。人は名前で組にする。組にならない人は全項目を確かめる。
+     健康の情報が見えた印は、どちらかが見えたと言えば見えた（安全な側） */
+  function crossCheck(first, second) {
+    if (!second) return markAll(first);
+    const left = [...second.people];
+    const people = first.people.map(p => {
+      const i = left.findIndex(q => p.name && norm(q.name) === norm(p.name));
+      const q = i === -1 ? (first.people.length === 1 && left.length === 1 ? left[0] : null) : left[i];
+      if (!q) return addUnsure(p, FIELDS.filter(f => !blankOf(p, f)));
+      left.splice(left.indexOf(q), 1);
+      return addUnsure(p, FIELDS.filter(f => !SAME[f](p, q)));
+    });
+    const a = first.booking;
+    const b = second.booking;
+    const booking = a ? addUnsure(a, BOOKING_KEYS.filter(k => (b ? !sameBooking(k, a, b) : a[k] !== ''))) : a;
+    return { ...first, people, booking, healthSeen: first.healthSeen === true || second.healthSeen === true };
+  }
+
+  R.readCheck = { problems, flag, phoneOk, crossCheck, markAll };
 })();

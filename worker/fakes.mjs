@@ -46,18 +46,27 @@ export async function fakeAccess(team, kid = 'key-1') {
 }
 
 export function fakeAnthropic() {
+  /* calls は名簿に入れる答えの AI（claude-haiku-5-5）の呼び出し、checks は確かめ役（claude-sonnet-5-5）の呼び出し。
+     確かめ役は checkAnswer・checkStatus が null なら answer・status と同じに答える（2 つの AI が同じ答え） */
   const api = {
     calls: [],
+    checks: [],
     status: 200,
+    checkStatus: null,
     stopReason: 'end_turn',
     usage: { input_tokens: 1200, output_tokens: 400 },
     answer: '{"participants": [], "health_info_visible": false}',
+    checkAnswer: null,
     thinkingFirst: true,
     async respond(init) {
       checkRedirect(init);
-      api.calls.push({ headers: new Headers(init.headers), body: JSON.parse(init.body), redirect: init.redirect });
-      if (api.status !== 200) return new Response('{"type":"error","error":{"type":"x","message":"secret detail"}}', { status: api.status });
-      const content = [...(api.thinkingFirst ? [{ type: 'thinking', thinking: '', signature: 'x' }] : []), { type: 'text', text: api.answer }];
+      const body = JSON.parse(init.body);
+      const check = body.model === 'claude-sonnet-5-5';
+      (check ? api.checks : api.calls).push({ headers: new Headers(init.headers), body, redirect: init.redirect });
+      const status = check && api.checkStatus !== null ? api.checkStatus : api.status;
+      if (status !== 200) return new Response('{"type":"error","error":{"type":"x","message":"secret detail"}}', { status });
+      const text = check && api.checkAnswer !== null ? api.checkAnswer : api.answer;
+      const content = [...(api.thinkingFirst ? [{ type: 'thinking', thinking: '', signature: 'x' }] : []), { type: 'text', text }];
       return new Response(JSON.stringify({ id: 'msg_1', type: 'message', content, stop_reason: api.stopReason, usage: api.usage }), { status: 200 });
     }
   };

@@ -27,9 +27,9 @@ async function used(kv, keys) {
 }
 
 /* 呼ぶ前に 1 回分を取る。{ ok: true } か { ok: false, why: 'day' | 'month' } */
-export async function reserve(kv, keys, limits) {
+export async function reserve(kv, keys, limits, worst) {
   const now = await used(kv, keys);
-  const why = overLimit(now, limits);
+  const why = overLimit(now, limits, worst);
   if (why) return { ok: false, why };
   await kv.put(keyOf('day', keys), String(now.day + 1), { expirationTtl: DAY_TTL_S });
   return { ok: true };
