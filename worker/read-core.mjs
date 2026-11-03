@@ -12,11 +12,15 @@ export const MAX_TOKENS = 3000;   // AI の読み取り試験 (2026-10-21) と�
 /* Claude Haiku 5.5 の料金（100 万トークンあたりのドル。入力が 100K トークン以下のとき）。
    出典: Claude Code の claude-api の参照の表（2026-10-06 時点）と、AI の読み取り試験の run_ocr.py（2026-10-21）。1 件の費用の目安にだけ使う。
    本当の額の歯止めは Anthropic のワークスペースの上限。置いたあと、Console の使用額と KV の month を 1 回見比べる（docs/deploy.md） */
-const PRICE_IN = 0.10;
-const PRICE_OUT = 0.50;
+/* 確かめ役（決定ログ 2026-11-03 second-reader）: 書類の読み取りは、同じ書類を Sonnet にも読ませ、答えが割れた項目を「確かめる」に回す。
+   Sonnet 5.5 の料金は run_ocr.py（2026-10-21）と同じ表。見本 16 件で 1 件約 $0.009（Haiku の約 15 倍） */
+export const CHECK_MODEL = 'claude-sonnet-5-5';
+const PRICES = { [MODEL]: [0.10, 0.50], [CHECK_MODEL]: [2.00, 10.00] };
 /* 呼ぶ前に、1 件で使うかもしれない最大の額を見込んでおく。入力は予約メールの上限 2 万字 + プロンプト（写真より多い）、出力は上限まで */
 const WORST_IN_TOKENS = 24000;
-export const WORST_MICRO = Math.ceil(WORST_IN_TOKENS * PRICE_IN + MAX_TOKENS * PRICE_OUT);   // 100 万分の 1 ドル単位
+const worstOf = (model) => Math.ceil(WORST_IN_TOKENS * PRICES[model][0] + MAX_TOKENS * PRICES[model][1]);
+export const WORST_MICRO = worstOf(MODEL);   // 100 万分の 1 ドル単位。1 つの AI を 1 回（お客さま画面の AI）
+export const WORST_READ_MICRO = worstOf(MODEL) + worstOf(CHECK_MODEL);   // 書類の読み取り（2 つの AI）
 /* 依頼の本文の上限。写真の base64 + JSON の囲み */
 export const MAX_BODY = R.roster.MAX_IMAGE + 2000;
 
@@ -167,9 +171,9 @@ export function readingFrom(text, doc, today = '') {
 }
 
 /* 上限の判定（数えるのは呼ぶ前）。{ day: 今日呼んだ回数, month: 今月使った額 } と上限から、超えるなら 'day' か 'month' */
-export function overLimit(used, limits) {
+export function overLimit(used, limits, worst = WORST_MICRO) {
   if (used.day >= limits.day) return 'day';
-  if (used.month + WORST_MICRO > limits.monthMicro) return 'month';
+  if (used.month + worst > limits.monthMicro) return 'month';
   return '';
 }
 
@@ -182,11 +186,13 @@ export function limitsFrom(vars) {
   return { day: Math.floor(num(vars.DAILY_LIMIT)), monthMicro: Math.floor(num(vars.MONTHLY_USD) * 1e6) };
 }
 
-/* 使った額（100 万分の 1 ドル単位の整数）。usage が無ければ最大の見込みで数える */
-export function costMicro(usage) {
+/* 使った額（100 万分の 1 ドル単位の整数）。usage が無ければ最大の見込みで数える。model は MODEL か CHECK_MODEL */
+export function costMicro(usage, model = MODEL) {
+  const known = PRICES[model] ? model : CHECK_MODEL;   // 知らない model は高い方で数える
+  const [PRICE_IN, PRICE_OUT] = PRICES[known];
   const n = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
   const inTok = n(usage && usage.input_tokens);
   const outTok = n(usage && usage.output_tokens);
-  if (inTok === null || outTok === null) return WORST_MICRO;
+  if (inTok === null || outTok === null) return worstOf(known);
   return Math.ceil(inTok * PRICE_IN + outTok * PRICE_OUT);
 }

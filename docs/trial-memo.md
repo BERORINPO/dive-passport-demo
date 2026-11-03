@@ -10,7 +10,7 @@
 >   - 交わし方: メールで「同意します」と返してもらう
 > - 決めたこと（2026-11-02、Yosuke が A 案）: **試用では予約メールを転送しない。** 予約メールは、お客さんが申込書の同意に署名するより前に届き、同意の前に米国の AI へ送ることになるため。試用で読むのは、署名のあとに撮る申込書と C カードの写真（とお店の端末でお客さんが打った文）だけ。同意の文・掲示から予約メールを外した。転送を使うのは、同意の前に送らない形（予約の画面で同意を取るなど）を決めてから
 > - 米国の制度の説明は、個人情報保護委員会の調べ（[米国](https://www.ppc.go.jp/enforcement/infoprovision/laws/offshore_report_america/)、2021 年 10 月時点の情報）に沿った。お店に渡す前に、このページが新しくなっていないか見る
-> - 確かめた事実: AI は Claude Haiku（worker/ask.mjs）。Anthropic は API で受け取った物を 30 日以内に消す（利用規約の違反を疑われた物は最長 2 年。[privacy.claude.com](https://privacy.claude.com/en/articles/7996866-how-long-does-anthropic-store-my-organizations-data)、2026-07-01 更新、2026-11-01 確認）。API で受け取った物を学習に使わないのは Anthropic の商用の規約による（掲示に書いたので、渡す前にもう一度見る）
+> - 確かめた事実: AI は Claude Haiku と、確かめ役の Claude Sonnet（同じ書類を 2 つに読ませ、割れた所を確かめる。worker/ask.mjs）。Anthropic は API で受け取った物を 30 日以内に消す（利用規約の違反を疑われた物は最長 2 年。[privacy.claude.com](https://privacy.claude.com/en/articles/7996866-how-long-does-anthropic-store-my-organizations-data)、2026-07-01 更新、2026-11-01 確認）。API で受け取った物を学習に使わないのは Anthropic の商用の規約による（掲示に書いたので、渡す前にもう一度見る）
 
 ---
 

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { handle } from '../worker/handler.mjs';
 import { resetAccessCache } from '../worker/access.mjs';
-import { imageType, periods, costMicro, overLimit, limitsFrom, readingFrom, WORST_MICRO } from '../worker/read-core.mjs';
+import { imageType, periods, costMicro, overLimit, limitsFrom, readingFrom, WORST_MICRO, WORST_READ_MICRO, CHECK_MODEL } from '../worker/read-core.mjs';
 import vm from 'node:vm';
 import { fakeKv, fakeD1, fakeAccess, fakeAnthropic, checkRedirect } from '../worker/fakes.mjs';
 
@@ -266,12 +266,14 @@ test('1 日の回数の上限: 呼ぶ前に数え、超えたら AI を呼ばず
   assert.equal(s.kv.peek('day:default:2026-10-23'), '1');
 });
 
-test('今月の額の上限: 使った額 + 1 件の最大の見込みが上限を超えるなら 429。使った額は答えの usage で足す', async () => {
-  const s = setup({ MONTHLY_USD: '0.005' });
+test('今月の額の上限: 使った額 + 1 件の最大の見込み（2 つの AI）が上限を超えるなら 429。使った額は答えの usage で足す', async () => {
+  const s = setup({ MONTHLY_USD: '0.15' });
   const body = { doc: 'mail', text: MAIL };
+  const pair = () => costMicro(s.api.usage) + costMicro(s.api.usage, CHECK_MODEL);
   assert.equal((await call(s, req('/api/read', { body }))).status, 200);
-  assert.equal(s.kv.peek('month:default:2026-10'), String(costMicro(s.api.usage)));
-  s.api.usage = { input_tokens: 20000, output_tokens: 3000 };   // 1 件で 0.0035 ドル
+  assert.equal(s.kv.peek('month:default:2026-10'), String(pair()), '確かめ役の分も足す');
+  assert.equal(s.api.checks.length, 1, '書類の読み取りは確かめ役も 1 回呼ぶ');
+  s.api.usage = { input_tokens: 20000, output_tokens: 3000 };   // 1 件で 0.0735 ドル（Haiku 0.0035 + Sonnet 0.07）
   assert.equal((await call(s, req('/api/read', { body }))).status, 200);
   const res = await call(s, req('/api/read', { body }));
   assert.equal(res.status, 429);
@@ -304,7 +306,7 @@ test('Claude API の失敗: 状態の番号もエラーの本文も画面に返�
   s.api.status = 200;
   s.api.stopReason = 'refusal';
   assert.equal((await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL } }))).status, 502);
-  assert.equal(s.kv.peek('month:default:2026-10'), String(costMicro(s.api.usage)), '断られた分の費用も数える');
+  assert.equal(s.kv.peek('month:default:2026-10'), String(costMicro(s.api.usage) + costMicro(s.api.usage, CHECK_MODEL)), '断られた分の費用も数える（2 つの AI）');
   s.api.stopReason = 'end_turn';
   s.api.answer = '';
   assert.equal((await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL } }))).status, 502);
@@ -350,7 +352,7 @@ test('ログ: 道・状態・doc・量・時間だけ。メールの中身・メ
   assert.equal(logs.length, 3);
   for (const line of logs) {
     const row = JSON.parse(line);
-    assert.deepEqual(Object.keys(row).filter(k => !['route', 'status', 'ms', 'doc', 'size', 'why', 'redacted', 'seen', 'stop', 'shop'].includes(k)), []);
+    assert.deepEqual(Object.keys(row).filter(k => !['route', 'status', 'ms', 'doc', 'size', 'why', 'redacted', 'seen', 'stop', 'shop', 'check'].includes(k)), []);
     for (const word of [EMAIL, 'stranger@example.com', 'sk-test', '見本 花子', JPEG.slice(0, 12), goodJwt.slice(0, 20)]) assert.ok(!line.includes(word), word);
   }
 });
@@ -427,7 +429,7 @@ test('ログ: 外した行の数・健康が見えたか・止まった理由を
   const before = Number(s.kv.peek('month:default:2026-10'));
   s.io.fetch = async (url) => { if (url === 'https://api.anthropic.com/v1/messages') throw new Error('timeout'); return new Response(JSON.stringify({ keys: access.keys })); };
   assert.equal((await call(s, req('/api/read', { body: { doc: 'mail', text: MAIL } }))).status, 502);
-  assert.equal(Number(s.kv.peek('month:default:2026-10')) - before, WORST_MICRO);
+  assert.equal(Number(s.kv.peek('month:default:2026-10')) - before, WORST_READ_MICRO, '2 つの AI の分を最大の見込みで');
 });
 
 /* 画面の部品（js/ai-reader.js）を、本物の fetch の代わりに Worker（handle）へつないで流す。両側の決まりが合っているか */

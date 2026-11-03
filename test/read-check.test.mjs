@@ -2,7 +2,9 @@
 // 守ること: AI が自信ありと答えても、ありえない値・食い違う値は「確かめる」（unsure）に回す。値は変えない。正しい答えには印を付けない。
 // 実行: node test/read-check.test.mjs （Node 18 以上。依存なし）
 import assert from 'node:assert/strict';
-import { readingFrom } from '../worker/read-core.mjs';
+import { readingFrom, CHECK_MODEL } from '../worker/read-core.mjs';
+import { askModel } from '../worker/ask.mjs';
+import { fakeKv, fakeAnthropic } from '../worker/fakes.mjs';
 import '../js/read-check.js';
 
 const R = globalThis.REDUX;
@@ -77,6 +79,89 @@ test('Worker: AI の答えを受け取る所（readingFrom）で、今日を渡�
   assert.ok(flagged.ok);
   assert.deepEqual(flagged.reading.people[0].unsure, ['phone', 'dives']);
   assert.deepEqual(readingFrom(answer, 'form').reading.people[0].unsure, [], '今日を渡さなければ今まで通り');
+});
+
+/* ---------- 2 つの AI の突き合わせ（決定ログ 2026-11-03 second-reader） ---------- */
+const reading = (people, extra = {}) => ({ booking: null, healthSeen: false, people, ...extra });
+
+test('突き合わせ: 割れた項目だけ確かめる。書き方の違いは割れたと数えない。値は 1 つ目のまま', () => {
+  const second = with_({ phone: '09000001101', address: '沖縄県那覇市見本町１－２－３', emergency: { ...OK.emergency, phone: '090-0000-1103' }, dives: 16 });
+  const got = C.crossCheck(reading([OK]), reading([second]));
+  assert.deepEqual(got.people[0].unsure, ['emergency', 'dives']);
+  assert.equal(got.people[0].dives, 15);
+  assert.deepEqual(C.crossCheck(reading([OK]), reading([OK])).people[0].unsure, [], '同じ答えなら印を足さない');
+});
+
+test('突き合わせ: 人は名前で組にする。名前が割れても 1 人どうしなら組にして名前を確かめる。組にならない人は値のある項目を全部確かめる', () => {
+  const other = with_({ name: '見本 二郎' });
+  const one = C.crossCheck(reading([OK]), reading([with_({ name: '見本 一実' })]));
+  assert.deepEqual(one.people[0].unsure, ['name']);
+  const two = C.crossCheck(reading([OK, other]), reading([OK]));
+  assert.deepEqual(two.people[0].unsure, []);
+  assert.deepEqual(two.people[1].unsure, ['name', 'birthDate', 'phone', 'address', 'emergency', 'cert', 'dives', 'lastDive', 'sizes']);
+});
+
+test('突き合わせ: 確かめ役の答えが無ければ値のある項目を全部確かめる。予約の項目も割れたら確かめる', () => {
+  const blankish = with_({ address: '', sizes: { height: '', weight: '', foot: '' } });
+  assert.deepEqual(C.crossCheck(reading([blankish]), null).people[0].unsure, ['name', 'birthDate', 'phone', 'emergency', 'cert', 'dives', 'lastDive']);
+  const b = { site: '見本', ref: 'A1', date: '2026-11-20', start: '09:00', tour: '体験', people: 2, leadName: '見本 太郎', leadPhone: '090-0000-1101', leadEmail: '', unsure: [] };
+  const got = C.crossCheck(reading([], { booking: b }), reading([], { booking: { ...b, date: '2026-11-21', leadPhone: '09000001101' } }));
+  assert.deepEqual(got.booking.unsure, ['date']);
+  assert.deepEqual(C.crossCheck(reading([], { booking: b }), reading([], { booking: null })).booking.unsure, ['site', 'ref', 'date', 'start', 'tour', 'people', 'leadName', 'leadPhone']);
+  assert.ok(R.roster.validateReading(got).ok);
+});
+
+/* Worker の askModel を、見本の Claude API と KV でつなぐ */
+const NOW = Date.parse('2026-11-03T01:00:00Z');
+function ask(api) {
+  const env = { BUDGET: fakeKv(), DAILY_LIMIT: '200', MONTHLY_USD: '5', ANTHROPIC_API_KEY: 'sk-test-not-real' };
+  const io = { fetch: async (url, init) => api.respond(init), now: () => NOW };
+  const note = {};
+  const req = { doc: 'form', prompt: 'p', image: 'aGVsbG8=', mediaType: 'image/jpeg', size: 8, redacted: 0 };
+  return { run: (opts) => askModel(req, env, io, note, 'default', opts), note, env };
+}
+const ANSWER = (o = {}) => JSON.stringify({ participants: [{ name: '見本 一美', birth_date: '1992-07-03', phone: '090-0000-1101', cert_course: 'OW', dive_count: 15, unsure: [], ...o }], health_info_visible: false });
+
+test('Worker: 書類の読み取りは 2 つの AI を呼び、割れた項目を確かめる。名簿の値は 1 つ目の AI の答え', async () => {
+  const api = fakeAnthropic();
+  api.answer = ANSWER();
+  api.checkAnswer = ANSWER({ phone: '090-0000-7101' });
+  const a = ask(api);
+  const got = await a.run();
+  assert.ok(got.ok);
+  assert.equal(api.calls.length, 1);
+  assert.equal(api.checks.length, 1);
+  assert.equal(api.checks[0].body.model, CHECK_MODEL);
+  assert.deepEqual(got.reading.people[0].unsure, ['phone']);
+  assert.equal(got.reading.people[0].phone, '090-0000-1101');
+  assert.equal(a.note.check, 'ok');
+});
+
+test('Worker: 確かめ役が失敗・答えの形が合わない → 読み取りは返し、値のある項目を全部確かめる', async () => {
+  for (const [patch, why] of [[{ checkStatus: 529 }, 'upstream-http-529'], [{ checkAnswer: 'わかりません' }, 'answer-no-json']]) {
+    const api = Object.assign(fakeAnthropic(), { answer: ANSWER() }, patch);
+    const a = ask(api);
+    const got = await a.run();
+    assert.ok(got.ok, why);
+    assert.deepEqual(got.reading.people[0].unsure, ['name', 'birthDate', 'phone', 'cert', 'dives'], why);
+    assert.equal(a.note.check, why);
+  }
+});
+
+test('Worker: 確かめ役だけが健康の情報が見えたと言えば、見えた側に倒す（1 つ目の答えが壊れていても）', async () => {
+  const seen = JSON.stringify({ participants: [], health_info_visible: true });
+  const api = Object.assign(fakeAnthropic(), { answer: ANSWER(), checkAnswer: seen });
+  assert.equal((await ask(api).run()).reading.healthSeen, true);
+  const broken = Object.assign(fakeAnthropic(), { answer: 'わかりません', checkAnswer: seen });
+  const got = await ask(broken).run();
+  assert.deepEqual([got.ok, got.healthSeen], [false, true]);
+});
+
+test('Worker: お客さま画面の AI（答えの読み方を替える呼び出し）は確かめ役を呼ばない', async () => {
+  const api = Object.assign(fakeAnthropic(), { answer: '{"x": 1}' });
+  const got = await ask(api).run({ parse: (t) => ({ ok: true, reading: JSON.parse(t) }) });
+  assert.ok(got.ok);
+  assert.deepEqual([api.calls.length, api.checks.length], [1, 0]);
 });
 
 let failed = 0;

@@ -15,8 +15,9 @@ export class UpstreamError extends Error {
   }
 }
 
-/* ask は read-core.mjs の checkRequest か guest-ai-core.mjs の checkGuestRequest が組み直した物。{ text, usage, stopReason } を返す */
-export async function callModel(ask, env, io) {
+/* ask は read-core.mjs の checkRequest か guest-ai-core.mjs の checkGuestRequest が組み直した物。{ text, usage, stopReason } を返す。
+   model は read-core.mjs の MODEL（既定）か CHECK_MODEL（書類の読み取りの確かめ役）だけ */
+export async function callModel(ask, env, io, model = MODEL) {
   /* 写真は画像と文。ほか（予約メール・お客さま画面の質問と文）は文だけで、見出し（label）の下に本文 */
   const content = !ask.image
     ? [{ type: 'text', text: `${ask.prompt}\n\n${ask.label || '--- 書類 ---'}\n${ask.text}` }]
@@ -26,7 +27,7 @@ export async function callModel(ask, env, io) {
     res = await io.fetch(URL_MESSAGES, {
       method: 'POST',
       headers: { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: MODEL, max_tokens: MAX_TOKENS, messages: [{ role: 'user', content }] }),
+      body: JSON.stringify({ model, max_tokens: MAX_TOKENS, messages: [{ role: 'user', content }] }),
       redirect: 'manual',   // 転送には付いて行かない（鍵の付いた要求を別の所へ送らない）。Workers は 'error' を受け付けない。3xx は !res.ok で断る
       signal: AbortSignal.timeout(TIMEOUT_MS)
     });
