@@ -1,5 +1,7 @@
 # dive-passport-demo
 
+> **Moved (2026-11-04).** Development continues in the team repository `BERORINPO/team-pivot` (private), under `redux/`, with this history kept. This repository is archived. It stays only to serve the sample screens on GitHub Pages (https://berorinpo.github.io/dive-passport-demo/).
+
 A prototype of a front desk for dive and snorkel shops, plus a "diver passport" that divers fill in once and show at any shop.
 
 - **Demo only.** Every name, shop answer and number in it is made-up sample data. Do not enter real customers.
